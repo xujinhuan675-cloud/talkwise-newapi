@@ -1,0 +1,51 @@
+name: TalkWise CI
+
+on:
+  push:
+    branches:
+      - talkwise-*
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify handoff build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.5'
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.0'
+
+      - name: Install web dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      - name: Run focused Go tests
+        run: go test ./controller ./model ./router -count=1
+
+      - name: Typecheck web
+        working-directory: web
+        run: bun run typecheck
+
+      - name: Check web format
+        working-directory: web
+        run: bun run format:check
+
+      - name: Build web
+        working-directory: web
+        run: bun run build
+
+      - name: Build server
+        run: go build
