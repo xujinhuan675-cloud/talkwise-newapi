@@ -39,6 +39,7 @@ import {
   postTelegramBindResult,
   startOAuthBindResponseDeadline,
 } from '@/features/auth/lib/oauth-bind-window'
+import { consumeTalkWiseHandoffForState } from '@/features/auth/lib/talkwise-handoff'
 import {
   getOAuthSessionStorage,
   consumeOAuthLoginRedirect,
@@ -228,10 +229,12 @@ function OAuthCallback() {
         if (!active) return
         if (response.data?.success) {
           completedLogin.current = loginKey
+          const talkWiseHandoff = consumeTalkWiseHandoffForState(state)
           if (
             await handleLoginResult(
               response.data.data,
-              search.redirect ?? consumeOAuthLoginRedirect(state) ?? undefined
+              search.redirect ?? consumeOAuthLoginRedirect(state) ?? undefined,
+              talkWiseHandoff
             )
           ) {
             toast.success(i18next.t('Signed in successfully!'))

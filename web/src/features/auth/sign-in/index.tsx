@@ -17,18 +17,58 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, useSearch } from '@tanstack/react-router'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { AuthLayout } from '../auth-layout'
 import { TermsFooter } from '../components/terms-footer'
+import {
+  normalizeTalkWiseHandoff,
+  redirectToTalkWise,
+} from '../lib/talkwise-handoff'
 import { UserAuthForm } from './components/user-auth-form'
 
 export function SignIn() {
   const { t } = useTranslation()
-  const { redirect } = useSearch({ from: '/(auth)/sign-in' })
+  const search = useSearch({ from: '/(auth)/sign-in' })
   const { status } = useStatus()
+  const user = useAuthStore((state) => state.auth.user)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
+  const talkWiseHandoff = useMemo(
+    () => normalizeTalkWiseHandoff(search),
+    [search]
+  )
+
+  useEffect(() => {
+    if (!user || !talkWiseHandoff) return
+    setHandoffError(null)
+    void redirectToTalkWise(talkWiseHandoff).catch((error: unknown) => {
+      setHandoffError(
+        error instanceof Error ? error.message : t('Request failed')
+      )
+    })
+  }, [talkWiseHandoff, t, user])
+
+  if (user && talkWiseHandoff) {
+    return (
+      <AuthLayout>
+        <div className='w-full space-y-4 text-center sm:text-left'>
+          <h2 className='text-2xl font-semibold tracking-tight'>
+            {t('Returning to TalkWise')}
+          </h2>
+          <p className='text-muted-foreground text-sm'>
+            {t('Please wait while NewAPI connects your account.')}
+          </p>
+          {handoffError ? (
+            <p className='text-destructive text-sm'>{handoffError}</p>
+          ) : null}
+        </div>
+      </AuthLayout>
+    )
+  }
 
   return (
     <AuthLayout>
@@ -52,7 +92,10 @@ export function SignIn() {
             )}
         </div>
 
-        <UserAuthForm redirectTo={redirect} />
+        <UserAuthForm
+          redirectTo={search.redirect}
+          talkWiseHandoff={talkWiseHandoff}
+        />
 
         <TermsFooter
           variant='sign-in'

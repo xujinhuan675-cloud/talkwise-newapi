@@ -72,6 +72,12 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/verify/methods", middleware.UserAuth(), middleware.DisableCache(), controller.GetVerificationMethods)
 		apiRouter.POST("/verify", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.UserCriticalRateLimit("security-verification"), middleware.DisableCache(), controller.UniversalVerify)
 
+		talkwiseRoute := apiRouter.Group("/talkwise")
+		{
+			talkwiseRoute.POST("/auth/exchange", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeTalkWiseAuthCode)
+			talkwiseRoute.POST("/auth/handoff", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateTalkWiseAuthHandoff)
+		}
+
 		userRoute := apiRouter.Group("/user")
 		{
 			userRoute.POST("/auth/refresh", middleware.SessionCookieOriginGuard(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.RefreshAuth)

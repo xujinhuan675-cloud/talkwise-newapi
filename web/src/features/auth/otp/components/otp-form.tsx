@@ -22,6 +22,10 @@ import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
+import {
+  clearPendingTalkWiseHandoff,
+  peekPendingTalkWiseHandoff,
+} from '@/features/auth/lib/talkwise-handoff'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { useAuthRedirect } from '../../hooks/use-auth-redirect'
@@ -74,7 +78,9 @@ export function OtpForm() {
           return
         }
         completed.current = true
-        await handleLoginSuccess(bundle, pending.redirectTo)
+        const talkWiseHandoff = peekPendingTalkWiseHandoff()
+        await handleLoginSuccess(bundle, pending.redirectTo, talkWiseHandoff)
+        if (talkWiseHandoff) clearPendingTalkWiseHandoff()
         toast.success(t('Signed in'))
       } catch (error) {
         if (!active) return

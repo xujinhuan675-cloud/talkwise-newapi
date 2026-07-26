@@ -24,6 +24,11 @@ import {
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
+import {
+  redirectToTalkWise,
+  savePendingTalkWiseHandoff,
+  type TalkWiseHandoff,
+} from '@/features/auth/lib/talkwise-handoff'
 import { applyAuthBundle, isAuthBundle } from '@/lib/api'
 import { AuthOperationError } from '@/lib/secure-verification'
 import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
@@ -50,7 +55,11 @@ export function useAuthRedirect() {
    * @param redirectTo - Redirect path after login
    */
   const handleLoginSuccess = useCallback(
-    async (bundle: AuthBundle, redirectTo?: string) => {
+    async (
+      bundle: AuthBundle,
+      redirectTo?: string,
+      talkWiseHandoff?: TalkWiseHandoff | null
+    ) => {
       if (
         !mounted.current ||
         useAuthStore.getState().auth.session?.sid !== sessionID
@@ -61,6 +70,11 @@ export function useAuthRedirect() {
       const savedLang = getSavedLanguage(bundle.user)
       if (savedLang && savedLang !== i18n.language) {
         await i18n.changeLanguage(savedLang)
+      }
+
+      if (talkWiseHandoff) {
+        await redirectToTalkWise(talkWiseHandoff)
+        return
       }
 
       const targetPath =
@@ -74,7 +88,11 @@ export function useAuthRedirect() {
    * Every primary login transport returns the same bundle-or-challenge contract.
    */
   const handleLoginResult = useCallback(
-    async (result: unknown, redirectTo?: string): Promise<boolean> => {
+    async (
+      result: unknown,
+      redirectTo?: string,
+      talkWiseHandoff?: TalkWiseHandoff | null
+    ): Promise<boolean> => {
       if (
         !mounted.current ||
         useAuthStore.getState().auth.session?.sid !== sessionID
@@ -82,7 +100,7 @@ export function useAuthRedirect() {
         return false
       }
       if (isAuthBundle(result)) {
-        await handleLoginSuccess(result, redirectTo)
+        await handleLoginSuccess(result, redirectTo, talkWiseHandoff)
         return true
       }
       if (!isLoginChallenge(result)) {
@@ -92,6 +110,9 @@ export function useAuthRedirect() {
         throw new AuthOperationError(
           'Login flow expired. Please sign in again.'
         )
+      }
+      if (talkWiseHandoff) {
+        savePendingTalkWiseHandoff(talkWiseHandoff)
       }
       useAuthStore.getState().auth.setPendingLoginVerification({
         challenge: result,

@@ -63,6 +63,7 @@ import { cn } from '@/lib/utils'
 export function UserAuthForm({
   className,
   redirectTo,
+  talkWiseHandoff,
   ...props
 }: AuthFormProps) {
   const { t } = useTranslation()
@@ -184,7 +185,7 @@ export function UserAuthForm({
 
       if (res.success) {
         form.setValue('password', '')
-        if (await handleLoginResult(res.data, redirectTo)) {
+        if (await handleLoginResult(res.data, redirectTo, talkWiseHandoff)) {
           toast.success(t('Welcome back!'))
         }
       } else {
@@ -225,7 +226,7 @@ export function UserAuthForm({
       const res = await wechatLoginByCode(wechatCode)
       if (res?.success) {
         handleWeChatDialogChange(false)
-        if (await handleLoginResult(res.data, redirectTo)) {
+        if (await handleLoginResult(res.data, redirectTo, talkWiseHandoff)) {
           toast.success(t('Signed in via WeChat'))
         }
       } else {
@@ -277,7 +278,7 @@ export function UserAuthForm({
       }
 
       rememberPasskeyRPID(passkey.rpID)
-      if (await handleLoginResult(finish.data, redirectTo)) {
+      if (await handleLoginResult(finish.data, redirectTo, talkWiseHandoff)) {
         toast.success(t('Signed in with Passkey'))
       }
     } catch (error: unknown) {
@@ -335,6 +336,7 @@ export function UserAuthForm({
       <OAuthProviders
         status={status}
         redirectTo={redirectTo}
+        talkWiseHandoff={talkWiseHandoff}
         disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}
