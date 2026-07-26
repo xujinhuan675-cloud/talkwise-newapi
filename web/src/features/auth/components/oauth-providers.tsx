@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 import { useOAuthLogin } from '../hooks/use-oauth-login'
+import type { TalkWiseHandoff } from '../lib/talkwise-handoff'
 import type { SystemStatus } from '../types'
 import { TelegramLoginDialog } from './telegram-login-dialog'
 
@@ -40,6 +41,7 @@ type OAuthProvidersProps = {
   onWeChatLogin?: () => void
   isWeChatLoading?: boolean
   redirectTo?: string
+  talkWiseHandoff?: TalkWiseHandoff | null
 }
 
 type ProviderButton = {
@@ -57,6 +59,7 @@ export function OAuthProviders({
   onWeChatLogin,
   isWeChatLoading = false,
   redirectTo,
+  talkWiseHandoff,
 }: OAuthProvidersProps) {
   const { t } = useTranslation()
   const {
@@ -73,7 +76,7 @@ export function OAuthProviders({
     isTelegramPending,
     handleTelegramAuthorization,
     setIsTelegramDialogOpen,
-  } = useOAuthLogin(status, redirectTo)
+  } = useOAuthLogin(status, redirectTo, talkWiseHandoff)
 
   const providerButtons: ProviderButton[] = []
 

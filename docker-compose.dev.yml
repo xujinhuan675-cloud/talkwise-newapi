@@ -36,6 +36,10 @@ services:
       # For HTTPS only: set Secure=true and list every exact trusted HTTPS browser Origin. This does not configure relay CORS.
       # - SESSION_COOKIE_SECURE=true
       # - SESSION_COOKIE_TRUSTED_URL=https://example.com,https://admin.example.com
+      # - TALKWISE_CLIENT_ID=talkwise
+      # - TALKWISE_CLIENT_SECRET=dev_secret
+      # - TALKWISE_REDIRECT_URIS=http://localhost:5174/login,http://localhost:3001/login
+      # - TALKWISE_GATEWAY_BASE_URL=http://localhost:3000
     depends_on:
       redis:
         condition: service_started

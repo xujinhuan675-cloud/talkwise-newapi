@@ -46,6 +46,7 @@ import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import { useTurnstile } from '@/features/auth/hooks/use-turnstile'
+import { savePendingTalkWiseHandoff } from '@/features/auth/lib/talkwise-handoff'
 import { beginPasskeyLogin, finishPasskeyLogin } from '@/features/auth/passkey'
 import type { AuthFormProps } from '@/features/auth/types'
 import { useStatus } from '@/hooks/use-status'
@@ -62,6 +63,7 @@ import { useAuthStore } from '@/stores/auth-store'
 export function UserAuthForm({
   className,
   redirectTo,
+  talkWiseHandoff,
   ...props
 }: AuthFormProps) {
   const { t } = useTranslation()
@@ -171,6 +173,7 @@ export function UserAuthForm({
           if (!res.data.flow_token) {
             throw new Error(t('Login flow expired. Please sign in again.'))
           }
+          savePendingTalkWiseHandoff(talkWiseHandoff)
           setPending2FAFlowToken(res.data.flow_token)
           redirectTo2FA()
           return
@@ -179,7 +182,7 @@ export function UserAuthForm({
         if (!isAuthBundle(res.data)) {
           throw new Error(t('Login failed'))
         }
-        await handleLoginSuccess(res.data, redirectTo)
+        await handleLoginSuccess(res.data, redirectTo, talkWiseHandoff)
         toast.success(t('Welcome back!'))
       }
     } catch (error: unknown) {
@@ -217,7 +220,7 @@ export function UserAuthForm({
     try {
       const res = await wechatLoginByCode(wechatCode)
       if (res?.success && isAuthBundle(res.data)) {
-        await handleLoginSuccess(res.data, redirectTo)
+        await handleLoginSuccess(res.data, redirectTo, talkWiseHandoff)
         toast.success(t('Signed in via WeChat'))
         handleWeChatDialogChange(false)
       } else {
@@ -288,7 +291,7 @@ export function UserAuthForm({
         throw new Error(t('Missing user data from Passkey login response'))
       }
 
-      await handleLoginSuccess(finish.data, redirectTo)
+      await handleLoginSuccess(finish.data, redirectTo, talkWiseHandoff)
       toast.success(t('Signed in with Passkey'))
     } catch (error: unknown) {
       if (getServerErrorMessageKey(error)) return
@@ -334,6 +337,7 @@ export function UserAuthForm({
       <OAuthProviders
         status={status}
         redirectTo={redirectTo}
+        talkWiseHandoff={talkWiseHandoff}
         disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
         onWeChatLogin={hasWeChatLogin ? handleOpenWeChatDialog : undefined}
         isWeChatLoading={isWeChatSubmitting}

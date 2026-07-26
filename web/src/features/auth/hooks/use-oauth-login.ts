@@ -29,6 +29,10 @@ import {
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
 } from '../lib/oauth'
+import {
+  saveTalkWiseHandoffForState,
+  type TalkWiseHandoff,
+} from '../lib/talkwise-handoff'
 import { pickTelegramAuthorization } from '../lib/telegram-login'
 import type { SystemStatus, CustomOAuthProviderInfo } from '../types'
 import { useAuthRedirect } from './use-auth-redirect'
@@ -38,7 +42,8 @@ import { useAuthRedirect } from './use-auth-redirect'
  */
 export function useOAuthLogin(
   status: SystemStatus | null,
-  redirectTo?: string
+  redirectTo?: string,
+  talkWiseHandoff?: TalkWiseHandoff | null
 ) {
   const { t } = useTranslation()
   const { handleLoginSuccess } = useAuthRedirect()
@@ -90,6 +95,7 @@ export function useOAuthLogin(
     try {
       await resetSession()
       const state = await createOAuthFlow('github', 'login')
+      saveTalkWiseHandoffForState(state, talkWiseHandoff)
 
       const url = buildGitHubOAuthUrl(status.github_client_id, state)
       window.open(url, '_self')
@@ -111,6 +117,7 @@ export function useOAuthLogin(
     try {
       await resetSession()
       const state = await createOAuthFlow('discord', 'login')
+      saveTalkWiseHandoffForState(state, talkWiseHandoff)
 
       const url = buildDiscordOAuthUrl(status.discord_client_id, state)
       window.open(url, '_self')
@@ -128,6 +135,7 @@ export function useOAuthLogin(
     try {
       await resetSession()
       const state = await createOAuthFlow('oidc', 'login')
+      saveTalkWiseHandoffForState(state, talkWiseHandoff)
 
       const url = buildOIDCOAuthUrl(
         status.oidc_authorization_endpoint,
@@ -149,6 +157,7 @@ export function useOAuthLogin(
     try {
       await resetSession()
       const state = await createOAuthFlow('linuxdo', 'login')
+      saveTalkWiseHandoffForState(state, talkWiseHandoff)
 
       const url = buildLinuxDOOAuthUrl(status.linuxdo_client_id, state)
       window.open(url, '_self')
@@ -194,7 +203,7 @@ export function useOAuthLogin(
       }
 
       setIsTelegramDialogOpen(false)
-      await handleLoginSuccess(response.data, redirectTo)
+      await handleLoginSuccess(response.data, redirectTo, talkWiseHandoff)
       toast.success(t('Welcome back!'))
     } catch {
       toast.error(t('Login failed'))
@@ -210,6 +219,7 @@ export function useOAuthLogin(
     try {
       await resetSession()
       const state = await createOAuthFlow(provider.slug, 'login')
+      saveTalkWiseHandoffForState(state, talkWiseHandoff)
 
       const redirectUri = `${window.location.origin}/oauth/${provider.slug}`
       const url = new URL(provider.authorization_endpoint)

@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { AuthBundle } from '@/stores/auth-store'
 
+import type { TalkWiseHandoff } from './lib/talkwise-handoff'
+
 // ============================================================================
 // API Payloads
 // ============================================================================
@@ -209,4 +211,5 @@ export interface CustomOAuthProviderInfo {
 
 export interface AuthFormProps extends React.HTMLAttributes<HTMLFormElement> {
   redirectTo?: string
+  talkWiseHandoff?: TalkWiseHandoff | null
 }

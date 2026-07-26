@@ -38,6 +38,10 @@ import {
   postTelegramBindResult,
   startOAuthBindResponseDeadline,
 } from '@/features/auth/lib/oauth-bind-window'
+import {
+  consumeTalkWiseHandoffForState,
+  redirectToTalkWise,
+} from '@/features/auth/lib/talkwise-handoff'
 import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 
@@ -185,6 +189,11 @@ function OAuthCallback() {
         const response = await api.get(`/api/oauth/${provider}`, config)
         if (response.data?.success && isAuthBundle(response.data?.data)) {
           applyAuthBundle(response.data.data)
+          const talkWiseHandoff = consumeTalkWiseHandoffForState(state)
+          if (talkWiseHandoff) {
+            await redirectToTalkWise(talkWiseHandoff)
+            return
+          }
           safeNavigate(search.redirect)
           toast.success(i18next.t('Signed in successfully!'))
           return

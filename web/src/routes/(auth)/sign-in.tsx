@@ -20,11 +20,16 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import { hasTalkWiseHandoffSearch } from '@/features/auth/lib/talkwise-handoff'
 import { SignIn } from '@/features/auth/sign-in'
 import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  state: z.string().optional(),
+  talkwise_client_id: z.string().optional(),
+  talkwise_redirect_uri: z.string().optional(),
+  talkwise_return: z.string().optional(),
 })
 
 export const Route = createFileRoute('/(auth)/sign-in')({
@@ -34,7 +39,7 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     const { auth } = useAuthStore.getState()
 
     // 如果已经有用户信息，说明已登录
-    if (auth.user) {
+    if (auth.user && !hasTalkWiseHandoffSearch(search)) {
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
         '/dashboard'

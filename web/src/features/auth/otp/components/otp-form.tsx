@@ -49,6 +49,10 @@ import {
 } from '@/features/auth/constants'
 import { useAuthRedirect } from '@/features/auth/hooks/use-auth-redirect'
 import {
+  clearPendingTalkWiseHandoff,
+  peekPendingTalkWiseHandoff,
+} from '@/features/auth/lib/talkwise-handoff'
+import {
   isValidOTP,
   isValidBackupCode,
   formatBackupCode,
@@ -115,7 +119,9 @@ export function OtpForm({ className, ...props }: OtpFormProps) {
         throw new Error(t('Login failed'))
       }
 
-      await handleLoginSuccess(res.data)
+      const talkWiseHandoff = peekPendingTalkWiseHandoff()
+      await handleLoginSuccess(res.data, undefined, talkWiseHandoff)
+      if (talkWiseHandoff) clearPendingTalkWiseHandoff()
       toast.success(t('Signed in'))
     } catch (error) {
       // eslint-disable-next-line no-console

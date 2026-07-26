@@ -23,6 +23,10 @@ import {
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
+import {
+  redirectToTalkWise,
+  type TalkWiseHandoff,
+} from '@/features/auth/lib/talkwise-handoff'
 import { applyAuthBundle } from '@/lib/api'
 import type { AuthBundle } from '@/stores/auth-store'
 
@@ -39,12 +43,18 @@ export function useAuthRedirect() {
    */
   const handleLoginSuccess = async (
     bundle: AuthBundle,
-    redirectTo?: string
+    redirectTo?: string,
+    talkWiseHandoff?: TalkWiseHandoff | null
   ) => {
     applyAuthBundle(bundle)
     const savedLang = getSavedLanguage(bundle.user)
     if (savedLang && savedLang !== i18n.language) {
       await i18n.changeLanguage(savedLang)
+    }
+
+    if (talkWiseHandoff) {
+      await redirectToTalkWise(talkWiseHandoff)
+      return
     }
 
     const targetPath =
