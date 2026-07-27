@@ -69,6 +69,9 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			talkwiseRoute.POST("/auth/exchange", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeTalkWiseAuthCode)
 			talkwiseRoute.POST("/auth/handoff", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateTalkWiseAuthHandoff)
+			talkwiseRoute.POST("/team/members", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ListTalkWiseTeamMembers)
+			talkwiseRoute.POST("/team/users/search", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.SearchTalkWiseTeamUsers)
+			talkwiseRoute.POST("/team/members/assign", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.AssignTalkWiseTeamMember)
 		}
 
 		userRoute := apiRouter.Group("/user")

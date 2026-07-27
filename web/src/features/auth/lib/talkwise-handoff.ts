@@ -40,9 +40,14 @@ interface TalkWiseHandoffResponse {
   success: boolean
   message?: string
   data?: {
+    code?: string
+    redirect_uri?: string
     redirect_url?: string
+    return_to?: string
   }
 }
+
+const TALKWISE_HANDOFF_MESSAGE_TYPE = 'newapi:talkwise-handoff'
 
 function normalizeText(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined
@@ -175,5 +180,50 @@ export async function redirectToTalkWise(
   if (!response.data?.success || !redirectURL) {
     throw new Error(response.data?.message || 'TalkWise handoff failed')
   }
+
+  if (postTalkWiseHandoffToParent(handoff, response.data.data, redirectURL)) {
+    window.setTimeout(() => {
+      window.location.assign(redirectURL)
+    }, 5000)
+    return
+  }
+
   window.location.assign(redirectURL)
+}
+
+function postTalkWiseHandoffToParent(
+  handoff: TalkWiseHandoff,
+  data: TalkWiseHandoffResponse['data'],
+  redirectURL: string
+): boolean {
+  if (typeof window === 'undefined' || window.parent === window) return false
+
+  const targetOrigin = originForUrl(handoff.returnTo)
+  const code = normalizeText(data?.code)
+  if (!targetOrigin || !code) return false
+
+  window.parent.postMessage(
+    {
+      type: TALKWISE_HANDOFF_MESSAGE_TYPE,
+      code,
+      redirectUri: normalizeText(data?.redirect_uri) ?? handoff.redirectUri,
+      redirectUrl: redirectURL,
+      returnTo: normalizeText(data?.return_to) ?? handoff.returnTo,
+      state: handoff.state,
+    },
+    targetOrigin
+  )
+  return true
+}
+
+function originForUrl(value: string | undefined): string | null {
+  const text = normalizeText(value)
+  if (!text) return null
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return url.origin
+  } catch {
+    return null
+  }
 }

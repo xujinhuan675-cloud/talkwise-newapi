@@ -36,6 +36,28 @@ type TalkWiseAuthExchangeRequest struct {
 	RedirectURI  string `json:"redirect_uri"`
 }
 
+type TalkWiseTeamMembersRequest struct {
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	Group        string `json:"group"`
+	Limit        int    `json:"limit"`
+}
+
+type TalkWiseTeamUserSearchRequest struct {
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	Keyword      string `json:"keyword"`
+	Group        string `json:"group"`
+	Limit        int    `json:"limit"`
+}
+
+type TalkWiseTeamMemberAssignRequest struct {
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	UserId       int    `json:"user_id"`
+	Group        string `json:"group"`
+}
+
 type talkWiseAuthFlowPayload struct {
 	RedirectURI string `json:"redirect_uri,omitempty"`
 	ReturnTo    string `json:"return_to,omitempty"`
@@ -164,6 +186,139 @@ func ExchangeTalkWiseAuthCode(c *gin.Context) {
 	common.ApiSuccess(c, buildTalkWiseIdentityData(c, user))
 }
 
+func ListTalkWiseTeamMembers(c *gin.Context) {
+	var req TalkWiseTeamMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid TalkWise team members request")
+		return
+	}
+	if _, err := validateTalkWiseClient(req.ClientId, req.ClientSecret, true); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	group, err := normalizeTalkWiseGroup(req.Group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	status := common.UserStatusEnabled
+	limit := normalizeTalkWiseLimit(req.Limit, 100, 200)
+	users, total, err := model.SearchUsers(
+		"",
+		group,
+		nil,
+		&status,
+		0,
+		limit,
+		model.NewUserSortOptions("username", "asc"),
+	)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	members := make([]gin.H, 0, len(users))
+	for _, user := range users {
+		members = append(members, buildTalkWiseTeamUserData(user, group))
+	}
+	common.ApiSuccess(c, gin.H{
+		"team":    buildTalkWiseTeamData(group),
+		"members": members,
+		"total":   total,
+	})
+}
+
+func SearchTalkWiseTeamUsers(c *gin.Context) {
+	var req TalkWiseTeamUserSearchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid TalkWise team user search request")
+		return
+	}
+	if _, err := validateTalkWiseClient(req.ClientId, req.ClientSecret, true); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	group, err := normalizeTalkWiseGroup(req.Group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	keyword := strings.TrimSpace(req.Keyword)
+	if keyword == "" {
+		common.ApiErrorMsg(c, "TalkWise user search keyword is required")
+		return
+	}
+
+	status := common.UserStatusEnabled
+	limit := normalizeTalkWiseLimit(req.Limit, 20, 50)
+	users, total, err := model.SearchUsers(
+		keyword,
+		"",
+		nil,
+		&status,
+		0,
+		limit,
+		model.NewUserSortOptions("username", "asc"),
+	)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	results := make([]gin.H, 0, len(users))
+	for _, user := range users {
+		results = append(results, buildTalkWiseTeamUserData(user, group))
+	}
+	common.ApiSuccess(c, gin.H{
+		"team":  buildTalkWiseTeamData(group),
+		"users": results,
+		"total": total,
+	})
+}
+
+func AssignTalkWiseTeamMember(c *gin.Context) {
+	var req TalkWiseTeamMemberAssignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid TalkWise team member assignment request")
+		return
+	}
+	if _, err := validateTalkWiseClient(req.ClientId, req.ClientSecret, true); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.UserId <= 0 {
+		common.ApiErrorMsg(c, "TalkWise user_id is required")
+		return
+	}
+	group, err := normalizeTalkWiseGroup(req.Group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	user, err := model.GetUserById(req.UserId, true)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if user.Status != common.UserStatusEnabled {
+		common.ApiErrorMsg(c, "TalkWise user is disabled")
+		return
+	}
+
+	user.Group = group
+	if err := user.Edit(false); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"team":   buildTalkWiseTeamData(group),
+		"member": buildTalkWiseTeamUserData(user, group),
+	})
+}
+
 func validateTalkWiseClient(clientID string, clientSecret string, requireSecret bool) (string, error) {
 	configuredID := configuredTalkWiseClientID()
 	if strings.TrimSpace(clientID) != configuredID {
@@ -261,6 +416,57 @@ func buildTalkWiseRedirectURL(rawURL string, code string, state string) (string,
 	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func normalizeTalkWiseGroup(raw string) (string, error) {
+	group := strings.TrimSpace(raw)
+	if group == "" {
+		return "", errors.New("TalkWise group is required")
+	}
+	return group, nil
+}
+
+func normalizeTalkWiseLimit(raw int, fallback int, max int) int {
+	if raw <= 0 {
+		return fallback
+	}
+	if raw > max {
+		return max
+	}
+	return raw
+}
+
+func buildTalkWiseTeamData(group string) gin.H {
+	return gin.H{
+		"id":    "newapi:" + group,
+		"name":  group,
+		"group": group,
+	}
+}
+
+func buildTalkWiseTeamUserData(user *model.User, currentGroup string) gin.H {
+	teamID := "newapi"
+	teamName := "NewAPI"
+	if strings.TrimSpace(user.Group) != "" {
+		teamID = "newapi:" + user.Group
+		teamName = user.Group
+	}
+	return gin.H{
+		"id":            user.Id,
+		"user_id":       user.Id,
+		"username":      user.Username,
+		"display_name":  user.DisplayName,
+		"email":         user.Email,
+		"role":          user.Role,
+		"status":        user.Status,
+		"group":         user.Group,
+		"team_id":       teamID,
+		"team_name":     teamName,
+		"quota":         user.Quota,
+		"used_quota":    user.UsedQuota,
+		"request_count": user.RequestCount,
+		"in_team":       strings.TrimSpace(user.Group) == strings.TrimSpace(currentGroup),
+	}
 }
 
 func buildTalkWiseIdentityData(c *gin.Context, user *model.User) gin.H {

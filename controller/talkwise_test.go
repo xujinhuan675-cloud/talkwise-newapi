@@ -3,6 +3,7 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -263,4 +264,129 @@ func TestExchangeTalkWiseAuthCodeRejectsReplayAndRedirectMismatch(t *testing.T) 
 	replayResponse := decodeTalkWiseResponse[gin.H](t, replayRecorder)
 	assert.False(t, replayResponse.Success)
 	assert.Contains(t, replayResponse.Message, "consumed")
+}
+
+func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	alice := seedTalkWiseUser(t, db)
+	bob := &model.User{
+		Username:     "bob",
+		Password:     "password",
+		DisplayName:  "Bob Li",
+		Role:         common.RoleCommonUser,
+		Status:       common.UserStatusEnabled,
+		Email:        "bob@example.com",
+		Group:        "free",
+		Quota:        400,
+		UsedQuota:    30,
+		RequestCount: 4,
+	}
+	disabled := &model.User{
+		Username:    "disabled",
+		Password:    "password",
+		DisplayName: "Disabled User",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusDisabled,
+		Email:       "disabled@example.com",
+		Group:       "paid",
+	}
+	require.NoError(t, db.Create(bob).Error)
+	require.NoError(t, db.Create(disabled).Error)
+
+	router := gin.New()
+	router.POST("/api/talkwise/team/members", ListTalkWiseTeamMembers)
+	router.POST("/api/talkwise/team/users/search", SearchTalkWiseTeamUsers)
+	router.POST("/api/talkwise/team/members/assign", AssignTalkWiseTeamMember)
+
+	listBody := `{"client_id":"talkwise-test","client_secret":"client-secret","group":"paid"}`
+	listRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/members", strings.NewReader(listBody))
+	listRequest.Header.Set("Content-Type", "application/json")
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, listRequest)
+
+	require.Equal(t, http.StatusOK, listRecorder.Code)
+	listResponse := decodeTalkWiseResponse[struct {
+		Team struct {
+			Id    string `json:"id"`
+			Name  string `json:"name"`
+			Group string `json:"group"`
+		} `json:"team"`
+		Members []struct {
+			Id       int    `json:"id"`
+			Username string `json:"username"`
+			Group    string `json:"group"`
+			InTeam   bool   `json:"in_team"`
+		} `json:"members"`
+		Total int64 `json:"total"`
+	}](t, listRecorder)
+	require.True(t, listResponse.Success, listResponse.Message)
+	assert.Equal(t, "newapi:paid", listResponse.Data.Team.Id)
+	assert.Equal(t, "paid", listResponse.Data.Team.Name)
+	require.Len(t, listResponse.Data.Members, 1)
+	assert.Equal(t, alice.Id, listResponse.Data.Members[0].Id)
+	assert.Equal(t, "alice", listResponse.Data.Members[0].Username)
+	assert.Equal(t, "paid", listResponse.Data.Members[0].Group)
+	assert.True(t, listResponse.Data.Members[0].InTeam)
+	assert.EqualValues(t, 1, listResponse.Data.Total)
+
+	searchBody := `{"client_id":"talkwise-test","client_secret":"client-secret","group":"paid","keyword":"bob"}`
+	searchRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/users/search", strings.NewReader(searchBody))
+	searchRequest.Header.Set("Content-Type", "application/json")
+	searchRecorder := httptest.NewRecorder()
+	router.ServeHTTP(searchRecorder, searchRequest)
+
+	searchResponse := decodeTalkWiseResponse[struct {
+		Users []struct {
+			Id       int    `json:"id"`
+			Username string `json:"username"`
+			Group    string `json:"group"`
+			InTeam   bool   `json:"in_team"`
+		} `json:"users"`
+	}](t, searchRecorder)
+	require.True(t, searchResponse.Success, searchResponse.Message)
+	require.Len(t, searchResponse.Data.Users, 1)
+	assert.Equal(t, bob.Id, searchResponse.Data.Users[0].Id)
+	assert.Equal(t, "free", searchResponse.Data.Users[0].Group)
+	assert.False(t, searchResponse.Data.Users[0].InTeam)
+
+	assignBody := `{"client_id":"talkwise-test","client_secret":"client-secret","group":"paid","user_id":` + strconv.Itoa(bob.Id) + `}`
+	assignRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/members/assign", strings.NewReader(assignBody))
+	assignRequest.Header.Set("Content-Type", "application/json")
+	assignRecorder := httptest.NewRecorder()
+	router.ServeHTTP(assignRecorder, assignRequest)
+
+	assignResponse := decodeTalkWiseResponse[struct {
+		Member struct {
+			Id       int    `json:"id"`
+			Username string `json:"username"`
+			Group    string `json:"group"`
+			InTeam   bool   `json:"in_team"`
+		} `json:"member"`
+	}](t, assignRecorder)
+	require.True(t, assignResponse.Success, assignResponse.Message)
+	assert.Equal(t, bob.Id, assignResponse.Data.Member.Id)
+	assert.Equal(t, "paid", assignResponse.Data.Member.Group)
+	assert.True(t, assignResponse.Data.Member.InTeam)
+
+	var updatedBob model.User
+	require.NoError(t, db.First(&updatedBob, bob.Id).Error)
+	assert.Equal(t, "paid", updatedBob.Group)
+}
+
+func TestTalkWiseTeamMemberBridgeRejectsInvalidClientSecret(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	seedTalkWiseUser(t, db)
+
+	router := gin.New()
+	router.POST("/api/talkwise/team/members", ListTalkWiseTeamMembers)
+	body := `{"client_id":"talkwise-test","client_secret":"wrong","group":"paid"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/members", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	response := decodeTalkWiseResponse[gin.H](t, recorder)
+	assert.False(t, response.Success)
+	assert.Contains(t, response.Message, "client_secret")
 }
