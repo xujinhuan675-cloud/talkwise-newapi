@@ -44,7 +44,7 @@ export type TopNavLink = {
  * }
  */
 export function useTopNavLinks(): TopNavLink[] {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const { status } = useStatus()
   const { auth } = useAuthStore()
 
@@ -67,23 +67,27 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Home'), href: '/' })
   }
 
-  // Console -> /dashboard (new console path)
-  if (modules?.console !== false) {
-    links.push({ title: t('Console'), href: '/dashboard' })
-  }
-
-  // Pricing
-  const pricing = modules?.pricing
-  if (pricing && typeof pricing === 'object' && pricing.enabled) {
-    const requiresAuth = pricing.requireAuth && !isAuthed
-    links.push({ title: t('Model Square'), href: '/pricing', requiresAuth })
-  }
-
-  // Rankings
-  const rankings = modules?.rankings
-  if (rankings && typeof rankings === 'object' && rankings.enabled) {
-    const requiresAuth = rankings.requireAuth && !isAuthed
-    links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
+  if (modules?.training !== false) {
+    links.push({
+      title: i18n.language.startsWith('zh') ? '训练' : 'Training',
+      href: '/training',
+      requiresAuth: !isAuthed,
+    })
+    links.push({
+      title: i18n.language.startsWith('zh') ? '对话' : 'Conversations',
+      href: '/training/conversations',
+      requiresAuth: !isAuthed,
+    })
+    links.push({
+      title: i18n.language.startsWith('zh') ? '复盘' : 'Review',
+      href: '/training/sessions',
+      requiresAuth: !isAuthed,
+    })
+    links.push({
+      title: i18n.language.startsWith('zh') ? '成长' : 'Growth',
+      href: '/training/growth',
+      requiresAuth: !isAuthed,
+    })
   }
 
   // Docs (supports external links)

@@ -44,6 +44,9 @@ import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import { resolveLegacyRoute } from '@/lib/legacy-route'
 import { useAuthStore } from '@/stores/auth-store'
 
+const devtoolsEnabled =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEVTOOLS === 'true'
+
 function RootComponent() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -97,7 +100,7 @@ function RootComponent() {
       <NavigationProgress />
       <Outlet />
       <Toaster closeButton duration={5000} position='top-center' richColors />
-      {import.meta.env.MODE === 'development' && (
+      {devtoolsEnabled && (
         <>
           <ReactQueryDevtools buttonPosition='bottom-left' />
           <TanStackRouterDevtools position='bottom-right' />

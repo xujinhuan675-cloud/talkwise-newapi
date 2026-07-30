@@ -61,13 +61,27 @@ export function SidebarModulesSection({
   config,
   initialSerialized,
 }: SidebarModulesSectionProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
   const updateOption = useUpdateOption()
 
   const sectionMeta: Record<string, { title: string; description: string }> = {
-    chat: {
-      title: t('Chat area'),
-      description: t('Playground experiments and live conversations.'),
+    conversations: {
+      title: localize('Conversations', '对话'),
+      description: localize(
+        'Conversation library and dialogue history.',
+        '对话库与历史会话。'
+      ),
+    },
+    training: {
+      title: localize('Training area', '训练区域'),
+      description: localize(
+        'Communication practice, review, and growth workflows.',
+        '沟通训练、复盘与成长工作流。'
+      ),
     },
     console: {
       title: t('Console area'),
@@ -87,14 +101,22 @@ export function SidebarModulesSection({
     string,
     Record<string, { title: string; description: string }>
   > = {
-    chat: {
-      playground: {
-        title: t('Playground'),
-        description: t('Experiment with prompts and models in real time.'),
+    conversations: {
+      library: {
+        title: localize('Conversations', '对话'),
+        description: localize(
+          'Browse, create, and continue conversations.',
+          '浏览、新建和继续对话。'
+        ),
       },
-      chat: {
-        title: t('Chat'),
-        description: t('Access previous conversations and start new ones.'),
+    },
+    training: {
+      studio: {
+        title: localize('Training Studio', '训练工作台'),
+        description: localize(
+          'Practice scenarios, review sessions, and track growth.',
+          '练习场景、复盘训练并跟踪成长。'
+        ),
       },
     },
     console: {

@@ -26,6 +26,7 @@ export type HeaderNavModule = 'rankings' | 'pricing'
 
 export type HeaderNavModules = {
   home: boolean
+  training: boolean
   console: boolean
   pricing: ModuleAccess
   rankings: ModuleAccess
@@ -36,6 +37,7 @@ export type HeaderNavModules = {
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   home: true,
+  training: true,
   console: true,
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },

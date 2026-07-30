@@ -46,6 +46,7 @@ services:
 #      - TALKWISE_CLIENT_SECRET=random_string  # Required TalkWise backend-only exchange secret; must match TalkWise NEWAPI_TALKWISE_CLIENT_SECRET
 #      - TALKWISE_REDIRECT_URIS=https://talkwise.example/login  # Comma-separated exact TalkWise callback URLs allowed for handoff
 #      - TALKWISE_GATEWAY_BASE_URL=https://newapi.example  # Public NewAPI base URL returned to TalkWise user/session claims
+#      - TALKWISE_TRAINING_UPSTREAM_URL=http://talkwise-backend:8000  # Fixed server-side upstream for the native TalkWise training module
 #      - USER_SESSION_ACTIVE_LIMIT=50
 #      - USER_SESSION_ISSUANCE_LIMIT=100
 #      - USER_SESSION_ISSUANCE_WINDOW_SECONDS=86400  # 不得大于 revoked 保留期 (must not exceed revoked retention)

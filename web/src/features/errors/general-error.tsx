@@ -22,7 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-const FEEDBACK_URL = 'https://github.com/QuantumNous/new-api/issues'
+const FEEDBACK_URL = 'https://t.me/talkwise_ai'
 
 type GeneralErrorProps = React.HTMLAttributes<HTMLDivElement> & {
   minimal?: boolean
@@ -42,7 +42,11 @@ export function GeneralError({
   minimal = false,
   error,
 }: GeneralErrorProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
   const navigate = useNavigate()
   const { history } = useRouter()
   const status = getHttpStatus(error)
@@ -68,7 +72,10 @@ export function GeneralError({
         </p>
         {!minimal && (
           <p className='text-muted-foreground text-center text-sm'>
-            {t('If this keeps happening, please report it on GitHub Issues.')}
+            {localize(
+              'If this keeps happening, please contact TalkWise support.',
+              '如果问题持续出现，请联系 TalkWise 支持。'
+            )}
           </p>
         )}
         {!minimal && (
@@ -86,7 +93,7 @@ export function GeneralError({
                 />
               }
             >
-              {t('Report an issue')}
+              {localize('Report an issue', '反馈问题')}
             </Button>
             <Button onClick={() => navigate({ to: '/' })}>
               {t('Back to Home')}

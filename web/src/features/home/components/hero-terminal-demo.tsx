@@ -20,21 +20,11 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
-type AccentTone = 'emerald' | 'amber' | 'blue' | 'violet'
+import type { HomeHeroPreviewAccent, HomeHeroPreviewDemo } from '../types'
 
-interface ApiDemoConfig {
-  id: string
-  label: string
-  method: 'POST' | 'GET'
-  endpoint: string
-  headers: string[]
-  request: string[]
-  response: string[]
-  responseHighlights: string[]
-  tokens: number
-  latency: number
-  accent: AccentTone
-}
+type AccentTone = HomeHeroPreviewAccent
+
+type ApiDemoConfig = HomeHeroPreviewDemo
 
 const ACCENT_CLASSES: Record<
   AccentTone,
@@ -164,8 +154,9 @@ const API_DEMOS: ApiDemoConfig[] = [
 const CYCLE_INTERVAL = 4500
 const TRANSITION_MS = 220
 
-interface HeroTerminalDemoProps {
+export interface HeroTerminalDemoProps {
   className?: string
+  demos?: readonly HomeHeroPreviewDemo[]
 }
 
 export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
@@ -173,6 +164,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
   const [transitioning, setTransitioning] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined)
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const demos = props.demos?.length ? props.demos : API_DEMOS
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -181,7 +173,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
     intervalRef.current = setInterval(() => {
       setTransitioning(true)
       timeoutRef.current = setTimeout(() => {
-        setActiveIndex((prev) => (prev + 1) % API_DEMOS.length)
+        setActiveIndex((prev) => (prev + 1) % demos.length)
         setTransitioning(false)
       }, TRANSITION_MS)
     }, CYCLE_INTERVAL)
@@ -190,7 +182,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
       if (intervalRef.current) clearInterval(intervalRef.current)
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
-  }, [])
+  }, [demos])
 
   const handleSelect = (index: number) => {
     if (index === activeIndex) return
@@ -203,7 +195,8 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
     }, TRANSITION_MS)
   }
 
-  const demo = API_DEMOS[activeIndex]
+  const demo = demos[activeIndex] ?? demos[0]
+  if (!demo) return null
   const accent = ACCENT_CLASSES[demo.accent]
 
   return (
@@ -222,11 +215,12 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
             'border-border/50 dark:border-white/[0.05]'
           )}
         >
-          {API_DEMOS.map((item, index) => {
+          {demos.map((item, index) => {
             const tone = ACCENT_CLASSES[item.accent]
             const isActive = index === activeIndex
             return (
               <button
+                type='button'
                 key={item.id}
                 onClick={() => handleSelect(index)}
                 className={cn(
@@ -243,43 +237,67 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
           <div className='ml-auto flex items-center gap-2 pr-2 sm:pr-3'>
             <span className='inline-block size-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.45)]' />
             <span className='text-foreground/40 font-mono text-[10px] tracking-wider uppercase'>
-              200 ok
+              {demo.status ?? '200 ok'}
             </span>
           </div>
         </div>
 
-        {/* Endpoint row */}
-        <div
-          className={cn(
-            'flex items-center gap-2.5 border-b px-5 py-3',
-            'border-border/40 dark:border-white/[0.04]'
-          )}
-        >
-          <span
+        {/* Context row: the original endpoint slot can show product-specific state. */}
+        {demo.meta ? (
+          <div
             className={cn(
-              'rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider',
-              accent.badge
-            )}
-          >
-            {demo.method}
-          </span>
-          <code
-            className={cn(
-              'text-foreground/75 truncate font-mono text-[12.5px] transition-opacity duration-200',
+              'transition-opacity duration-200',
               transitioning ? 'opacity-0' : 'opacity-100'
             )}
           >
-            {demo.endpoint}
-          </code>
-        </div>
+            {demo.meta}
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'flex items-center gap-2.5 border-b px-5 py-3',
+              'border-border/40 dark:border-white/[0.04]'
+            )}
+          >
+            <span
+              className={cn(
+                'rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider',
+                accent.badge
+              )}
+            >
+              {demo.method}
+            </span>
+            <code
+              className={cn(
+                'text-foreground/75 truncate font-mono text-[12.5px] transition-opacity duration-200',
+                transitioning ? 'opacity-0' : 'opacity-100'
+              )}
+            >
+              {demo.endpoint}
+            </code>
+          </div>
+        )}
 
         {/* Body — fixed rows so neither block shifts when switching demos */}
         <div className='grid h-[400px] grid-rows-[235px_minmax(0,1fr)] font-mono text-[12.5px] leading-[1.55]'>
-          {/* Request */}
-          <RequestBlock demo={demo} transitioning={transitioning} />
+          {demo.body ? (
+            <div
+              className={cn(
+                'row-span-2 h-full transition-opacity duration-200',
+                transitioning ? 'opacity-0' : 'opacity-100'
+              )}
+            >
+              {demo.body}
+            </div>
+          ) : (
+            <>
+              {/* Request */}
+              <RequestBlock demo={demo} transitioning={transitioning} />
 
-          {/* Response */}
-          <ResponseBlock demo={demo} transitioning={transitioning} />
+              {/* Response */}
+              <ResponseBlock demo={demo} transitioning={transitioning} />
+            </>
+          )}
         </div>
 
         {/* Footer metrics */}
@@ -289,26 +307,28 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
             'border-border/40 bg-muted/30 dark:border-white/[0.05] dark:bg-white/[0.02]'
           )}
         >
-          <div className='text-foreground/40 flex items-center gap-3 text-[10px] tabular-nums'>
-            <span className='flex items-center gap-1'>
-              <span className='font-mono'>{demo.latency}</span>
-              <span className='tracking-wider uppercase'>ms</span>
-            </span>
-            <span className='bg-foreground/15 size-1 rounded-full' />
-            <span className='flex items-center gap-1'>
-              <span className='font-mono'>{demo.tokens}</span>
-              <span className='tracking-wider uppercase'>tokens</span>
-            </span>
-            <span className='bg-foreground/15 size-1 rounded-full' />
-            <span className='flex items-center gap-1'>
-              <span className='tracking-wider uppercase'>cost</span>
-              <span className='font-mono'>
-                ${(demo.tokens * 0.00003).toFixed(5)}
+          {demo.footerContent ?? (
+            <div className='text-foreground/40 flex items-center gap-3 text-[10px] tabular-nums'>
+              <span className='flex items-center gap-1'>
+                <span className='font-mono'>{demo.latency}</span>
+                <span className='tracking-wider uppercase'>ms</span>
               </span>
-            </span>
-          </div>
+              <span className='bg-foreground/15 size-1 rounded-full' />
+              <span className='flex items-center gap-1'>
+                <span className='font-mono'>{demo.tokens}</span>
+                <span className='tracking-wider uppercase'>tokens</span>
+              </span>
+              <span className='bg-foreground/15 size-1 rounded-full' />
+              <span className='flex items-center gap-1'>
+                <span className='tracking-wider uppercase'>cost</span>
+                <span className='font-mono'>
+                  ${(demo.tokens * 0.00003).toFixed(5)}
+                </span>
+              </span>
+            </div>
+          )}
           <span className='text-foreground/30 font-mono text-[10px] tracking-wider uppercase'>
-            stream · sse
+            {demo.footerLabel ?? 'stream · sse'}
           </span>
         </div>
       </div>
@@ -321,7 +341,7 @@ function RequestBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
 
   return (
     <div className='relative px-5 py-4'>
-      <SectionLabel>Request</SectionLabel>
+      <SectionLabel>{demo.requestLabel ?? 'Request'}</SectionLabel>
       <div
         className={cn(
           'mt-2 transition-opacity duration-200',
@@ -329,7 +349,7 @@ function RequestBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
         )}
       >
         <CodeLine>
-          <Command>curl</Command> <Flag>-X</Flag> <Flag>POST</Flag>{' '}
+          <Command>curl</Command> <Flag>-X</Flag> <Flag>{demo.method}</Flag>{' '}
           <StringText>&quot;{demo.endpoint}&quot;</StringText>{' '}
           <Muted>{'\\'}</Muted>
         </CodeLine>
@@ -342,8 +362,8 @@ function RequestBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
         <CodeLine indent={2}>
           <Flag>-d</Flag> <StringText>&apos;{'{'}</StringText>
         </CodeLine>
-        {demo.request.map((line, i) => (
-          <CodeLine key={i} indent={4}>
+        {withStableLineKeys(demo.request).map(({ key, line }) => (
+          <CodeLine key={key} indent={4}>
             {renderJsonLine(line)}
           </CodeLine>
         ))}
@@ -365,15 +385,15 @@ function ResponseBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
         'border-border/40 bg-muted/20 dark:border-white/[0.05] dark:bg-white/[0.015]'
       )}
     >
-      <SectionLabel>Response</SectionLabel>
+      <SectionLabel>{demo.responseLabel ?? 'Response'}</SectionLabel>
       <div
         className={cn(
           'mt-2 transition-opacity duration-200',
           transitioning ? 'opacity-0' : 'opacity-100'
         )}
       >
-        {demo.response.map((line, i) => (
-          <CodeLine key={i}>{renderResponseLine(line, demo)}</CodeLine>
+        {withStableLineKeys(demo.response).map(({ key, line }) => (
+          <CodeLine key={key}>{renderResponseLine(line, demo)}</CodeLine>
         ))}
       </div>
     </div>
@@ -405,36 +425,42 @@ function renderResponseLine(line: string, demo: ApiDemoConfig): ReactNode {
 
   if (matches.length === 0) return tokenize(line)
 
-  matches.forEach((match, idx) => {
+  matches.forEach((match) => {
     const start = match.index ?? 0
     if (start > cursor) {
       segments.push(
-        <span key={`pre-${idx}`}>{tokenize(line.slice(cursor, start))}</span>
+        <span key={`pre-${start}`}>{tokenize(line.slice(cursor, start))}</span>
       )
     }
     const placeholder = match[0]
     if (placeholder === '<text>') {
       segments.push(
-        <Accent key={`ph-${idx}`} accent={demo.accent}>
-          {`"${truncateResponse(demo)}"`}
+        <Accent key={`ph-${start}-${placeholder}`} accent={demo.accent}>
+          {`"${demo.responseText ?? truncateResponse(demo)}"`}
         </Accent>
       )
     } else if (placeholder === '<tokens>') {
-      segments.push(<NumberText key={`ph-${idx}`}>{demo.tokens}</NumberText>)
+      segments.push(
+        <NumberText key={`ph-${start}-${placeholder}`}>
+          {demo.tokens}
+        </NumberText>
+      )
     } else if (placeholder === '<in>') {
       segments.push(
-        <NumberText key={`ph-${idx}`}>
+        <NumberText key={`ph-${start}-${placeholder}`}>
           {Math.floor(demo.tokens * 0.4)}
         </NumberText>
       )
     } else if (placeholder === '<out>') {
       segments.push(
-        <NumberText key={`ph-${idx}`}>
+        <NumberText key={`ph-${start}-${placeholder}`}>
           {Math.ceil(demo.tokens * 0.6)}
         </NumberText>
       )
     } else {
-      segments.push(<Muted key={`ph-${idx}`}>{placeholder}</Muted>)
+      segments.push(
+        <Muted key={`ph-${start}-${placeholder}`}>{placeholder}</Muted>
+      )
     }
     cursor = start + placeholder.length
   })
@@ -456,26 +482,36 @@ function truncateResponse(demo: ApiDemoConfig): string {
   return map[demo.id] ?? '...'
 }
 
+function withStableLineKeys(lines: readonly string[]) {
+  const occurrences = new Map<string, number>()
+
+  return lines.map((line) => {
+    const occurrence = (occurrences.get(line) ?? 0) + 1
+    occurrences.set(line, occurrence)
+    return { key: `${line}-${occurrence}`, line }
+  })
+}
+
 function tokenize(input: string): ReactNode {
   // Split string into "..." string runs and the rest, then color keys/punct.
   const segments: ReactNode[] = []
   let cursor = 0
   const matches = [...input.matchAll(STRING_RE)]
 
-  matches.forEach((match, idx) => {
+  matches.forEach((match) => {
     const start = match.index ?? 0
     if (start > cursor) {
       segments.push(
-        <Muted key={`m-${idx}`}>{input.slice(cursor, start)}</Muted>
+        <Muted key={`m-${start}`}>{input.slice(cursor, start)}</Muted>
       )
     }
     const text = match[0]
     const after = input.slice(start + text.length).trimStart()
     const isKey = after.startsWith(':')
     if (isKey) {
-      segments.push(<Key key={`k-${idx}`}>{text}</Key>)
+      segments.push(<Key key={`k-${start}-${text}`}>{text}</Key>)
     } else {
-      segments.push(<StringText key={`s-${idx}`}>{text}</StringText>)
+      segments.push(<StringText key={`s-${start}-${text}`}>{text}</StringText>)
     }
     cursor = start + text.length
   })
