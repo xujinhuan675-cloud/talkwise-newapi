@@ -30,14 +30,17 @@ import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
 
-interface FeaturesProps {
+import type { HomeFeaturesContent } from '../../types'
+
+export interface FeaturesProps {
   className?: string
+  content?: HomeFeaturesContent
 }
 
-export function Features(_props: FeaturesProps) {
+export function Features(props: FeaturesProps) {
   const { t } = useTranslation()
 
-  const features = [
+  const defaultFeatures = [
     {
       id: 'fast',
       num: '01',
@@ -156,40 +159,70 @@ export function Features(_props: FeaturesProps) {
     },
   ]
 
-  const additionalFeatures = [
+  const defaultAdditionalFeatures = [
     {
+      id: 'performance',
       icon: <Gauge className='size-5' strokeWidth={1.5} />,
       title: t('High Performance'),
       desc: t('Support for high concurrency with automatic load balancing'),
     },
     {
+      id: 'billing',
       icon: <DollarSign className='size-5' strokeWidth={1.5} />,
       title: t('Transparent Billing'),
       desc: t('Pay-as-you-go with real-time usage monitoring'),
     },
     {
+      id: 'collaboration',
       icon: <Users className='size-5' strokeWidth={1.5} />,
       title: t('Team Collaboration'),
       desc: t('Multi-user management with flexible permission allocation'),
     },
     {
+      id: 'open-source',
       icon: <HeartHandshake className='size-5' strokeWidth={1.5} />,
       title: t('Open Source'),
       desc: t('Community driven, self-hosted, and extensible'),
     },
   ]
+  const content = props.content
+  const features = content
+    ? defaultFeatures.map((feature, index) => {
+        const override = content.primary[index]
+        if (!override) return feature
+        return {
+          ...feature,
+          title: override.title,
+          desc: override.description,
+          icon: override.icon ?? feature.icon,
+          visual: override.visual ?? feature.visual,
+        }
+      })
+    : defaultFeatures
+  const additionalFeatures = content
+    ? defaultAdditionalFeatures.map((feature, index) => {
+        const override = content.additional[index]
+        if (!override) return feature
+        return {
+          ...feature,
+          title: override.title,
+          desc: override.description,
+          icon: override.icon ?? feature.icon,
+        }
+      })
+    : defaultAdditionalFeatures
 
   return (
     <section className='relative z-10 px-6 py-24 md:py-32'>
       <div className='mx-auto max-w-6xl'>
         <AnimateInView className='mb-16 max-w-lg'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
-            {t('Core Features')}
+            {props.content?.eyebrow ?? t('Core Features')}
           </p>
           <h2 className='text-2xl leading-tight font-bold tracking-tight md:text-3xl'>
-            {t('Built for developers,')}
+            {props.content?.heading[0] ?? t('Built for developers,')}
             <br />
-            {t('designed for scale')}
+            {props.content?.heading[1] ?? t('designed for scale')}
           </h2>
         </AnimateInView>
 
@@ -220,7 +253,7 @@ export function Features(_props: FeaturesProps) {
         <div className='mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
           {additionalFeatures.map((f, i) => (
             <AnimateInView
-              key={f.title}
+              key={f.id}
               delay={i * 100}
               animation='fade-up'
               className='flex flex-col items-center text-center'

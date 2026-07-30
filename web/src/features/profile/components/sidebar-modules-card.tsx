@@ -49,7 +49,11 @@ type SectionDef = {
 }
 
 export function SidebarModulesCard() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
   const [loading, setLoading] = useState(false)
   const [config, setConfig] = useState<SidebarModulesConfig>({})
   const currentUser = useAuthStore((s) => s.auth.user)
@@ -57,19 +61,38 @@ export function SidebarModulesCard() {
 
   const sectionDefs: SectionDef[] = [
     {
-      key: 'chat',
-      title: t('Chat Area'),
-      description: t('Playground and chat functions'),
+      key: 'conversations',
+      title: localize('Conversations', '对话'),
+      description: localize(
+        'Conversation library and dialogue history',
+        '对话库与历史会话'
+      ),
       modules: [
         {
-          key: 'playground',
-          title: t('Playground'),
-          description: t('AI model testing environment'),
+          key: 'library',
+          title: localize('Conversations', '对话'),
+          description: localize(
+            'Browse, create, and continue conversations',
+            '浏览、新建和继续对话'
+          ),
         },
+      ],
+    },
+    {
+      key: 'training',
+      title: localize('Training Area', '训练区域'),
+      description: localize(
+        'Communication practice and review workflows',
+        '沟通训练与复盘工作流'
+      ),
+      modules: [
         {
-          key: 'chat',
-          title: t('Chat'),
-          description: t('Chat session management'),
+          key: 'studio',
+          title: localize('Training Studio', '训练工作台'),
+          description: localize(
+            'Practice scenarios, review sessions, and track growth.',
+            '练习场景、复盘训练并跟踪成长。'
+          ),
         },
       ],
     },

@@ -37,10 +37,13 @@ type SidebarModulesUserConfig = SidebarModulesAdminConfig | null
  * Default sidebar modules configuration
  */
 const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
-  chat: {
+  conversations: {
     enabled: true,
-    playground: true,
-    chat: true,
+    library: true,
+  },
+  training: {
+    enabled: true,
+    studio: true,
   },
   console: {
     enabled: true,
@@ -96,6 +99,16 @@ const mergeWithDefaultSidebarModules = (
  */
 const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/playground': { section: 'chat', module: 'playground' },
+  '/training': { section: 'training', module: 'studio' },
+  '/training/overview': { section: 'training', module: 'studio' },
+  '/training/scenarios': { section: 'training', module: 'studio' },
+  '/training/studio': { section: 'training', module: 'studio' },
+  '/training/live-coach': { section: 'training', module: 'studio' },
+  '/training/conversations': { section: 'conversations', module: 'library' },
+  '/training/sessions': { section: 'training', module: 'studio' },
+  '/training/growth': { section: 'training', module: 'studio' },
+  '/training/growth/leaderboard': { section: 'training', module: 'studio' },
+  '/training/settings': { section: 'training', module: 'studio' },
   '/dashboard': { section: 'console', module: 'detail' },
   '/dashboard/overview': { section: 'console', module: 'detail' },
   '/dashboard/models': { section: 'console', module: 'detail' },
@@ -131,6 +144,7 @@ function parseSidebarConfig(
 
   try {
     const parsed = JSON.parse(value) as SidebarModulesAdminConfig
+    delete parsed.chat
     return mergeWithDefaultSidebarModules(parsed)
   } catch {
     // eslint-disable-next-line no-console
@@ -153,6 +167,7 @@ function parseUserSidebarConfig(
   try {
     const parsed = JSON.parse(value) as SidebarModulesAdminConfig
     if (!parsed || typeof parsed !== 'object') return null
+    delete parsed.chat
     return parsed
   } catch {
     return null
@@ -200,17 +215,6 @@ function isNavItemVisible(
   userConfig: SidebarModulesUserConfig
 ): boolean {
   // Handle dynamic chat presets type — also runs the admin × user AND gate
-  if ('type' in item && item.type === 'chat-presets') {
-    const adminChat = adminConfig.chat
-    const adminAllowed = Boolean(adminChat?.enabled && adminChat.chat === true)
-    if (!adminAllowed) return false
-    if (!userConfig) return true
-    const userChat = userConfig.chat
-    if (!userChat) return true
-    if (userChat.enabled === false) return false
-    return userChat.chat !== false
-  }
-
   // Handle direct link type
   if ('url' in item && item.url) {
     const configUrls = item.configUrls ?? [item.url]

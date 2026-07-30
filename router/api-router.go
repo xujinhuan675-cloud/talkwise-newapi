@@ -67,6 +67,8 @@ func SetApiRouter(router *gin.Engine) {
 
 		talkwiseRoute := apiRouter.Group("/talkwise")
 		{
+			talkwiseRoute.Any("/training/*path", middleware.UserAuth(), controller.ProxyTalkWiseTraining)
+			talkwiseRoute.Any("/conversations/*path", middleware.UserAuth(), controller.ProxyTalkWiseConversations)
 			talkwiseRoute.POST("/auth/exchange", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeTalkWiseAuthCode)
 			talkwiseRoute.POST("/auth/handoff", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateTalkWiseAuthHandoff)
 			talkwiseRoute.POST("/team/members", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ListTalkWiseTeamMembers)

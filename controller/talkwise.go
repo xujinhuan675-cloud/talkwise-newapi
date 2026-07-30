@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -16,11 +19,39 @@ import (
 )
 
 const (
-	defaultTalkWiseClientID = "talkwise"
-	talkWiseHandoffTTL      = 5 * time.Minute
+	defaultTalkWiseClientID             = "talkwise"
+	talkWiseHandoffTTL                  = 5 * time.Minute
+	talkWiseTrainingUpstreamEnv         = "TALKWISE_TRAINING_UPSTREAM_URL"
+	talkWiseTrainingUpstreamPath        = "/api/v1/training-studio"
+	talkWiseTrainingProxyUnavailable    = "TALKWISE_TRAINING_PROXY_UNAVAILABLE"
+	talkWiseTrainingUpstreamUnavailable = "TALKWISE_TRAINING_UPSTREAM_UNAVAILABLE"
+	talkWiseConversationUpstreamPath        = "/api/v1/stakeholder"
+	talkWiseConversationProxyUnavailable    = "TALKWISE_CONVERSATION_PROXY_UNAVAILABLE"
+	talkWiseConversationUpstreamUnavailable = "TALKWISE_CONVERSATION_UPSTREAM_UNAVAILABLE"
 )
 
 var errTalkWiseRedirectMismatch = errors.New("talkwise redirect_uri mismatch")
+
+var talkWiseIdentityHeaders = []string{
+	"X-Mock-User",
+	"X-User-Id",
+	"X-User-Role",
+	"X-System-Role",
+	"X-Role",
+	"X-Team-Id",
+	"X-Auth-User",
+	"X-Authenticated-User",
+	"X-Forwarded-User",
+	"X-Remote-User",
+	"Remote-User",
+}
+
+var talkWiseMockAuthQueryKeys = []string{
+	"mock_user",
+	"auth_user_id",
+	"auth_role",
+	"auth_team_id",
+}
 
 type TalkWiseAuthHandoffRequest struct {
 	ClientId    string `json:"client_id"`
@@ -202,18 +233,19 @@ func ListTalkWiseTeamMembers(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	status := common.UserStatusEnabled
 	limit := normalizeTalkWiseLimit(req.Limit, 100, 200)
-	users, total, err := model.SearchUsers(
-		"",
-		group,
-		nil,
-		&status,
-		0,
-		limit,
-		model.NewUserSortOptions("username", "asc"),
-	)
-	if err != nil {
+	query := model.DB.Model(&model.User{}).
+		Where(&model.User{Group: group}).
+		Where("status = ?", common.UserStatusEnabled)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	var users []*model.User
+	if err := query.Omit("password", "access_token").Order("username ASC").Limit(limit).Find(&users).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -317,6 +349,163 @@ func AssignTalkWiseTeamMember(c *gin.Context) {
 		"team":   buildTalkWiseTeamData(group),
 		"member": buildTalkWiseTeamUserData(user, group),
 	})
+}
+
+// ProxyTalkWiseTraining keeps the browser on the NewAPI origin while routing
+// authenticated training requests to the operator-configured TalkWise backend.
+func ProxyTalkWiseTraining(c *gin.Context) {
+	upstream, err := configuredTalkWiseTrainingUpstream()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    talkWiseTrainingProxyUnavailable,
+			"message": "TalkWise training proxy is not configured",
+		})
+		return
+	}
+
+	suffix, err := normalizeTalkWiseTrainingSuffix(c.Param("path"))
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"code":    "TALKWISE_TRAINING_PATH_INVALID",
+			"message": "Invalid TalkWise training path",
+		})
+		return
+	}
+
+	proxy := newTalkWiseTrainingReverseProxy(upstream, suffix)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// ProxyTalkWiseConversations keeps legacy TalkWise room conversations behind
+// NewAPI's authenticated same-origin boundary.
+func ProxyTalkWiseConversations(c *gin.Context) {
+	upstream, err := configuredTalkWiseTrainingUpstream()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    talkWiseConversationProxyUnavailable,
+			"message": "TalkWise conversation proxy is not configured",
+		})
+		return
+	}
+
+	suffix, err := normalizeTalkWiseTrainingSuffix(c.Param("path"))
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"code":    "TALKWISE_CONVERSATION_PATH_INVALID",
+			"message": "Invalid TalkWise conversation path",
+		})
+		return
+	}
+
+	proxy := newTalkWiseConversationReverseProxy(upstream, suffix)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func configuredTalkWiseTrainingUpstream() (*url.URL, error) {
+	raw := strings.TrimSpace(common.GetEnvOrDefaultString(talkWiseTrainingUpstreamEnv, ""))
+	if raw == "" {
+		return nil, fmt.Errorf("%s is required", talkWiseTrainingUpstreamEnv)
+	}
+
+	upstream, err := url.Parse(raw)
+	if err != nil || upstream.Host == "" || (upstream.Scheme != "http" && upstream.Scheme != "https") {
+		return nil, fmt.Errorf("%s must be an absolute HTTP(S) URL", talkWiseTrainingUpstreamEnv)
+	}
+	if upstream.User != nil || upstream.RawQuery != "" || upstream.Fragment != "" {
+		return nil, fmt.Errorf("%s must not contain credentials, query, or fragment", talkWiseTrainingUpstreamEnv)
+	}
+	return upstream, nil
+}
+
+func normalizeTalkWiseTrainingSuffix(raw string) (string, error) {
+	suffix := raw
+	if suffix == "" {
+		return "/", nil
+	}
+	if !strings.HasPrefix(suffix, "/") {
+		suffix = "/" + suffix
+	}
+	for _, segment := range strings.Split(suffix, "/") {
+		if segment == "." || segment == ".." {
+			return "", errors.New("training path traversal is not allowed")
+		}
+	}
+	return suffix, nil
+}
+
+func newTalkWiseTrainingReverseProxy(upstream *url.URL, suffix string) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		director(request)
+		request.URL.Path = joinTalkWiseTrainingUpstreamPath(upstream.Path, suffix)
+		request.URL.RawPath = ""
+		request.Host = upstream.Host
+		stripTalkWiseIdentityInputs(request)
+	}
+	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
+		common.SysLog(fmt.Sprintf("TalkWise training upstream request failed: %v", proxyErr))
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(writer).Encode(gin.H{
+			"success": false,
+			"code":    talkWiseTrainingUpstreamUnavailable,
+			"message": "TalkWise training service is unavailable",
+		})
+	}
+	return proxy
+}
+
+func newTalkWiseConversationReverseProxy(upstream *url.URL, suffix string) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		director(request)
+		request.URL.Path = joinTalkWiseConversationUpstreamPath(upstream.Path, suffix)
+		request.URL.RawPath = ""
+		request.Host = upstream.Host
+		stripTalkWiseIdentityInputs(request)
+	}
+	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
+		common.SysLog(fmt.Sprintf("TalkWise conversation upstream request failed: %v", proxyErr))
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(writer).Encode(gin.H{
+			"success": false,
+			"code":    talkWiseConversationUpstreamUnavailable,
+			"message": "TalkWise conversation service is unavailable",
+		})
+	}
+	return proxy
+}
+
+func joinTalkWiseTrainingUpstreamPath(upstreamBasePath string, suffix string) string {
+	base := strings.TrimRight(upstreamBasePath, "/")
+	return base + talkWiseTrainingUpstreamPath + suffix
+}
+
+func joinTalkWiseConversationUpstreamPath(upstreamBasePath string, suffix string) string {
+	base := strings.TrimRight(upstreamBasePath, "/")
+	return base + talkWiseConversationUpstreamPath + suffix
+}
+
+func stripTalkWiseIdentityInputs(request *http.Request) {
+	request.Header.Del("Cookie")
+	for _, header := range talkWiseIdentityHeaders {
+		request.Header.Del(header)
+	}
+
+	query := request.URL.Query()
+	for _, key := range talkWiseMockAuthQueryKeys {
+		query.Del(key)
+	}
+	request.URL.RawQuery = query.Encode()
 }
 
 func validateTalkWiseClient(clientID string, clientSecret string, requireSecret bool) (string, error) {

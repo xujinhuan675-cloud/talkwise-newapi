@@ -19,9 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   Activity,
   Box,
+  ClipboardList,
   CreditCard,
   FileText,
-  FlaskConical,
+  History,
+  Home,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -30,13 +32,14 @@ import {
   ServerCog,
   Settings,
   Ticket,
+  TrendingUp,
   User,
   Users,
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { type SidebarData } from '@/components/layout/types'
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -46,23 +49,76 @@ import { ROLE } from '@/lib/roles'
  * registered in `layout/lib/sidebar-view-registry.ts`.
  */
 export function useSidebarData(): SidebarData {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
 
   return {
     navGroups: [
       {
-        id: 'chat',
-        title: t('Chat'),
+        id: 'conversations',
+        title: localize('Conversations', '对话'),
         items: [
           {
-            title: t('Playground'),
-            url: '/playground',
-            icon: FlaskConical,
+            title: localize('Conversations', '对话'),
+            url: '/training/conversations',
+            icon: MessageSquare,
+          },
+        ],
+      },
+      {
+        id: 'training',
+        title: localize('Training', '训练'),
+        items: [
+          {
+            title: localize('Training overview', '训练概览'),
+            url: '/training',
+            activeUrls: ['/training/overview'],
+            icon: Home,
           },
           {
-            title: t('Chat'),
-            icon: MessageSquare,
-            type: 'chat-presets',
+            title: localize('Practice', '练习'),
+            icon: ClipboardList,
+            items: [
+              {
+                title: localize('Scenarios', '场景训练'),
+                url: '/training/scenarios',
+              },
+              {
+                title: localize('Training studio', '训练工作台'),
+                url: '/training/studio',
+              },
+              {
+                title: localize('Live coach', '实时教练'),
+                url: '/training/live-coach',
+              },
+            ],
+          },
+          {
+            title: localize('Review', '复盘'),
+            url: '/training/sessions',
+            icon: History,
+          },
+          {
+            title: localize('Growth', '成长'),
+            icon: TrendingUp,
+            items: [
+              {
+                title: localize('Growth overview', '成长概览'),
+                url: '/training/growth',
+              },
+              {
+                title: localize('Scenario leaderboard', '场景排行'),
+                url: '/training/growth/leaderboard',
+              },
+            ],
+          },
+          {
+            title: localize('Training settings', '训练设置'),
+            url: '/training/settings',
+            icon: Settings,
           },
         ],
       },

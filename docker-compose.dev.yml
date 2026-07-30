@@ -40,6 +40,7 @@ services:
       # - TALKWISE_CLIENT_SECRET=dev_secret
       # - TALKWISE_REDIRECT_URIS=http://localhost:5174/login,http://localhost:3001/login
       # - TALKWISE_GATEWAY_BASE_URL=http://localhost:3000
+      # - TALKWISE_TRAINING_UPSTREAM_URL=http://host.docker.internal:8018
     depends_on:
       redis:
         condition: service_started

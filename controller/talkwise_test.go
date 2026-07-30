@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -18,11 +19,28 @@ import (
 	"gorm.io/gorm"
 )
 
+type closeNotifyRecorder struct {
+	*httptest.ResponseRecorder
+	closed chan bool
+}
+
+func newCloseNotifyRecorder() *closeNotifyRecorder {
+	return &closeNotifyRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		closed:           make(chan bool),
+	}
+}
+
+func (recorder *closeNotifyRecorder) CloseNotify() <-chan bool {
+	return recorder.closed
+}
+
 func setupTalkWiseControllerTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	previousDB := model.DB
 	previousLogDB := model.LOG_DB
 	previousType := common.MainDatabaseType()
+	previousRedis := common.RedisEnabled
 	previousSecret := common.SessionSecret
 	previousRedirectDomains := constant.TrustedRedirectDomains
 
@@ -31,12 +49,14 @@ func setupTalkWiseControllerTestDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&model.AuthFlow{},
 		&model.User{},
+		&model.UserSession{},
 		&model.SubscriptionPlan{},
 		&model.UserSubscription{},
 	))
 	model.DB = db
 	model.LOG_DB = db
 	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	common.RedisEnabled = false
 	common.SessionSecret = "talkwise-test-session-secret"
 	constant.TrustedRedirectDomains = []string{"talkwise.example"}
 	t.Setenv("TALKWISE_CLIENT_ID", "talkwise-test")
@@ -48,6 +68,7 @@ func setupTalkWiseControllerTestDB(t *testing.T) *gorm.DB {
 		model.DB = previousDB
 		model.LOG_DB = previousLogDB
 		common.SetMainDatabaseType(previousType)
+		common.RedisEnabled = previousRedis
 		common.SessionSecret = previousSecret
 		constant.TrustedRedirectDomains = previousRedirectDomains
 	})
@@ -64,6 +85,7 @@ func seedTalkWiseUser(t *testing.T, db *gorm.DB) *model.User {
 		Status:       common.UserStatusEnabled,
 		Email:        "alice@example.com",
 		Group:        "paid",
+		AffCode:      "aff-alice",
 		Quota:        1200,
 		UsedQuota:    300,
 		RequestCount: 12,
@@ -277,6 +299,7 @@ func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T
 		Status:       common.UserStatusEnabled,
 		Email:        "bob@example.com",
 		Group:        "free",
+		AffCode:      "aff-bob",
 		Quota:        400,
 		UsedQuota:    30,
 		RequestCount: 4,
@@ -289,6 +312,7 @@ func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T
 		Status:      common.UserStatusDisabled,
 		Email:       "disabled@example.com",
 		Group:       "paid",
+		AffCode:     "aff-disabled",
 	}
 	require.NoError(t, db.Create(bob).Error)
 	require.NoError(t, db.Create(disabled).Error)
@@ -389,4 +413,148 @@ func TestTalkWiseTeamMemberBridgeRejectsInvalidClientSecret(t *testing.T) {
 	response := decodeTalkWiseResponse[gin.H](t, recorder)
 	assert.False(t, response.Success)
 	assert.Contains(t, response.Message, "client_secret")
+}
+
+func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) {
+	type observedRequest struct {
+		Method         string
+		Path           string
+		RawQuery       string
+		Authorization  string
+		ContentType    string
+		IdempotencyKey string
+		Cookie         string
+		MockUser       string
+		UserID         string
+		UserRole       string
+		SystemRole     string
+		Role           string
+		TeamID         string
+		ForwardedUser  string
+		Body           string
+	}
+	observed := make(chan observedRequest, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			Method:         request.Method,
+			Path:           request.URL.Path,
+			RawQuery:       request.URL.RawQuery,
+			Authorization:  request.Header.Get("Authorization"),
+			ContentType:    request.Header.Get("Content-Type"),
+			IdempotencyKey: request.Header.Get("Idempotency-Key"),
+			Cookie:         request.Header.Get("Cookie"),
+			MockUser:       request.Header.Get("X-Mock-User"),
+			UserID:         request.Header.Get("X-User-Id"),
+			UserRole:       request.Header.Get("X-User-Role"),
+			SystemRole:     request.Header.Get("X-System-Role"),
+			Role:           request.Header.Get("X-Role"),
+			TeamID:         request.Header.Get("X-Team-Id"),
+			ForwardedUser:  request.Header.Get("X-Forwarded-User"),
+			Body:           string(body),
+		}
+		writer.Header().Set("Content-Type", "application/problem+json")
+		writer.Header().Set("X-TalkWise-Upstream", "reached")
+		writer.WriteHeader(http.StatusCreated)
+		_, _ = writer.Write([]byte(`{"success":true,"data":{"id":"session-1"}}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any("/api/talkwise/training/*path", ProxyTalkWiseTraining)
+	body := `{"mode":"text","scenario_template_id":"discovery"}`
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/talkwise/training/sessions?page=2&mock_user=admin&auth_user_id=other&auth_role=root&auth_team_id=other-team",
+		strings.NewReader(body),
+	)
+	request.Header.Set("Authorization", "Bearer dashboard-access-token")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "create-session-1")
+	request.Header.Set("Cookie", "talkwise_session=spoofed")
+	request.Header.Set("X-Mock-User", "admin")
+	request.Header.Set("X-User-Id", "other-user")
+	request.Header.Set("X-User-Role", "root")
+	request.Header.Set("X-System-Role", "root")
+	request.Header.Set("X-Role", "root")
+	request.Header.Set("X-Team-Id", "other-team")
+	request.Header.Set("X-Forwarded-User", "other-user")
+	recorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusCreated, recorder.Code)
+	assert.Equal(t, "application/problem+json", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, "reached", recorder.Header().Get("X-TalkWise-Upstream"))
+	assert.JSONEq(t, `{"success":true,"data":{"id":"session-1"}}`, recorder.Body.String())
+
+	forwarded := <-observed
+	assert.Equal(t, http.MethodPost, forwarded.Method)
+	assert.Equal(t, "/internal/api/v1/training-studio/sessions", forwarded.Path)
+	assert.Equal(t, "page=2", forwarded.RawQuery)
+	assert.Equal(t, "Bearer dashboard-access-token", forwarded.Authorization)
+	assert.Equal(t, "application/json", forwarded.ContentType)
+	assert.Equal(t, "create-session-1", forwarded.IdempotencyKey)
+	assert.Empty(t, forwarded.Cookie)
+	assert.Empty(t, forwarded.MockUser)
+	assert.Empty(t, forwarded.UserID)
+	assert.Empty(t, forwarded.UserRole)
+	assert.Empty(t, forwarded.SystemRole)
+	assert.Empty(t, forwarded.Role)
+	assert.Empty(t, forwarded.TeamID)
+	assert.Empty(t, forwarded.ForwardedUser)
+	assert.JSONEq(t, body, forwarded.Body)
+}
+
+func TestTalkWiseTrainingProxyReturnsServiceUnavailableWithoutConfiguration(t *testing.T) {
+	t.Setenv(talkWiseTrainingUpstreamEnv, "")
+	router := gin.New()
+	router.Any("/api/talkwise/training/*path", ProxyTalkWiseTraining)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/api/talkwise/training/scenario-templates", nil),
+	)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, talkWiseTrainingProxyUnavailable, response.Code)
+}
+
+func TestTalkWiseTrainingProxyReturnsBadGatewayWhenUpstreamIsUnavailable(t *testing.T) {
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	deadURL := deadUpstream.URL
+	deadUpstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, deadURL)
+	router := gin.New()
+	router.Any("/api/talkwise/training/*path", ProxyTalkWiseTraining)
+	recorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/api/talkwise/training/scenario-templates", nil),
+	)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, talkWiseTrainingUpstreamUnavailable, response.Code)
+}
+
+func TestNormalizeTalkWiseTrainingSuffixRejectsPathTraversal(t *testing.T) {
+	for _, suffix := range []string{"/../auth", "/sessions/../../auth", "./sessions"} {
+		_, err := normalizeTalkWiseTrainingSuffix(suffix)
+		assert.Error(t, err, suffix)
+	}
 }

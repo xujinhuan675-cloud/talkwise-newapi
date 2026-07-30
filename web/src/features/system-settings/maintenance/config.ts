@@ -23,6 +23,7 @@ export type HeaderNavAccessConfig = {
 
 export type HeaderNavModulesConfig = {
   home: boolean
+  training: boolean
   console: boolean
   pricing: HeaderNavAccessConfig
   rankings: HeaderNavAccessConfig
@@ -40,6 +41,7 @@ export type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
 
 export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   home: true,
+  training: true,
   console: true,
   pricing: {
     enabled: true,
@@ -54,10 +56,13 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
 }
 
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
-  chat: {
+  conversations: {
     enabled: true,
-    playground: true,
-    chat: true,
+    library: true,
+  },
+  training: {
+    enabled: true,
+    studio: true,
   },
   console: {
     enabled: true,
@@ -192,6 +197,7 @@ export function parseSidebarModulesAdmin(
     const result: SidebarModulesAdminConfig = {}
 
     Object.entries(parsed).forEach(([sectionKey, raw]) => {
+      if (sectionKey === 'chat') return
       if (!raw || typeof raw !== 'object') return
 
       const defaultSection = defaults[sectionKey] ?? { enabled: true }
