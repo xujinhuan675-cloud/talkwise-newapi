@@ -1,0 +1,16 @@
+.git/
+.code-review-graph/
+.cache/
+.gocache/
+.gocache-temp/
+.gomodcache/
+.gopath/
+.local-tests/
+.playwright-mcp/
+build/
+electron/dist/
+electron/node_modules/
+logs/
+upload/
+web/dist/
+web/node_modules/
