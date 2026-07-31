@@ -409,26 +409,31 @@ export function CreateDeploymentDrawer({
               <FormField
                 control={form.control}
                 name='resource_private_name'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Container name')}</FormLabel>
-                    <FormControl>
-                      <Input placeholder={t('Enter a name')} {...field} />
-                    </FormControl>
-                    {open && field.value?.trim() ? (
-                      <div className='text-muted-foreground text-xs'>
-                        {isCheckingName
-                          ? t('Checking name...')
-                          : nameAvailable === true
-                            ? t('Name is available')
-                            : nameAvailable === false
-                              ? t('Name is not available')
-                              : ''}
-                      </div>
-                    ) : null}
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  let nameStatus = ''
+                  if (isCheckingName) {
+                    nameStatus = t('Checking name...')
+                  } else if (nameAvailable === true) {
+                    nameStatus = t('Name is available')
+                  } else if (nameAvailable === false) {
+                    nameStatus = t('Name is not available')
+                  }
+
+                  return (
+                    <FormItem>
+                      <FormLabel>{t('Container name')}</FormLabel>
+                      <FormControl>
+                        <Input placeholder={t('Enter a name')} {...field} />
+                      </FormControl>
+                      {open && field.value?.trim() ? (
+                        <div className='text-muted-foreground text-xs'>
+                          {nameStatus}
+                        </div>
+                      ) : null}
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
               />
 
               <FormField

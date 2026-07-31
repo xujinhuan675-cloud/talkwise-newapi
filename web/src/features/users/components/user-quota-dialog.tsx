@@ -149,11 +149,13 @@ export function UserQuotaDialog(props: UserQuotaDialogProps) {
                   setAmount('')
                 }}
               >
-                {m === 'add'
-                  ? t('Add')
-                  : m === 'subtract'
-                    ? t('Subtract')
-                    : t('Override')}
+                {t(
+                  {
+                    add: 'Add',
+                    subtract: 'Subtract',
+                    override: 'Override',
+                  }[m]
+                )}
               </Button>
             ))}
           </div>

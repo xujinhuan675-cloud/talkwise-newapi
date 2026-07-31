@@ -136,7 +136,7 @@ export function UsersMutateDrawer({
   useEffect(() => {
     if (open && isUpdate && currentRow) {
       // For update, fetch fresh data
-      getUser(currentRow.id).then((result) => {
+      void getUser(currentRow.id).then((result) => {
         if (result.success && result.data) {
           form.reset(transformUserToFormDefaults(result.data))
         }

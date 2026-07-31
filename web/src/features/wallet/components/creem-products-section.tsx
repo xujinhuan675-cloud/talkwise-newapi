@@ -25,6 +25,8 @@ import { formatNumber } from '@/lib/format'
 import { formatCreemPrice } from '../lib/format'
 import type { CreemProduct } from '../types'
 
+const PRODUCT_SKELETON_IDS = ['product-1', 'product-2', 'product-3'] as const
+
 interface CreemProductsSectionProps {
   products: CreemProduct[]
   onProductSelect: (product: CreemProduct) => void
@@ -41,8 +43,8 @@ export function CreemProductsSection({
   if (loading) {
     return (
       <div className='grid grid-cols-2 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-3'>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className='h-24 rounded-lg' />
+        {PRODUCT_SKELETON_IDS.map((id) => (
+          <Skeleton key={id} className='h-24 rounded-lg' />
         ))}
       </div>
     )

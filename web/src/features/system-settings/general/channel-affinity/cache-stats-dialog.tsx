@@ -62,7 +62,7 @@ export function CacheStatsDialog(props: Props) {
 
     setStats(null)
 
-    getAffinityUsageCache(props.target)
+    void getAffinityUsageCache(props.target)
       .then((res) => {
         if (seq !== seqRef.current) return
         if (res.success) setStats((res.data as Record<string, unknown>) || {})
@@ -155,11 +155,12 @@ export function CacheStatsDialog(props: Props) {
           'Hit criteria: If cached tokens exist in usage, it counts as a hit.'
         )}
       </p>
-      {loading ? (
+      {loading && (
         <div className='text-muted-foreground py-8 text-center text-sm'>
           {t('Loading...')}
         </div>
-      ) : rows.length > 0 ? (
+      )}
+      {!loading && rows.length > 0 && (
         <div className='space-y-2'>
           {rows.map((row) => (
             <div
@@ -173,7 +174,8 @@ export function CacheStatsDialog(props: Props) {
             </div>
           ))}
         </div>
-      ) : (
+      )}
+      {!loading && rows.length === 0 && (
         <div className='text-muted-foreground py-8 text-center text-sm'>
           {t('No data available')}
         </div>

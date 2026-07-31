@@ -91,7 +91,7 @@ export function RedemptionsMutateDrawer({
   useEffect(() => {
     if (open && isUpdate && currentRow) {
       // For update, fetch fresh data
-      getRedemption(currentRow.id).then((result) => {
+      void getRedemption(currentRow.id).then((result) => {
         if (result.success && result.data) {
           form.reset(transformRedemptionToFormDefaults(result.data))
         }

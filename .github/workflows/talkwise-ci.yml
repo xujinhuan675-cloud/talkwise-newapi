@@ -39,6 +39,10 @@ jobs:
         working-directory: web
         run: bun run typecheck
 
+      - name: Lint web
+        working-directory: web
+        run: bun run lint
+
       - name: Check web format
         working-directory: web
         run: bun run format:check

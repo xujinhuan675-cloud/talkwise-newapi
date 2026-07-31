@@ -177,6 +177,12 @@ export const ModelPricingEditorPanel = forwardRef<
     const nextLaneState = createInitialLaneState(editData)
 
     if (editData) {
+      let nextPricingMode: PricingMode = 'per-token'
+      if (editData.billingMode === 'tiered_expr') {
+        nextPricingMode = 'tiered_expr'
+      } else if (editData.price) {
+        nextPricingMode = 'per-request'
+      }
       form.reset({
         name: editData.name,
         price: editData.price || '',
@@ -188,13 +194,7 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      setPricingMode(nextPricingMode)
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
     } else {

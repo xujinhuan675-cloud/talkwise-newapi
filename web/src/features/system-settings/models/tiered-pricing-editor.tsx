@@ -666,6 +666,7 @@ function VisualTierCard({
         ) : (
           tier.conditions.map((condition, conditionIndex) => (
             <ConditionRow
+              // eslint-disable-next-line react/no-array-index-key -- Parsed conditions have no durable ID; their position is the controlled editor identity.
               key={conditionIndex}
               condition={condition}
               onChange={(next) => handleConditionChange(conditionIndex, next)}
@@ -848,6 +849,7 @@ function VisualEditor({ visualConfig, onChange }: VisualEditorProps) {
       </p>
       {config.tiers.map((tier, index) => (
         <VisualTierCard
+          // eslint-disable-next-line react/no-array-index-key -- Parsed tiers have no durable ID; content-based keys would remount inputs while typing.
           key={index}
           tier={tier}
           index={index}
@@ -966,12 +968,12 @@ function RuleConditionRow({
         return timeFunc
     }
   }
-  const sourceLabel =
-    condition.source === SOURCE_PARAM
-      ? t('Body param')
-      : condition.source === SOURCE_HEADER
-        ? t('Header')
-        : t('Time')
+  let sourceLabel = t('Time')
+  if (condition.source === SOURCE_PARAM) {
+    sourceLabel = t('Body param')
+  } else if (condition.source === SOURCE_HEADER) {
+    sourceLabel = t('Header')
+  }
 
   const handleSourceChange = (source: string) => {
     if (source === SOURCE_TIME) {
@@ -1232,6 +1234,7 @@ function RuleGroupCard({
       <div className='space-y-2'>
         {group.conditions.map((condition, conditionIndex) => (
           <RuleConditionRow
+            // eslint-disable-next-line react/no-array-index-key -- Parsed rule conditions have no durable ID and are updated by position.
             key={conditionIndex}
             condition={condition}
             onChange={(next) => handleConditionChange(conditionIndex, next)}
@@ -1828,6 +1831,7 @@ export const TieredPricingEditor = memo(function TieredPricingEditor({
               <>
                 {requestRuleGroups.map((group, groupIndex) => (
                   <RuleGroupCard
+                    // eslint-disable-next-line react/no-array-index-key -- Parsed rule groups have no durable ID; content-based keys would remount the editor.
                     key={groupIndex}
                     group={group}
                     index={groupIndex}

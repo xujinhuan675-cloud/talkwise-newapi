@@ -50,6 +50,13 @@ function formatCompactThroughput(tps: number): string {
   return `${formatCompactNumber(tps)}t`
 }
 
+function getStatusBarColor(rate: number | null, isOldest: boolean): string {
+  if (rate == null) {
+    return isOldest ? 'bg-muted-foreground/10' : 'bg-muted-foreground/15'
+  }
+  return getSuccessRateDotClass(rate)
+}
+
 export const ModelPerfBadge = memo(function ModelPerfBadge(
   props: ModelPerfBadgeProps
 ) {
@@ -66,10 +73,15 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
     []
   const statusRates =
     recentRates.length > 0 ? recentRates.slice(-3) : [success_rate]
-  const statusBars = [
+  const paddedRates = [
     ...Array(Math.max(0, 3 - statusRates.length)).fill(null),
     ...statusRates,
   ].slice(-3)
+  const statusBars = [
+    { id: 'oldest', height: 'h-2', rate: paddedRates[0] ?? null },
+    { id: 'middle', height: 'h-2.5', rate: paddedRates[1] ?? null },
+    { id: 'newest', height: 'h-3', rate: paddedRates[2] ?? null },
+  ] as const
 
   return (
     <div
@@ -102,19 +114,13 @@ export const ModelPerfBadge = memo(function ModelPerfBadge(
           {t('Status short')}
         </div>
         <div className='flex h-4 items-center justify-end gap-0.5'>
-          {statusBars.map((rate, index) => (
+          {statusBars.map((bar) => (
             <span
-              key={`${index}-${rate ?? 'empty'}`}
+              key={bar.id}
               className={cn(
                 'w-1 rounded-full',
-                index === 0 && 'h-2',
-                index === 1 && 'h-2.5',
-                index === 2 && 'h-3',
-                rate == null
-                  ? index === 0
-                    ? 'bg-muted-foreground/10'
-                    : 'bg-muted-foreground/15'
-                  : getSuccessRateDotClass(rate)
+                bar.height,
+                getStatusBarColor(bar.rate, bar.id === 'oldest')
               )}
             />
           ))}
