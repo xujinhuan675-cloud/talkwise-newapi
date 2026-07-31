@@ -18,6 +18,35 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createSectionRegistry } from '@/features/system-settings/utils/section-registry'
 
+export const TRAINING_SIDEBAR_MODULE = 'training'
+export const TRAINING_SIDEBAR_ITEM = 'studio'
+
+export const TRAINING_DIRECT_ROUTE_PATHS = [
+  '/training',
+  '/training/scenarios',
+  '/training/studio',
+  '/training/live-coach',
+  '/training/conversations',
+  '/training/personas',
+  '/training/personas/new',
+  '/training/personas/:personaId',
+  '/training/sessions',
+  '/training/growth',
+  '/training/growth/leaderboard',
+  '/training/team/competencies',
+  '/training/team/scenarios',
+  '/training/prep/battle',
+  '/training/prep/defense',
+  '/training/settings',
+] as const
+
+export const TRAINING_LEGACY_SECTION_DESTINATIONS = {
+  overview: '/training',
+  scenarios: '/training/scenarios',
+  sessions: '/training/sessions',
+  growth: '/training/growth',
+} as const
+
 const TRAINING_SECTIONS = [
   {
     id: 'overview',
@@ -56,3 +85,13 @@ const trainingRegistry = createSectionRegistry<
 
 export const TRAINING_SECTION_IDS = trainingRegistry.sectionIds
 export const TRAINING_DEFAULT_SECTION = trainingRegistry.defaultSection
+
+export function resolveTrainingLegacySectionDestination(
+  section: string
+): string | null {
+  return (
+    TRAINING_LEGACY_SECTION_DESTINATIONS[
+      section as keyof typeof TRAINING_LEGACY_SECTION_DESTINATIONS
+    ] ?? null
+  )
+}

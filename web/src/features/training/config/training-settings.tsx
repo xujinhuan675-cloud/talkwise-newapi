@@ -22,13 +22,11 @@ import {
   CircleAlert,
   LoaderCircle,
   Plus,
-  RefreshCw,
   Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -58,6 +56,8 @@ import {
   SettingsFormGridItem,
   SettingsSwitchField,
 } from '@/features/system-settings/components/settings-form-layout'
+import { SettingsPageFrame } from '@/features/system-settings/components/settings-page'
+import { SettingsPageFormActions } from '@/features/system-settings/components/settings-page-context'
 
 import { useTrainingHost } from '../host'
 import {
@@ -75,6 +75,12 @@ import type {
 } from './types'
 
 type SettingsTab = 'dimensions' | 'scenarios'
+type Localize = (english: string, chinese: string) => string
+
+type DefaultDimensionLocalization = {
+  name: readonly [english: string, chinese: string]
+  description: readonly [english: string, chinese: string]
+}
 
 const CATEGORIES: TrainingScenarioCategory[] = [
   'sales',
@@ -90,6 +96,53 @@ const DIFFICULTIES: TrainingScenarioDifficulty[] = [
   'expert',
 ]
 const FRAMEWORKS = ['prep', 'star', 'scqa', 'pyramid']
+const LEARNER_ROLE_LOCALIZATION: Record<string, readonly [string, string]> = {
+  'Customer Success Manager': ['Customer Success Manager', '客户成功经理'],
+  'Project Lead': ['Project Lead', '项目负责人'],
+  Salesperson: ['Salesperson', '销售顾问'],
+  'Team Member': ['Team Member', '团队成员'],
+}
+
+const DEFAULT_DIMENSION_LOCALIZATION: Record<
+  string,
+  DefaultDimensionLocalization
+> = {
+  substance: {
+    name: ['Substance', '内容质量'],
+    description: [
+      'Addresses the real issue with concrete information, trade-offs, and useful next steps.',
+      '围绕真实问题，给出具体信息、权衡取舍和有用的下一步建议。',
+    ],
+  },
+  structure: {
+    name: ['Structure', '表达结构'],
+    description: [
+      'Keeps the response easy to follow with an appropriate framework and clear flow.',
+      '用合适的框架和清晰的逻辑，使回应易于理解。',
+    ],
+  },
+  relevance: {
+    name: ['Relevance', '回应相关性'],
+    description: [
+      "Responds to the counterpart's actual need or objection instead of using generic scripts.",
+      '回应对方真实需求或异议，而不是套用泛泛话术。',
+    ],
+  },
+  credibility: {
+    name: ['Credibility', '可信度'],
+    description: [
+      'Supports claims with evidence, examples, limitations, or a believable plan.',
+      '用证据、案例、限制条件或可信的实施计划支持观点。',
+    ],
+  },
+  differentiation: {
+    name: ['Differentiation', '差异化'],
+    description: [
+      'Creates a clear point of view, contrast, or differentiated value.',
+      '形成清晰观点、有效对比或差异化价值。',
+    ],
+  },
+}
 
 function nowIso(): string {
   return new Date().toISOString()
@@ -163,6 +216,30 @@ function newDimension(): TrainingScenarioDimension {
   }
 }
 
+function localizeDimension(
+  dimension: TrainingScenarioDimension,
+  localize: Localize
+): Pick<TrainingScenarioDimension, 'name' | 'description'> {
+  const defaultDimension = DEFAULT_DIMENSION_LOCALIZATION[dimension.id]
+
+  if (
+    dimension.source !== 'default' ||
+    !defaultDimension ||
+    dimension.name !== defaultDimension.name[0] ||
+    dimension.description !== defaultDimension.description[0]
+  ) {
+    return {
+      name: dimension.name,
+      description: dimension.description,
+    }
+  }
+
+  return {
+    name: localize(...defaultDimension.name),
+    description: localize(...defaultDimension.description),
+  }
+}
+
 function scenarioLabel(
   scenario: TrainingScenarioConfigDraft,
   localize: (english: string, chinese: string) => string
@@ -188,6 +265,22 @@ function difficultyLabel(
     expert: ['Expert', '专家'],
   }
   return localize(...labels[difficulty])
+}
+
+function frameworkLabel(framework: string, localize: Localize): string {
+  const labels: Record<string, readonly [string, string]> = {
+    prep: ['PREP framework', 'PREP 表达法'],
+    star: ['STAR framework', 'STAR 法则'],
+    scqa: ['SCQA framework', 'SCQA 表达法'],
+    pyramid: ['Pyramid principle', '金字塔原理'],
+  }
+  const label = labels[framework]
+  return label ? localize(...label) : framework.toUpperCase()
+}
+
+function learnerRoleLabel(role: string, localize: Localize): string {
+  const label = LEARNER_ROLE_LOCALIZATION[role]
+  return label ? localize(...label) : role
 }
 
 export function TrainingSettings() {
@@ -381,273 +474,249 @@ export function TrainingSettings() {
 
   if (host.authStatus === 'anonymous') {
     return (
-      <SectionPageLayout>
-        <SectionPageLayout.Title>
-          {localize('Training settings', '训练设置')}
-        </SectionPageLayout.Title>
-        <SectionPageLayout.Content>
-          <Alert variant='destructive'>
-            <CircleAlert />
-            <AlertTitle>{localize('Sign-in required', '需要登录')}</AlertTitle>
-            <AlertDescription>
-              {localize(
-                'Sign in to view the training configuration.',
-                '登录后才能查看训练配置。'
-              )}
-            </AlertDescription>
-          </Alert>
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
+      <SettingsPageFrame title={localize('Training settings', '训练设置')}>
+        <Alert variant='destructive'>
+          <CircleAlert />
+          <AlertTitle>{localize('Sign-in required', '需要登录')}</AlertTitle>
+          <AlertDescription>
+            {localize(
+              'Sign in to view the training configuration.',
+              '登录后才能查看训练配置。'
+            )}
+          </AlertDescription>
+        </Alert>
+      </SettingsPageFrame>
     )
   }
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>
-        {localize('Training settings', '训练设置')}
-      </SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={reset}
-          disabled={configQuery.isFetching || saveMutation.isPending}
-        >
-          <RefreshCw
-            data-icon='inline-start'
-            className={configQuery.isFetching ? 'animate-spin' : undefined}
-          />
-          {localize('Reload', '重新加载')}
-        </Button>
-        <Button size='sm' onClick={save} disabled={!canSave}>
-          {saveMutation.isPending ? (
-            <LoaderCircle data-icon='inline-start' className='animate-spin' />
-          ) : (
-            <CheckCircle2 data-icon='inline-start' />
-          )}
-          {saveMutation.isPending
-            ? localize('Saving...', '保存中...')
-            : localize('Save changes', '保存更改')}
-        </Button>
-      </SectionPageLayout.Actions>
-      <SectionPageLayout.Content>
-        <div className='space-y-4'>
-          {configQuery.isError && (
-            <Alert variant='destructive'>
-              <CircleAlert />
-              <AlertTitle>
-                {localize(
-                  'Unable to load training settings',
-                  '无法加载训练设置'
-                )}
-              </AlertTitle>
-              <AlertDescription>
-                {trainingConfigRequestErrorMessage(
-                  configQuery.error,
-                  localize('Request failed', '请求失败')
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+    <SettingsPageFrame title={localize('Training settings', '训练设置')}>
+      <SettingsPageFormActions
+        onSave={save}
+        onReset={reset}
+        isSaving={saveMutation.isPending}
+        isSaveDisabled={!canSave}
+        isResetDisabled={configQuery.isFetching}
+        saveLabel={localize('Save changes', '保存更改')}
+        savingLabel={localize('Saving...', '保存中...')}
+        resetLabel={localize('Reload', '重新加载')}
+      />
+      <div className='space-y-4'>
+        {configQuery.isError && (
+          <Alert variant='destructive'>
+            <CircleAlert />
+            <AlertTitle>
+              {localize('Unable to load training settings', '无法加载训练设置')}
+            </AlertTitle>
+            <AlertDescription>
+              {trainingConfigRequestErrorMessage(
+                configQuery.error,
+                localize('Request failed', '请求失败')
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          {saveMutation.isError && (
-            <Alert variant='destructive'>
-              <CircleAlert />
-              <AlertTitle>
-                {localize(
-                  'Unable to save training settings',
-                  '无法保存训练设置'
-                )}
-              </AlertTitle>
-              <AlertDescription>
-                {trainingConfigRequestErrorMessage(
-                  saveMutation.error,
-                  localize('Request failed', '请求失败')
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+        {saveMutation.isError && (
+          <Alert variant='destructive'>
+            <CircleAlert />
+            <AlertTitle>
+              {localize('Unable to save training settings', '无法保存训练设置')}
+            </AlertTitle>
+            <AlertDescription>
+              {trainingConfigRequestErrorMessage(
+                saveMutation.error,
+                localize('Request failed', '请求失败')
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          {saveMutation.isSuccess && (
-            <Alert>
-              <CheckCircle2 />
-              <AlertTitle>
-                {localize('Training settings saved', '训练设置已保存')}
-              </AlertTitle>
-              <AlertDescription>
-                {localize(
-                  'Published scenarios will use this configuration for new sessions.',
-                  '新建训练会话会使用这份已发布配置。'
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
+        {saveMutation.isSuccess && (
+          <Alert>
+            <CheckCircle2 />
+            <AlertTitle>
+              {localize('Training settings saved', '训练设置已保存')}
+            </AlertTitle>
+            <AlertDescription>
+              {localize(
+                'Published scenarios will use this configuration for new sessions.',
+                '新建训练会话会使用这份已发布配置。'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          {(configQuery.isPending || host.authStatus === 'loading') && (
-            <div className='text-muted-foreground flex min-h-40 items-center justify-center text-sm'>
-              <LoaderCircle className='mr-2 animate-spin' />
-              {localize('Loading training settings...', '正在加载训练设置...')}
-            </div>
-          )}
+        {(configQuery.isPending || host.authStatus === 'loading') && (
+          <div className='text-muted-foreground flex min-h-40 items-center justify-center text-sm'>
+            <LoaderCircle className='mr-2 animate-spin' />
+            {localize('Loading training settings...', '正在加载训练设置...')}
+          </div>
+        )}
 
-          {!configQuery.isPending && !configQuery.isError && draft && (
-            <Tabs
-              value={tab}
-              onValueChange={(value) => setTab(value as SettingsTab)}
-            >
-              <TabsList variant='line'>
-                <TabsTrigger value='scenarios'>
-                  {localize('Scenarios', '训练场景')}
-                  <Badge variant='secondary' className='ml-1'>
-                    {draft.scenarios.length}
-                  </Badge>
-                </TabsTrigger>
-                <TabsTrigger value='dimensions'>
-                  {localize('Scoring dimensions', '评分维度')}
-                  <Badge variant='secondary' className='ml-1'>
-                    {draft.dimensions.length}
-                  </Badge>
-                </TabsTrigger>
-              </TabsList>
+        {!configQuery.isPending && !configQuery.isError && draft && (
+          <Tabs
+            value={tab}
+            onValueChange={(value) => setTab(value as SettingsTab)}
+          >
+            <TabsList variant='line'>
+              <TabsTrigger value='scenarios'>
+                {localize('Scenarios', '训练场景')}
+                <Badge variant='secondary' className='ml-1'>
+                  {draft.scenarios.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value='dimensions'>
+                {localize('Scoring dimensions', '评分维度')}
+                <Badge variant='secondary' className='ml-1'>
+                  {draft.dimensions.length}
+                </Badge>
+              </TabsTrigger>
+            </TabsList>
 
-              <TabsContent value='scenarios' className='mt-5'>
-                <div className='space-y-4'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Select
-                      value={selectedScenario?.id ?? null}
-                      onValueChange={selectScenario}
-                    >
-                      <SelectTrigger className='w-full sm:w-80'>
-                        <SelectValue
-                          placeholder={localize(
-                            'Select a scenario',
-                            '选择训练场景'
-                          )}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {draft.scenarios.map((scenario) => (
-                            <SelectItem key={scenario.id} value={scenario.id}>
-                              {scenario.title}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={createScenario}
-                    >
-                      <Plus data-icon='inline-start' />
-                      {localize('Add scenario', '新建场景')}
-                    </Button>
-                    <Button
-                      variant='destructive'
-                      size='sm'
-                      onClick={removeScenario}
-                      disabled={draft.scenarios.length <= 1}
-                    >
-                      <Trash2 data-icon='inline-start' />
-                      {localize('Remove', '删除')}
-                    </Button>
-                  </div>
-
-                  {selectedScenario ? (
-                    <ScenarioForm
-                      scenario={selectedScenario}
-                      dimensions={draft.dimensions}
-                      isWeightValid={isWeightValid}
-                      localize={localize}
-                      onChange={(updater) =>
-                        updateScenario(selectedScenario.id, updater)
-                      }
-                    />
-                  ) : (
-                    <NoConfiguration
-                      localize={localize}
-                      title='No scenarios'
-                      titleZh='暂无训练场景'
-                      description='Add a scenario to start configuring training.'
-                      descriptionZh='新建场景后即可配置训练内容。'
-                    />
-                  )}
+            <TabsContent value='scenarios' className='mt-5'>
+              <div className='space-y-4'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Select
+                    value={selectedScenario?.id ?? null}
+                    onValueChange={selectScenario}
+                  >
+                    <SelectTrigger className='w-full sm:w-80'>
+                      <SelectValue
+                        placeholder={localize(
+                          'Select a scenario',
+                          '选择训练场景'
+                        )}
+                      >
+                        {selectedScenario?.title}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {draft.scenarios.map((scenario) => (
+                          <SelectItem key={scenario.id} value={scenario.id}>
+                            {scenario.title}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button variant='outline' size='sm' onClick={createScenario}>
+                    <Plus data-icon='inline-start' />
+                    {localize('Add scenario', '新建场景')}
+                  </Button>
+                  <Button
+                    variant='destructive'
+                    size='sm'
+                    onClick={removeScenario}
+                    disabled={draft.scenarios.length <= 1}
+                  >
+                    <Trash2 data-icon='inline-start' />
+                    {localize('Remove', '删除')}
+                  </Button>
                 </div>
-              </TabsContent>
 
-              <TabsContent value='dimensions' className='mt-5'>
-                <div className='space-y-4'>
-                  <div className='flex flex-wrap items-center gap-2'>
-                    <Select
-                      value={selectedDimension?.id ?? null}
-                      onValueChange={selectDimension}
-                    >
-                      <SelectTrigger className='w-full sm:w-80'>
-                        <SelectValue
-                          placeholder={localize(
-                            'Select a dimension',
-                            '选择评分维度'
-                          )}
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {draft.dimensions.map((dimension) => (
+                {selectedScenario ? (
+                  <ScenarioForm
+                    scenario={selectedScenario}
+                    dimensions={draft.dimensions}
+                    isWeightValid={isWeightValid}
+                    localize={localize}
+                    onChange={(updater) =>
+                      updateScenario(selectedScenario.id, updater)
+                    }
+                  />
+                ) : (
+                  <NoConfiguration
+                    localize={localize}
+                    title='No scenarios'
+                    titleZh='暂无训练场景'
+                    description='Add a scenario to start configuring training.'
+                    descriptionZh='新建场景后即可配置训练内容。'
+                  />
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value='dimensions' className='mt-5'>
+              <div className='space-y-4'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <Select
+                    value={selectedDimension?.id ?? null}
+                    onValueChange={selectDimension}
+                  >
+                    <SelectTrigger className='w-full sm:w-80'>
+                      <SelectValue
+                        placeholder={localize(
+                          'Select a dimension',
+                          '选择评分维度'
+                        )}
+                      >
+                        {selectedDimension
+                          ? localizeDimension(selectedDimension, localize).name
+                          : null}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {draft.dimensions.map((dimension) => {
+                          const presentation = localizeDimension(
+                            dimension,
+                            localize
+                          )
+                          return (
                             <SelectItem key={dimension.id} value={dimension.id}>
-                              {dimension.name}
+                              {presentation.name}
                             </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={createDimension}
-                    >
-                      <Plus data-icon='inline-start' />
-                      {localize('Add dimension', '新建维度')}
-                    </Button>
-                    <Button
-                      variant='destructive'
-                      size='sm'
-                      onClick={removeDimension}
-                      disabled={selectedDimension?.source !== 'local'}
-                    >
-                      <Trash2 data-icon='inline-start' />
-                      {localize('Remove', '删除')}
-                    </Button>
-                  </div>
-
-                  {selectedDimension ? (
-                    <DimensionForm
-                      dimension={selectedDimension}
-                      localize={localize}
-                      onChange={(updater) =>
-                        updateDimension(selectedDimension.id, updater)
-                      }
-                    />
-                  ) : (
-                    <NoConfiguration
-                      localize={localize}
-                      title='No scoring dimensions'
-                      titleZh='暂无评分维度'
-                      description='Add a scoring dimension before assigning rubric weights.'
-                      descriptionZh='请先新建评分维度，再为场景分配权重。'
-                    />
-                  )}
+                          )
+                        })}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Button variant='outline' size='sm' onClick={createDimension}>
+                    <Plus data-icon='inline-start' />
+                    {localize('Add dimension', '新建维度')}
+                  </Button>
+                  <Button
+                    variant='destructive'
+                    size='sm'
+                    onClick={removeDimension}
+                    disabled={selectedDimension?.source !== 'local'}
+                  >
+                    <Trash2 data-icon='inline-start' />
+                    {localize('Remove', '删除')}
+                  </Button>
                 </div>
-              </TabsContent>
-            </Tabs>
-          )}
-        </div>
-      </SectionPageLayout.Content>
-    </SectionPageLayout>
+
+                {selectedDimension ? (
+                  <DimensionForm
+                    dimension={selectedDimension}
+                    presentation={localizeDimension(
+                      selectedDimension,
+                      localize
+                    )}
+                    localize={localize}
+                    onChange={(updater) =>
+                      updateDimension(selectedDimension.id, updater)
+                    }
+                  />
+                ) : (
+                  <NoConfiguration
+                    localize={localize}
+                    title='No scoring dimensions'
+                    titleZh='暂无评分维度'
+                    description='Add a scoring dimension before assigning rubric weights.'
+                    descriptionZh='请先新建评分维度，再为场景分配权重。'
+                  />
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
+      </div>
+    </SettingsPageFrame>
   )
 }
-
-type Localize = (english: string, chinese: string) => string
 
 type ScenarioFormProps = {
   scenario: TrainingScenarioConfigDraft
@@ -718,21 +787,26 @@ function ScenarioForm(props: ScenarioFormProps) {
 
   return (
     <SettingsForm onSubmit={(event) => event.preventDefault()}>
-      <SettingsControlGroup>
-        <div className='flex flex-wrap items-center gap-2'>
-          <span className='font-medium'>{props.scenario.title}</span>
-          <Badge variant={props.scenario.enabled ? 'secondary' : 'outline'}>
-            {props.scenario.enabled
-              ? props.localize('Enabled', '已启用')
-              : props.localize('Disabled', '已禁用')}
-          </Badge>
-          {props.scenario.required && (
-            <Badge variant='outline'>
-              {props.localize('Required', '必练')}
-            </Badge>
+      <div className='grid gap-4 md:grid-cols-2'>
+        <SettingsSwitchField
+          checked={props.scenario.enabled}
+          onCheckedChange={(enabled) => patch({ enabled })}
+          label={props.localize('Publish scenario', '启用场景')}
+          description={props.localize(
+            'Only enabled scenarios appear in the practice catalog.',
+            '只有启用的场景会显示在练习场景库中。'
           )}
-        </div>
-      </SettingsControlGroup>
+        />
+        <SettingsSwitchField
+          checked={props.scenario.required}
+          onCheckedChange={(required) => patch({ required })}
+          label={props.localize('Required practice', '标记为必练')}
+          description={props.localize(
+            'Mark this scenario as a required practice item.',
+            '将此场景标记为必练项目。'
+          )}
+        />
+      </div>
 
       <SettingsFormGrid>
         <SettingsFormGridItem>
@@ -751,7 +825,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-learner-role'
-            value={props.scenario.learnerRole}
+            value={learnerRoleLabel(props.scenario.learnerRole, props.localize)}
             onChange={(event) => patch({ learnerRole: event.target.value })}
           />
         </SettingsFormGridItem>
@@ -764,7 +838,9 @@ function ScenarioForm(props: ScenarioFormProps) {
             }
           >
             <SelectTrigger className='w-full'>
-              <SelectValue />
+              <SelectValue>
+                {scenarioLabel(props.scenario, props.localize)}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -790,7 +866,9 @@ function ScenarioForm(props: ScenarioFormProps) {
             }
           >
             <SelectTrigger className='w-full'>
-              <SelectValue />
+              <SelectValue>
+                {difficultyLabel(props.scenario.difficulty, props.localize)}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -810,13 +888,15 @@ function ScenarioForm(props: ScenarioFormProps) {
             onValueChange={(value) => value && patch({ framework: value })}
           >
             <SelectTrigger className='w-full'>
-              <SelectValue />
+              <SelectValue>
+                {frameworkLabel(props.scenario.framework, props.localize)}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
                 {FRAMEWORKS.map((framework) => (
                   <SelectItem key={framework} value={framework}>
-                    {framework.toUpperCase()}
+                    {frameworkLabel(framework, props.localize)}
                   </SelectItem>
                 ))}
               </SelectGroup>
@@ -873,27 +953,6 @@ function ScenarioForm(props: ScenarioFormProps) {
           />
         </SettingsFormGridItem>
       </SettingsFormGrid>
-
-      <SettingsControlGroup>
-        <SettingsSwitchField
-          checked={props.scenario.enabled}
-          onCheckedChange={(enabled) => patch({ enabled })}
-          label={props.localize('Publish scenario', '启用场景')}
-          description={props.localize(
-            'Only enabled scenarios appear in the practice catalog.',
-            '只有启用的场景会显示在练习场景库中。'
-          )}
-        />
-        <SettingsSwitchField
-          checked={props.scenario.required}
-          onCheckedChange={(required) => patch({ required })}
-          label={props.localize('Required practice', '标记为必练')}
-          description={props.localize(
-            'Mark this scenario as a required practice item.',
-            '将此场景标记为必练项目。'
-          )}
-        />
-      </SettingsControlGroup>
 
       <SettingsFormGrid>
         <SettingsFormGridItem>
@@ -962,6 +1021,7 @@ function ScenarioForm(props: ScenarioFormProps) {
         </div>
         <div className='divide-y'>
           {props.dimensions.map((dimension) => {
+            const presentation = localizeDimension(dimension, props.localize)
             const selected = selectedDimensionIds.has(dimension.id)
             const weight = props.scenario.dimensionWeights.find(
               (item) => item.dimensionId === dimension.id
@@ -979,16 +1039,16 @@ function ScenarioForm(props: ScenarioFormProps) {
                     onCheckedChange={(checked) =>
                       toggleDimension(dimension.id, checked)
                     }
-                    label={dimension.name}
-                    description={dimension.description}
+                    label={presentation.name}
+                    description={presentation.description}
                     className='py-0'
                   />
                 </div>
                 <div className='relative'>
                   <Input
                     aria-label={props.localize(
-                      `${dimension.name} weight`,
-                      `${dimension.name} 权重`
+                      `${presentation.name} weight`,
+                      `${presentation.name} 权重`
                     )}
                     type='number'
                     min='0'
@@ -1015,6 +1075,7 @@ function ScenarioForm(props: ScenarioFormProps) {
 
 type DimensionFormProps = {
   dimension: TrainingScenarioDimension
+  presentation: Pick<TrainingScenarioDimension, 'name' | 'description'>
   localize: Localize
   onChange: (
     updater: (dimension: TrainingScenarioDimension) => TrainingScenarioDimension
@@ -1034,7 +1095,7 @@ function DimensionForm(props: DimensionFormProps) {
     <SettingsForm onSubmit={(event) => event.preventDefault()}>
       <SettingsControlGroup>
         <div className='flex flex-wrap items-center gap-2'>
-          <span className='font-medium'>{props.dimension.name}</span>
+          <span className='font-medium'>{props.presentation.name}</span>
           <Badge variant='outline'>
             {props.dimension.source === 'local'
               ? props.localize('Custom', '自定义')
@@ -1059,7 +1120,7 @@ function DimensionForm(props: DimensionFormProps) {
           </Label>
           <Input
             id='training-dimension-name'
-            value={props.dimension.name}
+            value={props.presentation.name}
             onChange={(event) => patch({ name: event.target.value })}
           />
         </SettingsFormGridItem>
@@ -1070,7 +1131,7 @@ function DimensionForm(props: DimensionFormProps) {
           <Textarea
             id='training-dimension-description'
             rows={3}
-            value={props.dimension.description}
+            value={props.presentation.description}
             onChange={(event) => patch({ description: event.target.value })}
           />
         </SettingsFormGridItem>

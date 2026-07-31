@@ -507,6 +507,410 @@ func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) 
 	assert.JSONEq(t, body, forwarded.Body)
 }
 
+func TestTalkWisePreparationProxiesUseFixedScopedNamespaces(t *testing.T) {
+	type observedRequest struct {
+		Path          string
+		RawQuery      string
+		Authorization string
+		Cookie        string
+		MockUser      string
+	}
+	observed := make(chan observedRequest, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any("/api/talkwise/battle-prep/*path", ProxyTalkWiseBattlePrep)
+	router.Any("/api/talkwise/defense-prep/*path", ProxyTalkWiseDefensePrep)
+
+	for _, testCase := range []struct {
+		path          string
+		expectedPath  string
+		expectedQuery string
+	}{
+		{
+			path:          "/api/talkwise/battle-prep/start?source=workspace&mock_user=admin&auth_user_id=other",
+			expectedPath:  "/internal/api/v1/stakeholder/battle-prep/start",
+			expectedQuery: "source=workspace",
+		},
+		{
+			path:          "/api/talkwise/defense-prep/sessions/7?mock_user=admin&auth_team_id=other-team",
+			expectedPath:  "/internal/api/v1/defense-prep/sessions/7",
+			expectedQuery: "",
+		},
+	} {
+		request := httptest.NewRequest(http.MethodPost, testCase.path, nil)
+		request.Header.Set("Authorization", "Bearer dashboard-access-token")
+		request.Header.Set("Cookie", "talkwise_session=spoofed")
+		request.Header.Set("X-Mock-User", "admin")
+		recorder := newCloseNotifyRecorder()
+
+		router.ServeHTTP(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		forwarded := <-observed
+		assert.Equal(t, testCase.expectedPath, forwarded.Path)
+		assert.Equal(t, testCase.expectedQuery, forwarded.RawQuery)
+		assert.Equal(t, "Bearer dashboard-access-token", forwarded.Authorization)
+		assert.Empty(t, forwarded.Cookie)
+		assert.Empty(t, forwarded.MockUser)
+	}
+}
+
+func TestTalkWisePersonaProxyPreservesScopedResourceContract(t *testing.T) {
+	type observedRequest struct {
+		Method        string
+		Path          string
+		RawQuery      string
+		Authorization string
+		ContentType   string
+		Cookie        string
+		MockUser      string
+		UserID        string
+		TeamID        string
+		Body          string
+	}
+	observed := make(chan observedRequest, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			Method:        request.Method,
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			ContentType:   request.Header.Get("Content-Type"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+			UserID:        request.Header.Get("X-User-Id"),
+			TeamID:        request.Header.Get("X-Team-Id"),
+			Body:          string(body),
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any("/api/talkwise/personas", ProxyTalkWisePersonas)
+	router.Any("/api/talkwise/personas/*path", ProxyTalkWisePersonas)
+
+	listRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/talkwise/personas?visibility=team&mock_user=admin&auth_user_id=other&auth_team_id=other-team",
+		nil,
+	)
+	listRequest.Header.Set("Authorization", "Bearer dashboard-access-token")
+	listRequest.Header.Set("Cookie", "talkwise_session=spoofed")
+	listRequest.Header.Set("X-Mock-User", "admin")
+	listRequest.Header.Set("X-User-Id", "other-user")
+	listRequest.Header.Set("X-Team-Id", "other-team")
+	listRecorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(listRecorder, listRequest)
+
+	require.Equal(t, http.StatusOK, listRecorder.Code)
+	forwardedList := <-observed
+	assert.Equal(t, http.MethodGet, forwardedList.Method)
+	assert.Equal(t, "/internal/api/v1/stakeholder/personas", forwardedList.Path)
+	assert.Equal(t, "visibility=team", forwardedList.RawQuery)
+	assert.Equal(t, "Bearer dashboard-access-token", forwardedList.Authorization)
+	assert.Empty(t, forwardedList.Cookie)
+	assert.Empty(t, forwardedList.MockUser)
+	assert.Empty(t, forwardedList.UserID)
+	assert.Empty(t, forwardedList.TeamID)
+
+	patchBody := `{"name":"Enterprise CFO","rejected_features":{"hard_rules":[0]}}`
+	patchRequest := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/talkwise/personas/cfo/v2?include=evidence&auth_role=root",
+		strings.NewReader(patchBody),
+	)
+	patchRequest.Header.Set("Authorization", "Bearer dashboard-access-token")
+	patchRequest.Header.Set("Content-Type", "application/json")
+	patchRecorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(patchRecorder, patchRequest)
+
+	require.Equal(t, http.StatusOK, patchRecorder.Code)
+	forwardedPatch := <-observed
+	assert.Equal(t, http.MethodPatch, forwardedPatch.Method)
+	assert.Equal(t, "/internal/api/v1/stakeholder/personas/cfo/v2", forwardedPatch.Path)
+	assert.Equal(t, "include=evidence", forwardedPatch.RawQuery)
+	assert.Equal(t, "Bearer dashboard-access-token", forwardedPatch.Authorization)
+	assert.Equal(t, "application/json", forwardedPatch.ContentType)
+	assert.JSONEq(t, patchBody, forwardedPatch.Body)
+}
+
+func TestTalkWisePersonaBuilderMapsOnlyFixedPostActionsAndStreamsSSE(t *testing.T) {
+	type observedRequest struct {
+		Path          string
+		RawQuery      string
+		Authorization string
+		Cookie        string
+		MockUser      string
+		Body          string
+	}
+	observed := make(chan observedRequest, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+			Body:          string(body),
+		}
+		if strings.HasSuffix(request.URL.Path, "/build") {
+			writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			_, _ = writer.Write([]byte("data: {\"seq\":1,\"type\":\"workspace_ready\"}\n\n"))
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"success":true,"data":[]}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.POST("/api/talkwise/persona-builder/detect-speakers", ProxyTalkWisePersonaDetectSpeakers)
+	router.POST("/api/talkwise/persona-builder/build", ProxyTalkWisePersonaBuild)
+
+	for _, testCase := range []struct {
+		path                 string
+		expectedUpstreamPath string
+		expectedContentType  string
+		expectedResponse     string
+	}{
+		{
+			path:                 "/api/talkwise/persona-builder/detect-speakers?locale=zh&mock_user=admin",
+			expectedUpstreamPath: "/internal/api/v1/stakeholder/persona/detect-speakers",
+			expectedContentType:  "application/json",
+			expectedResponse:     `{"success":true,"data":[]}`,
+		},
+		{
+			path:                 "/api/talkwise/persona-builder/build?mode=guided&auth_user_id=other",
+			expectedUpstreamPath: "/internal/api/v1/stakeholder/persona/build",
+			expectedContentType:  "text/event-stream; charset=utf-8",
+			expectedResponse:     "data: {\"seq\":1,\"type\":\"workspace_ready\"}\n\n",
+		},
+	} {
+		body := `{"materials":["speaker: hello"]}`
+		request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer dashboard-access-token")
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Cookie", "talkwise_session=spoofed")
+		request.Header.Set("X-Mock-User", "admin")
+		recorder := newCloseNotifyRecorder()
+
+		router.ServeHTTP(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		assert.Equal(t, testCase.expectedContentType, recorder.Header().Get("Content-Type"))
+		if strings.HasPrefix(testCase.expectedContentType, "application/json") {
+			assert.JSONEq(t, testCase.expectedResponse, recorder.Body.String())
+		} else {
+			assert.Equal(t, testCase.expectedResponse, recorder.Body.String())
+		}
+		forwarded := <-observed
+		assert.Equal(t, testCase.expectedUpstreamPath, forwarded.Path)
+		assert.Equal(t, strings.Split(strings.Split(testCase.path, "?")[1], "&")[0], forwarded.RawQuery)
+		assert.Equal(t, "Bearer dashboard-access-token", forwarded.Authorization)
+		assert.Empty(t, forwarded.Cookie)
+		assert.Empty(t, forwarded.MockUser)
+		assert.JSONEq(t, body, forwarded.Body)
+	}
+}
+
+func TestTalkWisePersonaProxiesReportUnavailableConfigurationAndUpstream(t *testing.T) {
+	t.Setenv(talkWiseTrainingUpstreamEnv, "")
+	for _, testCase := range []struct {
+		name         string
+		path         string
+		handler      gin.HandlerFunc
+		expectedCode string
+	}{
+		{
+			name:         "persona",
+			path:         "/api/talkwise/personas",
+			handler:      ProxyTalkWisePersonas,
+			expectedCode: talkWisePersonaProxyUnavailable,
+		},
+		{
+			name:         "builder",
+			path:         "/api/talkwise/persona-builder/build",
+			handler:      ProxyTalkWisePersonaBuild,
+			expectedCode: talkWisePersonaBuilderProxyUnavailable,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			router := gin.New()
+			router.POST(testCase.path, testCase.handler)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, testCase.path, nil))
+
+			require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+			var response struct {
+				Success bool   `json:"success"`
+				Code    string `json:"code"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.False(t, response.Success)
+			assert.Equal(t, testCase.expectedCode, response.Code)
+		})
+	}
+
+	deadUpstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	deadURL := deadUpstream.URL
+	deadUpstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, deadURL)
+	router := gin.New()
+	router.POST("/api/talkwise/persona-builder/build", ProxyTalkWisePersonaBuild)
+	recorder := newCloseNotifyRecorder()
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodPost, "/api/talkwise/persona-builder/build", nil),
+	)
+
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, talkWisePersonaBuilderUpstreamUnavailable, response.Code)
+}
+
+func TestTalkWiseConversationTreeProxyPreservesMessageTreeAndStreamingChatContract(t *testing.T) {
+	type observedRequest struct {
+		Method        string
+		Path          string
+		RawQuery      string
+		Authorization string
+		ContentType   string
+		Cookie        string
+		MockUser      string
+		UserID        string
+		TeamID        string
+		Body          string
+	}
+	observed := make(chan observedRequest, 2)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			Method:        request.Method,
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			ContentType:   request.Header.Get("Content-Type"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+			UserID:        request.Header.Get("X-User-Id"),
+			TeamID:        request.Header.Get("X-Team-Id"),
+			Body:          string(body),
+		}
+
+		switch request.URL.Path {
+		case "/internal/api/v1/conversations/42/messages":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = writer.Write([]byte(`{"code":0,"data":{"items":[]}}`))
+		case "/internal/api/v1/conversations/42/chat":
+			writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+			_, _ = writer.Write([]byte("event: message\ndata: {\"delta\":\"hello\"}\n\n"))
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any("/api/talkwise/conversation-tree/*path", ProxyTalkWiseConversationTree)
+
+	messagesRequest := httptest.NewRequest(
+		http.MethodGet,
+		"/api/talkwise/conversation-tree/42/messages?page=2&mock_user=admin&auth_user_id=other&auth_team_id=other-team",
+		nil,
+	)
+	messagesRequest.Header.Set("Authorization", "Bearer dashboard-access-token")
+	messagesRequest.Header.Set("Cookie", "talkwise_session=spoofed")
+	messagesRequest.Header.Set("X-Mock-User", "admin")
+	messagesRequest.Header.Set("X-User-Id", "other-user")
+	messagesRequest.Header.Set("X-Team-Id", "other-team")
+	messagesRecorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(messagesRecorder, messagesRequest)
+
+	require.Equal(t, http.StatusOK, messagesRecorder.Code)
+	assert.Equal(t, "application/json", messagesRecorder.Header().Get("Content-Type"))
+	assert.JSONEq(t, `{"code":0,"data":{"items":[]}}`, messagesRecorder.Body.String())
+	forwardedMessages := <-observed
+	assert.Equal(t, http.MethodGet, forwardedMessages.Method)
+	assert.Equal(t, "/internal/api/v1/conversations/42/messages", forwardedMessages.Path)
+	assert.Equal(t, "page=2", forwardedMessages.RawQuery)
+	assert.Equal(t, "Bearer dashboard-access-token", forwardedMessages.Authorization)
+	assert.Empty(t, forwardedMessages.Cookie)
+	assert.Empty(t, forwardedMessages.MockUser)
+	assert.Empty(t, forwardedMessages.UserID)
+	assert.Empty(t, forwardedMessages.TeamID)
+
+	chatBody := `{"message":"hello","stream":true}`
+	chatRequest := httptest.NewRequest(
+		http.MethodPost,
+		"/api/talkwise/conversation-tree/42/chat",
+		strings.NewReader(chatBody),
+	)
+	chatRequest.Header.Set("Authorization", "Bearer dashboard-access-token")
+	chatRequest.Header.Set("Content-Type", "application/json")
+	chatRecorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(chatRecorder, chatRequest)
+
+	require.Equal(t, http.StatusOK, chatRecorder.Code)
+	assert.Equal(t, "text/event-stream; charset=utf-8", chatRecorder.Header().Get("Content-Type"))
+	assert.Equal(t, "event: message\ndata: {\"delta\":\"hello\"}\n\n", chatRecorder.Body.String())
+	forwardedChat := <-observed
+	assert.Equal(t, http.MethodPost, forwardedChat.Method)
+	assert.Equal(t, "/internal/api/v1/conversations/42/chat", forwardedChat.Path)
+	assert.Equal(t, "Bearer dashboard-access-token", forwardedChat.Authorization)
+	assert.Equal(t, "application/json", forwardedChat.ContentType)
+	assert.JSONEq(t, chatBody, forwardedChat.Body)
+}
+
+func TestTalkWiseConversationTreeProxyReportsUnavailableConfiguration(t *testing.T) {
+	t.Setenv(talkWiseTrainingUpstreamEnv, "")
+	router := gin.New()
+	router.Any("/api/talkwise/conversation-tree/*path", ProxyTalkWiseConversationTree)
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/api/talkwise/conversation-tree/42/messages", nil),
+	)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	var response struct {
+		Success bool   `json:"success"`
+		Code    string `json:"code"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.Success)
+	assert.Equal(t, talkWiseConversationTreeProxyUnavailable, response.Code)
+}
+
 func TestTalkWiseTrainingProxyReturnsServiceUnavailableWithoutConfiguration(t *testing.T) {
 	t.Setenv(talkWiseTrainingUpstreamEnv, "")
 	router := gin.New()

@@ -279,3 +279,39 @@ export async function createTrainingSession(
     createdForTeamId: session.team_id ?? null,
   }
 }
+
+export async function startTextTrainingSession(
+  apiBase: string,
+  sessionId: string
+): Promise<TrainingSession> {
+  const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
+    trainingApiUrl(
+      apiBase,
+      `${TRAINING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/start`
+    ),
+    { runtime: 'conversation_message_tree' },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  const session = requireTalkWiseData(response.data)
+
+  return {
+    sessionId: session.session_id,
+    mode: session.mode,
+    scenarioTemplateId: session.scenario_template_id ?? null,
+    status: session.status,
+    roomId: session.room_id == null ? null : String(session.room_id),
+    createdForUserId: session.user_id ?? null,
+    createdForTeamId: session.team_id ?? null,
+  }
+}
+
+export async function launchTextScenarioTrainingSession(
+  apiBase: string,
+  scenario: TrainingScenario
+): Promise<TrainingSession> {
+  const created = await createTrainingSession(
+    apiBase,
+    buildTrainingSessionRequest(scenario, 'text')
+  )
+  return startTextTrainingSession(apiBase, created.sessionId)
+}

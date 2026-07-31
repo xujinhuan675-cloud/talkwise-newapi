@@ -33,6 +33,7 @@ function Counter(props: CounterProps) {
   const { end, suffix = '', prefix = '', duration = 1600, decimals = 0 } = props
   const ref = useRef<HTMLSpanElement>(null)
   const startedRef = useRef(false)
+  const previousEndRef = useRef<number | null>(null)
 
   const formatValue = useCallback(
     (v: number) =>
@@ -56,6 +57,11 @@ function Counter(props: CounterProps) {
   useEffect(() => {
     const el = ref.current
     if (!el) return
+
+    if (previousEndRef.current !== end) {
+      previousEndRef.current = end
+      startedRef.current = false
+    }
 
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     if (mq.matches) {

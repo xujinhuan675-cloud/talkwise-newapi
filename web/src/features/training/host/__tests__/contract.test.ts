@@ -22,7 +22,15 @@ import { describe, test } from 'node:test'
 import type { AuthUser } from '@/stores/auth-store'
 
 import {
+  resolveTrainingLegacySectionDestination,
+  TRAINING_DIRECT_ROUTE_PATHS,
+  TRAINING_LEGACY_SECTION_DESTINATIONS,
+  TRAINING_SIDEBAR_ITEM,
+  TRAINING_SIDEBAR_MODULE,
+} from '../../section-registry'
+import {
   createTrainingHostValue,
+  hasAuthenticatedTrainingHost,
   normalizeTrainingApiBase,
   resolveTrainingHostRole,
 } from '../contract'
@@ -49,6 +57,7 @@ describe('TrainingHostContext contract', () => {
     })
 
     assert.equal(value.authStatus, 'authenticated')
+    assert.equal(hasAuthenticatedTrainingHost(value), true)
     assert.deepEqual(value.user, {
       id: 42,
       username: 'coach',
@@ -87,12 +96,15 @@ describe('TrainingHostContext contract', () => {
     const anonymous = createTrainingHostValue({
       bootstrapState: 'complete',
       user: null,
+      team: { id: 'unverified', name: 'Should not leak' },
       theme: 'light',
     })
 
     assert.equal(loading.authStatus, 'loading')
     assert.equal(anonymous.authStatus, 'anonymous')
     assert.equal(anonymous.role.kind, 'anonymous')
+    assert.equal(anonymous.team, null)
+    assert.equal(hasAuthenticatedTrainingHost(anonymous), false)
   })
 
   test('maps native NewAPI role values without changing their source value', () => {
@@ -116,5 +128,44 @@ describe('TrainingHostContext contract', () => {
     assert.equal(normalizeTrainingApiBase(undefined), '')
     assert.equal(normalizeTrainingApiBase('/'), '')
     assert.equal(normalizeTrainingApiBase('/talkwise///'), '/talkwise')
+  })
+
+  test('keeps every direct route under the authenticated training module', () => {
+    assert.equal(TRAINING_SIDEBAR_MODULE, 'training')
+    assert.equal(TRAINING_SIDEBAR_ITEM, 'studio')
+    assert.deepEqual(TRAINING_DIRECT_ROUTE_PATHS, [
+      '/training',
+      '/training/scenarios',
+      '/training/studio',
+      '/training/live-coach',
+      '/training/conversations',
+      '/training/personas',
+      '/training/personas/new',
+      '/training/personas/:personaId',
+      '/training/sessions',
+      '/training/growth',
+      '/training/growth/leaderboard',
+      '/training/team/competencies',
+      '/training/team/scenarios',
+      '/training/prep/battle',
+      '/training/prep/defense',
+      '/training/settings',
+    ])
+    assert.equal(
+      TRAINING_DIRECT_ROUTE_PATHS.every((path) => path.startsWith('/training')),
+      true
+    )
+  })
+
+  test('resolves the preserved legacy training sections to direct routes', () => {
+    for (const [section, destination] of Object.entries(
+      TRAINING_LEGACY_SECTION_DESTINATIONS
+    )) {
+      assert.equal(
+        resolveTrainingLegacySectionDestination(section),
+        destination
+      )
+    }
+    assert.equal(resolveTrainingLegacySectionDestination('retired'), null)
   })
 })

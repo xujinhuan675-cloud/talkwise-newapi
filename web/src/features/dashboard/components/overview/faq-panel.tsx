@@ -34,7 +34,11 @@ import type { FAQItem } from '@/features/dashboard/types'
 import { PanelWrapper } from '../ui/panel-wrapper'
 
 export function FAQPanel() {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
   const { items: list, loading } = useFAQ()
 
   return (
@@ -47,7 +51,7 @@ export function FAQPanel() {
           {t('FAQ')}
         </span>
       }
-      description={t('Answers for common access and billing questions')}
+      description={localize('Answers to common questions', '常见问题的解答。')}
       loading={loading}
       empty={!list.length}
       emptyMessage={t('No FAQ entries available')}

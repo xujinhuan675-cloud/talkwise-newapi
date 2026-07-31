@@ -24,6 +24,8 @@ import {
   sortByLatestPractice,
   toReviewSession,
   toScenarioProgress,
+  toScenarioProgressSummary,
+  toTrainingCompetencyRadar,
   trainingReviewApiUrl,
 } from '../api'
 
@@ -153,6 +155,55 @@ describe('training review contract', () => {
     assert.deepEqual(
       progress.map((item) => item.scenarioId),
       ['newer', 'older']
+    )
+  })
+
+  test('normalizes a server-computed scenario progress summary', () => {
+    assert.deepEqual(
+      toScenarioProgressSummary({
+        tracked_scenarios: 8,
+        completed_scenarios: 5,
+        scored_scenarios: 4,
+        average_score: 82.6,
+        completion_percentage: 62.5,
+      }),
+      {
+        trackedScenarios: 8,
+        completedScenarios: 5,
+        scoredScenarios: 4,
+        averageScore: 83,
+        completionPercentage: 63,
+      }
+    )
+  })
+
+  test('keeps only valid scored competency dimensions for the radar', () => {
+    assert.deepEqual(
+      toTrainingCompetencyRadar({
+        sample_size: 4,
+        dimensions: [
+          {
+            dimension_id: 'active_listening',
+            score: 84.2,
+            sample_count: 4,
+          },
+          {
+            dimension_id: 'invalid',
+            score: Number.NaN,
+            sample_count: 4,
+          },
+        ],
+      }),
+      {
+        sampleSize: 4,
+        dimensions: [
+          {
+            dimensionId: 'active_listening',
+            score: 84,
+            sampleCount: 4,
+          },
+        ],
+      }
     )
   })
 })

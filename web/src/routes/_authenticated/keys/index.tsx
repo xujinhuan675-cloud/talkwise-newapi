@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, redirect } from '@tanstack/react-router'
 import z from 'zod'
 
 import { ApiKeys } from '@/features/keys'
 import { API_KEY_STATUS_OPTIONS } from '@/features/keys/constants'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 const apiKeySearchSchema = z.object({
   page: z.number().optional().catch(1),
@@ -34,6 +36,12 @@ const apiKeySearchSchema = z.object({
 })
 
 export const Route = createFileRoute('/_authenticated/keys/')({
+  beforeLoad: () => {
+    const { auth } = useAuthStore.getState()
+    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+      throw redirect({ to: '/403' })
+    }
+  },
   validateSearch: apiKeySearchSchema,
   component: ApiKeys,
 })

@@ -21,7 +21,7 @@ import { LanguageSwitcher } from '@/components/language-switcher'
 import { NotificationPopover } from '@/components/notification-popover'
 import { ProfileDropdown } from '@/components/profile-dropdown'
 import { Search } from '@/components/search'
-import { SystemUpdateAction } from '@/features/system-update/system-update-action'
+import { WalletBalanceLink } from '@/components/wallet-balance-link'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 
@@ -113,25 +113,20 @@ export function AppHeader({
 
   return (
     <Header>
-      <div className='@container/system-brand flex min-w-0 flex-1 items-center gap-1'>
-        <SystemBrand variant='inline' />
-        <SystemUpdateAction presentation='version' />
-      </div>
+      <SystemBrand variant='inline' />
 
       {leftContent ? (
         <div className='ms-2 flex items-center'>{leftContent}</div>
       ) : null}
 
       {rightContent ?? (
-        <div className='ms-auto flex shrink-0 items-center gap-1 sm:gap-2'>
+        <div className='ms-auto flex items-center gap-1 sm:gap-2'>
           {showTopNav && (
             <div className='me-1 hidden lg:block'>
               <TopNav links={links} />
             </div>
           )}
-          {showSearch && (
-            <Search className='w-8 flex-none [&>span]:hidden sm:[&>span]:inline' />
-          )}
+          {showSearch && <Search />}
           {showNotifications && (
             <NotificationPopover
               open={notifications.popoverOpen}
@@ -146,6 +141,7 @@ export function AppHeader({
           )}
           <LanguageSwitcher />
           {showConfigDrawer && <ConfigDrawer />}
+          <WalletBalanceLink />
           {showProfileDropdown && <ProfileDropdown />}
         </div>
       )}

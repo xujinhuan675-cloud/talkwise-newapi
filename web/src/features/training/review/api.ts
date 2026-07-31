@@ -24,7 +24,11 @@ import type {
   ReviewSession,
   ScenarioProgress,
   ScenarioProgressDTO,
+  ScenarioProgressSummary,
+  ScenarioProgressSummaryDTO,
   ScenarioScoreStatus,
+  TrainingCompetencyRadar,
+  TrainingCompetencyRadarDTO,
   TrainingSessionDTO,
   TrainingSessionReportDTO,
 } from './types'
@@ -36,6 +40,16 @@ interface TalkWiseResponse<T> {
 }
 
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
+
+export interface TrainingListPage<T> {
+  readonly items: T[]
+  readonly total: number
+}
+
+export interface TrainingListRequest {
+  readonly skip: number
+  readonly limit: number
+}
 
 function requireTalkWiseData<T>(response: TalkWiseResponse<T>): T {
   if (response.code !== 0 || response.data === null) {
@@ -74,6 +88,27 @@ export function trainingReviewApiUrl(apiBase: string, path: string): string {
   const normalizedBase =
     apiBase.trim().replace(/\/+$/, '') || DEFAULT_TRAINING_API_BASE
   return `${normalizedBase}${path}`
+}
+
+function trainingListApiUrl(
+  apiBase: string,
+  path: string,
+  request: TrainingListRequest
+): string {
+  const params = new URLSearchParams({
+    skip: String(request.skip),
+    limit: String(request.limit),
+  })
+  return trainingReviewApiUrl(apiBase, `${path}?${params.toString()}`)
+}
+
+function responseTotalCount(headers: unknown, fallback: number): number {
+  const values = headers as
+    | { get?: (name: string) => unknown; [key: string]: unknown }
+    | undefined
+  const raw = values?.get?.('x-total-count') ?? values?.['x-total-count']
+  const total = typeof raw === 'number' ? raw : Number(raw)
+  return Number.isSafeInteger(total) && total >= 0 ? total : fallback
 }
 
 export function reviewRequestErrorMessage(
@@ -145,6 +180,42 @@ export function toScenarioProgress(dto: ScenarioProgressDTO): ScenarioProgress {
   }
 }
 
+export function toScenarioProgressSummary(
+  dto: ScenarioProgressSummaryDTO
+): ScenarioProgressSummary {
+  return {
+    trackedScenarios: dto.tracked_scenarios,
+    completedScenarios: dto.completed_scenarios,
+    scoredScenarios: dto.scored_scenarios,
+    averageScore: normalizeScore(dto.average_score),
+    completionPercentage: Math.max(
+      0,
+      Math.min(100, Math.round(dto.completion_percentage))
+    ),
+  }
+}
+
+export function toTrainingCompetencyRadar(
+  dto: TrainingCompetencyRadarDTO
+): TrainingCompetencyRadar {
+  const sampleSize = Number.isSafeInteger(dto.sample_size)
+    ? Math.max(0, dto.sample_size)
+    : 0
+  return {
+    sampleSize,
+    dimensions: dto.dimensions.flatMap((dimension) => {
+      const dimensionId = asText(dimension.dimension_id)
+      const score = normalizeScore(dimension.score)
+      const sampleCount = Number.isSafeInteger(dimension.sample_count)
+        ? Math.max(0, dimension.sample_count)
+        : 0
+      return dimensionId && score !== null && sampleCount > 0
+        ? [{ dimensionId, score, sampleCount }]
+        : []
+    }),
+  }
+}
+
 export function mergeReviewSessionScores(
   sessions: ReviewSession[],
   progress: ScenarioProgress[]
@@ -180,13 +251,15 @@ export function sortByLatestPractice<
 }
 
 export async function listReviewSessions(
-  apiBase: string
-): Promise<ReviewSession[]> {
+  apiBase: string,
+  request: TrainingListRequest
+): Promise<TrainingListPage<ReviewSession>> {
   const response = await api.get<TalkWiseResponse<TrainingSessionDTO[]>>(
-    trainingReviewApiUrl(apiBase, '/sessions?limit=100'),
+    trainingListApiUrl(apiBase, '/sessions', request),
     { skipBusinessError: true, skipErrorHandler: true }
   )
-  return requireTalkWiseData(response.data).map(toReviewSession)
+  const items = requireTalkWiseData(response.data).map(toReviewSession)
+  return { items, total: responseTotalCount(response.headers, items.length) }
 }
 
 export async function getReviewSession(
@@ -215,13 +288,33 @@ export async function getTrainingSessionReport(
 }
 
 export async function listScenarioProgress(
-  apiBase: string
-): Promise<ScenarioProgress[]> {
+  apiBase: string,
+  request: TrainingListRequest
+): Promise<TrainingListPage<ScenarioProgress>> {
   const response = await api.get<TalkWiseResponse<ScenarioProgressDTO[]>>(
-    trainingReviewApiUrl(apiBase, '/scenario-progress?limit=100'),
+    trainingListApiUrl(apiBase, '/scenario-progress', request),
     { skipBusinessError: true, skipErrorHandler: true }
   )
-  return sortByLatestPractice(
-    requireTalkWiseData(response.data).map(toScenarioProgress)
+  const items = requireTalkWiseData(response.data).map(toScenarioProgress)
+  return { items, total: responseTotalCount(response.headers, items.length) }
+}
+
+export async function getScenarioProgressSummary(
+  apiBase: string
+): Promise<ScenarioProgressSummary> {
+  const response = await api.get<TalkWiseResponse<ScenarioProgressSummaryDTO>>(
+    trainingReviewApiUrl(apiBase, '/scenario-progress/summary'),
+    { skipBusinessError: true, skipErrorHandler: true }
   )
+  return toScenarioProgressSummary(requireTalkWiseData(response.data))
+}
+
+export async function getTrainingCompetencyRadar(
+  apiBase: string
+): Promise<TrainingCompetencyRadar> {
+  const response = await api.get<TalkWiseResponse<TrainingCompetencyRadarDTO>>(
+    trainingReviewApiUrl(apiBase, '/scenario-progress/competency-radar'),
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return toTrainingCompetencyRadar(requireTalkWiseData(response.data))
 }

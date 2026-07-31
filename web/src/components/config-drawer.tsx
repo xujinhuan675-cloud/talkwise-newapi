@@ -38,6 +38,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { headerActionIconClassName } from '@/components/header-action-styles'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -95,7 +96,7 @@ export function ConfigDrawer() {
           />
         }
       >
-        <Palette className='size-[1.2rem]' aria-hidden='true' />
+        <Palette className={headerActionIconClassName} aria-hidden='true' />
       </SheetTrigger>
       <SheetContent className={sideDrawerContentClassName('sm:max-w-md')}>
         <SheetHeader className={sideDrawerHeaderClassName()}>
