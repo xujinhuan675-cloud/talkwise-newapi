@@ -40,6 +40,21 @@ const SUMMARY_SPARKLINE_BUCKETS = 12
 
 type SummarySparklineKey = 'balance' | 'usage' | 'requests'
 
+export type SummaryCardsCopy = {
+  title?: string
+  description?: string
+  balanceLabel?: string
+  walletLabel?: string
+  recentUsageLabel?: string
+  runwayLabel?: string
+  todayUsageTitle?: string
+  todayUsageDescription?: string
+  historicalUsageTitle?: string
+  historicalUsageDescription?: string
+  requestCountTitle?: string
+  requestCountDescription?: string
+}
+
 function getBucketIndex(
   timestamp: number,
   start: number,
@@ -136,7 +151,7 @@ const HEALTH_CONFIG: Record<
   },
 }
 
-export function SummaryCards() {
+export function SummaryCards(props: { copy?: SummaryCardsCopy }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const { status, loading } = useStatus()
@@ -226,12 +241,22 @@ export function SummaryCards() {
     runwayDisplay = t('No recent usage')
   }
 
-  const items = useSummaryCardsConfig({
-    ...summaryValues,
-    todayUsageDisplay,
-    currencyEnabled,
-    currencyLabel,
-  }).map((config, index) => {
+  const items = useSummaryCardsConfig(
+    {
+      ...summaryValues,
+      todayUsageDisplay,
+      currencyEnabled,
+      currencyLabel,
+    },
+    {
+      todayUsageTitle: props.copy?.todayUsageTitle,
+      todayUsageDescription: props.copy?.todayUsageDescription,
+      historicalUsageTitle: props.copy?.historicalUsageTitle,
+      historicalUsageDescription: props.copy?.historicalUsageDescription,
+      requestCountTitle: props.copy?.requestCountTitle,
+      requestCountDescription: props.copy?.requestCountDescription,
+    }
+  ).map((config, index) => {
     const tones = ['accent-1', 'accent-2', 'accent-3'] as const
 
     return {
@@ -256,10 +281,11 @@ export function SummaryCards() {
           <div className='flex flex-wrap items-start justify-between gap-3'>
             <div className='flex flex-col gap-1'>
               <h3 className='text-sm font-semibold sm:text-base'>
-                {t('Usage at a glance')}
+                {props.copy?.title ?? t('Usage at a glance')}
               </h3>
               <p className='text-muted-foreground text-xs sm:text-sm'>
-                {t('Monitor balance, usage, and request volume')}
+                {props.copy?.description ??
+                  t('Monitor balance, usage, and request volume')}
               </p>
             </div>
           </div>
@@ -289,7 +315,7 @@ export function SummaryCards() {
           <div className='flex flex-col gap-2 sm:gap-3'>
             <div className='flex items-center justify-between'>
               <span className='text-muted-foreground text-xs font-medium'>
-                {t('Credit remaining')}
+                {props.copy?.balanceLabel ?? t('Credit remaining')}
               </span>
               <span className='flex items-center gap-1.5'>
                 <span
@@ -310,7 +336,9 @@ export function SummaryCards() {
               <div className='bg-background/60 rounded-lg px-2.5 py-2'>
                 <div className='text-muted-foreground flex items-center gap-1 text-[11px] leading-none font-medium'>
                   <Flame className='size-3 shrink-0' aria-hidden='true' />
-                  <span className='truncate'>{t('Last 24h usage')}</span>
+                  <span className='truncate'>
+                    {props.copy?.recentUsageLabel ?? t('Last 24h usage')}
+                  </span>
                 </div>
                 <div className='text-foreground mt-1.5 truncate text-xs font-semibold tabular-nums'>
                   {formatQuota(recentUsage)}
@@ -329,7 +357,9 @@ export function SummaryCards() {
                       aria-hidden='true'
                     />
                   )}
-                  <span className='truncate'>{t('Runway')}</span>
+                  <span className='truncate'>
+                    {props.copy?.runwayLabel ?? t('Runway')}
+                  </span>
                 </div>
                 <div
                   className={cn(
@@ -345,7 +375,7 @@ export function SummaryCards() {
           </div>
 
           <Button className='justify-between' render={<Link to='/wallet' />}>
-            <span>{t('Wallet')}</span>
+            <span>{props.copy?.walletLabel ?? t('Wallet')}</span>
             <ArrowRight data-icon='inline-end' />
           </Button>
         </div>

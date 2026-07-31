@@ -33,7 +33,13 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { DataTablePage, useDataTable } from '@/components/data-table'
+import {
+  DataTablePage,
+  DataTableViewModeToggle,
+  type DataTableViewMode,
+  useDataTable,
+  useDataTableViewMode,
+} from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -177,12 +183,16 @@ function ScenarioDataTable({
   categoryLabel,
   difficultyLabel,
   openScenario,
+  viewMode,
+  onViewModeChange,
 }: {
   scenarios: TrainingScenario[]
   localize: (english: string, chinese: string) => string
   categoryLabel: (value: TrainingScenarioCategory | 'all') => string
   difficultyLabel: (value: TrainingScenarioDifficulty | 'all') => string
   openScenario: (scenario: TrainingScenario) => void
+  viewMode: DataTableViewMode
+  onViewModeChange: (mode: DataTableViewMode) => void
 }) {
   const columns = useMemo<ColumnDef<TrainingScenario>[]>(
     () => [
@@ -235,7 +245,9 @@ function ScenarioDataTable({
         header: localize('Counterpart', '对练角色'),
         cell: ({ row }) => (
           <div>
-            <div className='truncate font-medium'>{row.original.persona.name}</div>
+            <div className='truncate font-medium'>
+              {row.original.persona.name}
+            </div>
             <div className='text-muted-foreground truncate text-xs'>
               {row.original.persona.role}
             </div>
@@ -267,13 +279,9 @@ function ScenarioDataTable({
           <span className='sr-only'>{localize('Actions', '操作')}</span>
         ),
         cell: ({ row }) => (
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => openScenario(row.original)}
-          >
+          <Button size='sm' onClick={() => openScenario(row.original)}>
             <Play />
-            {localize('Create session', '创建会话')}
+            {localize('Start training', '开始训练')}
           </Button>
         ),
       },
@@ -297,6 +305,80 @@ function ScenarioDataTable({
       columns={columns}
       fixedHeight={false}
       tableClassName='min-w-190'
+      enableCardView
+      viewMode={viewMode}
+      onViewModeChange={onViewModeChange}
+      renderCard={(row) => {
+        const scenario = row.original
+        return (
+          <div className='flex h-full min-h-50 flex-col gap-3'>
+            <div className='space-y-1.5'>
+              <div className='flex items-start justify-between gap-2'>
+                <div className='min-w-0 flex-1 text-sm font-medium'>
+                  {scenario.title}
+                </div>
+                {scenario.required && (
+                  <Badge className='shrink-0' variant='outline'>
+                    {localize('Required', '必练')}
+                  </Badge>
+                )}
+              </div>
+              <p className='text-muted-foreground line-clamp-2 text-xs leading-5'>
+                {scenario.description}
+              </p>
+            </div>
+
+            <div className='flex flex-wrap gap-1.5'>
+              <StatusBadge
+                label={categoryLabel(scenario.category)}
+                variant='info'
+                copyable={false}
+              />
+              <StatusBadge
+                label={difficultyLabel(scenario.difficulty)}
+                variant={difficultyStatusVariant(scenario.difficulty)}
+                copyable={false}
+              />
+            </div>
+
+            <dl className='grid grid-cols-2 gap-x-3 gap-y-2 text-xs'>
+              <div className='min-w-0'>
+                <dt className='text-muted-foreground'>
+                  {localize('Counterpart', '对练角色')}
+                </dt>
+                <dd className='mt-0.5 truncate font-medium'>
+                  {scenario.persona.name}
+                </dd>
+                <dd className='text-muted-foreground mt-0.5 truncate'>
+                  {scenario.persona.role}
+                </dd>
+              </div>
+              <div className='min-w-0'>
+                <dt className='text-muted-foreground'>
+                  {localize('Training focus', '训练重点')}
+                </dt>
+                <dd className='mt-0.5 truncate font-medium'>
+                  {scenario.trainingPoints[0] || scenario.customerProfile}
+                </dd>
+                {scenario.trainingPoints.length > 1 && (
+                  <dd className='text-muted-foreground mt-0.5'>
+                    +{scenario.trainingPoints.length - 1}
+                  </dd>
+                )}
+              </div>
+            </dl>
+
+            <Button
+              className='mt-auto w-full'
+              onClick={() => openScenario(scenario)}
+            >
+              <Play />
+              {localize('Start training', '开始训练')}
+            </Button>
+          </div>
+        )
+      }}
+      cardGridClassName='grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3'
       getColumnClassName={(columnId) => {
         if (columnId === 'scenario') return 'max-w-80 whitespace-normal'
         if (columnId === 'counterpart') return 'max-w-44 whitespace-normal'
@@ -324,6 +406,10 @@ export function TrainingScenarios() {
   const [createdSession, setCreatedSession] = useState<TrainingSession | null>(
     null
   )
+  const [viewMode, setViewMode] = useDataTableViewMode({
+    storageKey: 'talkwise.training-scenarios.view-mode',
+    defaultMode: 'table',
+  })
   const localize = (english: string, chinese: string) =>
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
@@ -489,6 +575,11 @@ export function TrainingScenarios() {
             </SelectGroup>
           </SelectContent>
         </Select>
+        <DataTableViewModeToggle
+          className='ml-auto'
+          value={viewMode}
+          onChange={setViewMode}
+        />
       </div>
 
       {scenariosQuery.isError && (
@@ -552,6 +643,8 @@ export function TrainingScenarios() {
             categoryLabel={categoryLabel}
             difficultyLabel={difficultyLabel}
             openScenario={openScenario}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
           />
         )}
 
@@ -693,8 +786,8 @@ export function TrainingScenarios() {
                       <Play />
                     )}
                     {createSessionMutation.isPending
-                      ? localize('Creating...', '创建中...')
-                      : localize('Create session', '创建会话')}
+                      ? localize('Starting...', '启动中...')
+                      : localize('Start training', '开始训练')}
                   </Button>
                 )}
               </DialogFooter>

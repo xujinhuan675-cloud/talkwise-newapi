@@ -3425,7 +3425,7 @@
     "PostgreSQL offers advanced reliability and data integrity for production workloads.": "PostgreSQL offers advanced reliability and data integrity for production workloads.",
     "PostgreSQL offers strong reliability guarantees. Double check your maintenance window and retention policies before going live.": "PostgreSQL offers strong reliability guarantees. Double check your maintenance window and retention policies before going live.",
     "Power AI applications, manage digital assets, connect the Future": "Power AI applications, manage digital assets, connect the Future",
-    "Powerful API Management Platform": "Powerful API Management Platform",
+    "AI Communication Training Platform": "AI Communication Training Platform",
     "Pre-Consume for Free Models": "Pre-Consume for Free Models",
     "Pre-consumed": "Pre-consumed",
     "Pre-Consumed Quota": "Pre-Consumed Quota",
@@ -5214,6 +5214,17 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
+    "Scoring dimensions": "Scoring dimensions",
+    "Substance": "Substance",
+    "Addresses the real issue with concrete information, trade-offs, and useful next steps.": "Addresses the real issue with concrete information, trade-offs, and useful next steps.",
+    "Structure": "Structure",
+    "Keeps the response easy to follow with an appropriate framework and clear flow.": "Keeps the response easy to follow with an appropriate framework and clear flow.",
+    "Relevance": "Relevance",
+    "Responds to the counterpart's actual need or objection instead of using generic scripts.": "Responds to the counterpart's actual need or objection instead of using generic scripts.",
+    "Credibility": "Credibility",
+    "Supports claims with evidence, examples, limitations, or a believable plan.": "Supports claims with evidence, examples, limitations, or a believable plan.",
+    "Differentiation": "Differentiation",
+    "Creates a clear point of view, contrast, or differentiated value.": "Creates a clear point of view, contrast, or differentiated value.",
     "Zoom": "Zoom"
   }
 }

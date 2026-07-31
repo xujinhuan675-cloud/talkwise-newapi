@@ -3425,7 +3425,7 @@
     "PostgreSQL offers advanced reliability and data integrity for production workloads.": "PostgreSQL 为生产工作负载提供高级可靠性和数据完整性。",
     "PostgreSQL offers strong reliability guarantees. Double check your maintenance window and retention policies before going live.": "PostgreSQL 提供强大的可靠性保证。在上线之前，请仔细检查您的维护窗口和保留策略。",
     "Power AI applications, manage digital assets, connect the Future": "承载 AI 应用，管理数字资产，连接未来",
-    "Powerful API Management Platform": "强大的 API 管理平台",
+    "AI Communication Training Platform": "AI 沟通训练平台",
     "Pre-Consume for Free Models": "免费模型预消耗",
     "Pre-consumed": "预扣费",
     "Pre-Consumed Quota": "预消耗配额",
@@ -5214,6 +5214,17 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
+    "Scoring dimensions": "评分维度",
+    "Substance": "内容质量",
+    "Addresses the real issue with concrete information, trade-offs, and useful next steps.": "围绕真实问题，给出具体信息、权衡取舍和有用的下一步建议。",
+    "Structure": "表达结构",
+    "Keeps the response easy to follow with an appropriate framework and clear flow.": "用合适的框架和清晰的逻辑，使回应易于理解。",
+    "Relevance": "回应相关性",
+    "Responds to the counterpart's actual need or objection instead of using generic scripts.": "回应对方真实需求或异议，而不是套用泛泛话术。",
+    "Credibility": "可信度",
+    "Supports claims with evidence, examples, limitations, or a believable plan.": "用证据、案例、限制条件或可信的实施计划支持观点。",
+    "Differentiation": "差异化",
+    "Creates a clear point of view, contrast, or differentiated value.": "形成清晰观点、有效对比或差异化价值。",
     "Zoom": "缩放"
   }
 }

@@ -18,7 +18,6 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { TrainingLeaderboardPage } from '@/features/training/growth/training-leaderboard'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute(
@@ -28,10 +27,7 @@ export const Route = createFileRoute(
     if (!isSidebarModuleEnabled('training', 'studio')) {
       throw redirect({ to: '/dashboard' })
     }
-  },
-  component: TrainingLeaderboardRoute,
-})
 
-function TrainingLeaderboardRoute() {
-  return <TrainingLeaderboardPage />
-}
+    throw redirect({ to: '/training/team/scenarios' })
+  },
+})

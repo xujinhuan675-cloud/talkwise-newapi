@@ -107,3 +107,41 @@ export interface ScenarioProgress {
   readonly reportId: string | null
   readonly failureReason: string | null
 }
+
+export interface ScenarioProgressSummaryDTO {
+  tracked_scenarios: number
+  completed_scenarios: number
+  scored_scenarios: number
+  average_score: number | null
+  completion_percentage: number
+}
+
+export interface ScenarioProgressSummary {
+  readonly trackedScenarios: number
+  readonly completedScenarios: number
+  readonly scoredScenarios: number
+  readonly averageScore: number | null
+  readonly completionPercentage: number
+}
+
+export interface TrainingCompetencyRadarDimensionDTO {
+  dimension_id: string
+  score: number
+  sample_count: number
+}
+
+export interface TrainingCompetencyRadarDTO {
+  sample_size: number
+  dimensions: TrainingCompetencyRadarDimensionDTO[]
+}
+
+export interface TrainingCompetencyRadarDimension {
+  readonly dimensionId: string
+  readonly score: number
+  readonly sampleCount: number
+}
+
+export interface TrainingCompetencyRadar {
+  readonly sampleSize: number
+  readonly dimensions: TrainingCompetencyRadarDimension[]
+}

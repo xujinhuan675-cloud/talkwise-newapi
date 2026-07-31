@@ -61,24 +61,6 @@ export function SidebarModulesCard() {
 
   const sectionDefs: SectionDef[] = [
     {
-      key: 'conversations',
-      title: localize('Conversations', '对话'),
-      description: localize(
-        'Conversation library and dialogue history',
-        '对话库与历史会话'
-      ),
-      modules: [
-        {
-          key: 'library',
-          title: localize('Conversations', '对话'),
-          description: localize(
-            'Browse, create, and continue conversations',
-            '浏览、新建和继续对话'
-          ),
-        },
-      ],
-    },
-    {
       key: 'training',
       title: localize('Training Area', '训练区域'),
       description: localize(
@@ -153,6 +135,7 @@ export function SidebarModulesCard() {
       if (res.data.success && res.data.data?.sidebar_modules) {
         const raw = res.data.data.sidebar_modules
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+        delete parsed.conversations
         setConfig(parsed)
       } else {
         const defaults: SidebarModulesConfig = {}

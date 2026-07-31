@@ -19,80 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMemo } from 'react'
 
 import type { NavGroup, NavItem } from '@/components/layout/types'
+import {
+  parseSidebarModulesAdmin,
+  SIDEBAR_MODULES_DEFAULT,
+  type SidebarModulesAdminConfig,
+} from '@/features/system-settings/maintenance/config'
 import { useStatus } from '@/hooks/use-status'
 import { useAuthStore } from '@/stores/auth-store'
-
-type SidebarSectionConfig = {
-  enabled: boolean
-  [key: string]: boolean
-}
-
-type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
 
 // User-layer config is shape-identical to admin, but may be null
 // to signal "no narrowing" (empty/invalid/legacy users).
 type SidebarModulesUserConfig = SidebarModulesAdminConfig | null
-
-/**
- * Default sidebar modules configuration
- */
-const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
-  conversations: {
-    enabled: true,
-    library: true,
-  },
-  training: {
-    enabled: true,
-    studio: true,
-  },
-  console: {
-    enabled: true,
-    detail: true,
-    token: true,
-    log: true,
-    midjourney: true,
-    task: true,
-  },
-  personal: {
-    enabled: true,
-    topup: true,
-    personal: true,
-  },
-  admin: {
-    enabled: true,
-    channel: true,
-    models: true,
-    redemption: true,
-    user: true,
-    setting: true,
-    subscription: true,
-  },
-}
-
-const mergeWithDefaultSidebarModules = (
-  config: SidebarModulesAdminConfig
-): SidebarModulesAdminConfig => {
-  const merged: SidebarModulesAdminConfig = { ...config }
-
-  Object.entries(DEFAULT_SIDEBAR_MODULES).forEach(
-    ([sectionKey, defaultSection]) => {
-      const existingSection = merged[sectionKey]
-      if (!existingSection) {
-        merged[sectionKey] = { ...defaultSection }
-        return
-      }
-
-      merged[sectionKey] = { ...defaultSection, ...existingSection }
-      Object.keys(defaultSection).forEach((moduleKey) => {
-        if (merged[sectionKey][moduleKey] === undefined) {
-          merged[sectionKey][moduleKey] = defaultSection[moduleKey]
-        }
-      })
-    }
-  )
-
-  return merged
-}
 
 /**
  * Mapping from URL to configuration keys
@@ -104,20 +41,27 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/training/scenarios': { section: 'training', module: 'studio' },
   '/training/studio': { section: 'training', module: 'studio' },
   '/training/live-coach': { section: 'training', module: 'studio' },
-  '/training/conversations': { section: 'conversations', module: 'library' },
+  '/training/conversations': { section: 'training', module: 'studio' },
+  '/training/personas': { section: 'training', module: 'studio' },
+  '/training/personas/new': { section: 'training', module: 'studio' },
   '/training/sessions': { section: 'training', module: 'studio' },
   '/training/growth': { section: 'training', module: 'studio' },
   '/training/growth/leaderboard': { section: 'training', module: 'studio' },
+  '/training/team/competencies': { section: 'training', module: 'studio' },
+  '/training/team/scenarios': { section: 'training', module: 'studio' },
+  '/training/prep/battle': { section: 'training', module: 'studio' },
+  '/training/prep/defense': { section: 'training', module: 'studio' },
   '/training/settings': { section: 'training', module: 'studio' },
-  '/dashboard': { section: 'console', module: 'detail' },
-  '/dashboard/overview': { section: 'console', module: 'detail' },
-  '/dashboard/models': { section: 'console', module: 'detail' },
-  '/dashboard/users': { section: 'console', module: 'detail' },
-  '/keys': { section: 'console', module: 'token' },
-  '/usage-logs': { section: 'console', module: 'log' },
-  '/usage-logs/common': { section: 'console', module: 'log' },
-  '/usage-logs/drawing': { section: 'console', module: 'midjourney' },
-  '/usage-logs/task': { section: 'console', module: 'task' },
+  '/dashboard': { section: 'admin', module: 'overview' },
+  '/dashboard/overview': { section: 'admin', module: 'overview' },
+  '/dashboard/models': { section: 'admin', module: 'analytics' },
+  '/dashboard/flow': { section: 'admin', module: 'analytics' },
+  '/dashboard/users': { section: 'admin', module: 'analytics' },
+  '/keys': { section: 'admin', module: 'key' },
+  '/usage-logs': { section: 'admin', module: 'log' },
+  '/usage-logs/common': { section: 'admin', module: 'log' },
+  '/usage-logs/drawing': { section: 'admin', module: 'task' },
+  '/usage-logs/task': { section: 'admin', module: 'task' },
   '/wallet': { section: 'personal', module: 'topup' },
   '/profile': { section: 'personal', module: 'personal' },
   '/channels': { section: 'admin', module: 'channel' },
@@ -137,20 +81,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
 function parseSidebarConfig(
   value: string | null | undefined
 ): SidebarModulesAdminConfig {
-  // If empty string, null, or undefined, use default config
-  if (!value || value.trim() === '') {
-    return DEFAULT_SIDEBAR_MODULES
-  }
-
-  try {
-    const parsed = JSON.parse(value) as SidebarModulesAdminConfig
-    delete parsed.chat
-    return mergeWithDefaultSidebarModules(parsed)
-  } catch {
-    // eslint-disable-next-line no-console
-    console.error('Failed to parse sidebar modules configuration')
-    return DEFAULT_SIDEBAR_MODULES
-  }
+  return parseSidebarModulesAdmin(value)
 }
 
 /**
@@ -168,6 +99,36 @@ function parseUserSidebarConfig(
     const parsed = JSON.parse(value) as SidebarModulesAdminConfig
     if (!parsed || typeof parsed !== 'object') return null
     delete parsed.chat
+    delete parsed.conversations
+
+    const legacyConsole = parsed.console
+    if (legacyConsole) {
+      const admin = parsed.admin ?? { ...SIDEBAR_MODULES_DEFAULT.admin }
+      const consoleEnabled = legacyConsole.enabled !== false
+      if (legacyConsole.detail !== undefined) {
+        admin.overview = consoleEnabled && legacyConsole.detail
+        admin.analytics = consoleEnabled && legacyConsole.detail
+      }
+      if (legacyConsole.token !== undefined) {
+        admin.key = consoleEnabled && legacyConsole.token
+      }
+      if (legacyConsole.log !== undefined) {
+        admin.log = consoleEnabled && legacyConsole.log
+      }
+      if (
+        legacyConsole.task !== undefined ||
+        legacyConsole.midjourney !== undefined
+      ) {
+        admin.task =
+          consoleEnabled &&
+          Boolean(
+            (legacyConsole.task ?? true) || (legacyConsole.midjourney ?? true)
+          )
+      }
+      parsed.admin = admin
+      delete parsed.console
+    }
+
     return parsed
   } catch {
     return null

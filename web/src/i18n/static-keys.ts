@@ -551,6 +551,19 @@ export const STATIC_I18N_KEYS = [
   'The model that was requested',
   'The upstream channel that served the requests',
 
+  // Training scoring dimensions (labels passed to t at runtime)
+  'Scoring dimensions',
+  'Substance',
+  'Addresses the real issue with concrete information, trade-offs, and useful next steps.',
+  'Structure',
+  'Keeps the response easy to follow with an appropriate framework and clear flow.',
+  'Relevance',
+  "Responds to the counterpart's actual need or objection instead of using generic scripts.",
+  'Credibility',
+  'Supports claims with evidence, examples, limitations, or a believable plan.',
+  'Differentiation',
+  'Creates a clear point of view, contrast, or differentiated value.',
+
   // Misc
   'Cancel',
   'Status',

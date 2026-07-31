@@ -19,11 +19,17 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { TrainingOverviewPage } from '@/features/training'
+import {
+  TRAINING_SIDEBAR_ITEM,
+  TRAINING_SIDEBAR_MODULE,
+} from '@/features/training/section-registry'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute('/_authenticated/training/')({
   beforeLoad: () => {
-    if (!isSidebarModuleEnabled('training', 'studio')) {
+    if (
+      !isSidebarModuleEnabled(TRAINING_SIDEBAR_MODULE, TRAINING_SIDEBAR_ITEM)
+    ) {
       throw redirect({ to: '/dashboard' })
     }
   },

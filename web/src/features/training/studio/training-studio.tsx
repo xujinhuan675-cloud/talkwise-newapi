@@ -309,7 +309,12 @@ function TrainingStudioContent() {
             <CardFooter className='justify-end'>
               <Button
                 variant='outline'
-                render={<Link to='/training/conversations' />}
+                render={
+                  <Link
+                    search={() => ({ session: undefined })}
+                    to='/training/conversations'
+                  />
+                }
               >
                 <Settings2 />
                 {localize('Open conversations', '打开对话库')}

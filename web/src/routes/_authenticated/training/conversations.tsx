@@ -18,13 +18,17 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { TrainingConversationsPage } from '@/features/training/conversations'
-import { TrainingHostProvider } from '@/features/training/host'
+import { Main } from '@/components/layout'
+import {
+  normalizeTrainingConversationWorkspaceSearch,
+  TrainingConversationWorkspace,
+} from '@/features/training/conversations'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute('/_authenticated/training/conversations')({
+  validateSearch: normalizeTrainingConversationWorkspaceSearch,
   beforeLoad: () => {
-    if (!isSidebarModuleEnabled('conversations', 'library')) {
+    if (!isSidebarModuleEnabled('training', 'studio')) {
       throw redirect({ to: '/dashboard' })
     }
   },
@@ -32,5 +36,18 @@ export const Route = createFileRoute('/_authenticated/training/conversations')({
 })
 
 function TrainingConversationsRoute() {
-  return <TrainingConversationsPage />
+  const { conversation, session } = Route.useSearch()
+  const navigate = Route.useNavigate()
+
+  return (
+    <Main className='p-0'>
+      <TrainingConversationWorkspace
+        onSessionChange={(nextSearch) =>
+          void navigate({ search: nextSearch, replace: true })
+        }
+        conversationId={conversation}
+        sessionId={session}
+      />
+    </Main>
+  )
 }

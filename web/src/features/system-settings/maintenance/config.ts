@@ -56,21 +56,9 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
 }
 
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
-  conversations: {
-    enabled: true,
-    library: true,
-  },
   training: {
     enabled: true,
     studio: true,
-  },
-  console: {
-    enabled: true,
-    detail: true,
-    token: true,
-    log: true,
-    midjourney: true,
-    task: true,
   },
   personal: {
     enabled: true,
@@ -79,6 +67,11 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   },
   admin: {
     enabled: true,
+    overview: true,
+    analytics: true,
+    key: true,
+    log: true,
+    task: true,
     channel: true,
     models: true,
     redemption: true,
@@ -197,7 +190,13 @@ export function parseSidebarModulesAdmin(
     const result: SidebarModulesAdminConfig = {}
 
     Object.entries(parsed).forEach(([sectionKey, raw]) => {
-      if (sectionKey === 'chat') return
+      if (
+        sectionKey === 'chat' ||
+        sectionKey === 'conversations' ||
+        sectionKey === 'console'
+      ) {
+        return
+      }
       if (!raw || typeof raw !== 'object') return
 
       const defaultSection = defaults[sectionKey] ?? { enabled: true }
@@ -220,6 +219,34 @@ export function parseSidebarModulesAdmin(
 
       result[sectionKey] = sectionConfig
     })
+
+    const legacyConsole = parsed.console
+    if (legacyConsole && typeof legacyConsole === 'object') {
+      const legacyModules = legacyConsole as Record<string, unknown>
+      const adminConfig = result.admin ?? { ...defaults.admin }
+      const consoleEnabled = toBoolean(legacyModules.enabled, true)
+      const applyLegacyModule = (legacyKey: string, nextKey: string) => {
+        if (!(legacyKey in legacyModules)) return
+        adminConfig[nextKey] =
+          consoleEnabled &&
+          toBoolean(legacyModules[legacyKey], adminConfig[nextKey] ?? true)
+      }
+
+      applyLegacyModule('detail', 'overview')
+      applyLegacyModule('detail', 'analytics')
+      applyLegacyModule('token', 'key')
+      applyLegacyModule('log', 'log')
+
+      if ('task' in legacyModules || 'midjourney' in legacyModules) {
+        const taskEnabled =
+          consoleEnabled &&
+          (toBoolean(legacyModules.task, true) ||
+            toBoolean(legacyModules.midjourney, true))
+        adminConfig.task = taskEnabled
+      }
+
+      result.admin = adminConfig
+    }
 
     // Merge defaults to ensure expected sections exist
     Object.entries(defaults).forEach(([sectionKey, config]) => {

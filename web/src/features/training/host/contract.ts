@@ -83,6 +83,12 @@ export function resolveTrainingHostRole(
   }
 }
 
+export function hasAuthenticatedTrainingHost(
+  value: TrainingHostContextValue
+): boolean {
+  return value.authStatus === 'authenticated' && value.user !== null
+}
+
 export function createTrainingHostValue(
   source: TrainingHostSource
 ): TrainingHostContextValue {
@@ -108,7 +114,7 @@ export function createTrainingHostValue(
     authStatus,
     user,
     // NewAPI group membership is not a verified TalkWise team identity.
-    team: source.team ?? null,
+    team: user ? (source.team ?? null) : null,
     role: resolveTrainingHostRole(source.user),
     locale: toIntlLocale(source.locale) ?? 'en',
     theme: source.theme,

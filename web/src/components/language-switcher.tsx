@@ -20,6 +20,7 @@ import { Languages, Check } from 'lucide-react'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { headerActionIconClassName } from '@/components/header-action-styles'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -58,7 +59,7 @@ export function LanguageSwitcher() {
       <DropdownMenuTrigger
         render={<Button variant='ghost' size='icon' className='h-9 w-9' />}
       >
-        <Languages className='size-[1.2rem]' />
+        <Languages className={headerActionIconClassName} />
         <span className='sr-only'>{t('Change language')}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align='end'>

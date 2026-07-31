@@ -19,15 +19,31 @@ import (
 )
 
 const (
-	defaultTalkWiseClientID             = "talkwise"
-	talkWiseHandoffTTL                  = 5 * time.Minute
-	talkWiseTrainingUpstreamEnv         = "TALKWISE_TRAINING_UPSTREAM_URL"
-	talkWiseTrainingUpstreamPath        = "/api/v1/training-studio"
-	talkWiseTrainingProxyUnavailable    = "TALKWISE_TRAINING_PROXY_UNAVAILABLE"
-	talkWiseTrainingUpstreamUnavailable = "TALKWISE_TRAINING_UPSTREAM_UNAVAILABLE"
-	talkWiseConversationUpstreamPath        = "/api/v1/stakeholder"
-	talkWiseConversationProxyUnavailable    = "TALKWISE_CONVERSATION_PROXY_UNAVAILABLE"
-	talkWiseConversationUpstreamUnavailable = "TALKWISE_CONVERSATION_UPSTREAM_UNAVAILABLE"
+	defaultTalkWiseClientID                     = "talkwise"
+	talkWiseHandoffTTL                          = 5 * time.Minute
+	talkWiseTrainingUpstreamEnv                 = "TALKWISE_TRAINING_UPSTREAM_URL"
+	talkWiseTrainingUpstreamPath                = "/api/v1/training-studio"
+	talkWiseTrainingProxyUnavailable            = "TALKWISE_TRAINING_PROXY_UNAVAILABLE"
+	talkWiseTrainingUpstreamUnavailable         = "TALKWISE_TRAINING_UPSTREAM_UNAVAILABLE"
+	talkWiseConversationUpstreamPath            = "/api/v1/stakeholder"
+	talkWiseConversationProxyUnavailable        = "TALKWISE_CONVERSATION_PROXY_UNAVAILABLE"
+	talkWiseConversationUpstreamUnavailable     = "TALKWISE_CONVERSATION_UPSTREAM_UNAVAILABLE"
+	talkWiseConversationTreeUpstreamPath        = "/api/v1/conversations"
+	talkWiseConversationTreeProxyUnavailable    = "TALKWISE_CONVERSATION_TREE_PROXY_UNAVAILABLE"
+	talkWiseConversationTreeUpstreamUnavailable = "TALKWISE_CONVERSATION_TREE_UPSTREAM_UNAVAILABLE"
+	talkWiseBattlePrepUpstreamPath              = "/api/v1/stakeholder/battle-prep"
+	talkWiseBattlePrepProxyUnavailable          = "TALKWISE_BATTLE_PREP_PROXY_UNAVAILABLE"
+	talkWiseBattlePrepUpstreamUnavailable       = "TALKWISE_BATTLE_PREP_UPSTREAM_UNAVAILABLE"
+	talkWiseDefensePrepUpstreamPath             = "/api/v1/defense-prep"
+	talkWiseDefensePrepProxyUnavailable         = "TALKWISE_DEFENSE_PREP_PROXY_UNAVAILABLE"
+	talkWiseDefensePrepUpstreamUnavailable      = "TALKWISE_DEFENSE_PREP_UPSTREAM_UNAVAILABLE"
+	talkWisePersonaUpstreamPath                 = "/api/v1/stakeholder/personas"
+	talkWisePersonaProxyUnavailable             = "TALKWISE_PERSONA_PROXY_UNAVAILABLE"
+	talkWisePersonaUpstreamUnavailable          = "TALKWISE_PERSONA_UPSTREAM_UNAVAILABLE"
+	talkWisePersonaDetectSpeakersUpstreamPath   = "/api/v1/stakeholder/persona/detect-speakers"
+	talkWisePersonaBuildUpstreamPath            = "/api/v1/stakeholder/persona/build"
+	talkWisePersonaBuilderProxyUnavailable      = "TALKWISE_PERSONA_BUILDER_PROXY_UNAVAILABLE"
+	talkWisePersonaBuilderUpstreamUnavailable   = "TALKWISE_PERSONA_BUILDER_UPSTREAM_UNAVAILABLE"
 )
 
 var errTalkWiseRedirectMismatch = errors.New("talkwise redirect_uri mismatch")
@@ -405,6 +421,168 @@ func ProxyTalkWiseConversations(c *gin.Context) {
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
+// ProxyTalkWiseConversationTree keeps NewAPI as the authenticated origin for
+// TalkWise's scope-protected text conversation and message-tree APIs.
+func ProxyTalkWiseConversationTree(c *gin.Context) {
+	upstream, err := configuredTalkWiseTrainingUpstream()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    talkWiseConversationTreeProxyUnavailable,
+			"message": "TalkWise conversation tree proxy is not configured",
+		})
+		return
+	}
+
+	suffix, err := normalizeTalkWiseTrainingSuffix(c.Param("path"))
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"code":    "TALKWISE_CONVERSATION_TREE_PATH_INVALID",
+			"message": "Invalid TalkWise conversation tree path",
+		})
+		return
+	}
+
+	proxy := newTalkWiseConversationTreeReverseProxy(upstream, suffix)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// ProxyTalkWiseBattlePrep exposes only the battle-prep resource namespace.
+// NewAPI authenticates the caller; TalkWise enforces asset and room ownership.
+func ProxyTalkWiseBattlePrep(c *gin.Context) {
+	proxyTalkWiseScopedNamespace(
+		c,
+		"TALKWISE_BATTLE_PREP_PATH_INVALID",
+		talkWiseBattlePrepProxyUnavailable,
+		talkWiseBattlePrepUpstreamUnavailable,
+		talkWiseBattlePrepUpstreamPath,
+		"TalkWise battle preparation",
+		false,
+	)
+}
+
+// ProxyTalkWiseDefensePrep exposes only the defense-prep resource namespace.
+func ProxyTalkWiseDefensePrep(c *gin.Context) {
+	proxyTalkWiseScopedNamespace(
+		c,
+		"TALKWISE_DEFENSE_PREP_PATH_INVALID",
+		talkWiseDefensePrepProxyUnavailable,
+		talkWiseDefensePrepUpstreamUnavailable,
+		talkWiseDefensePrepUpstreamPath,
+		"TalkWise defense preparation",
+		false,
+	)
+}
+
+// ProxyTalkWisePersonas exposes only TalkWise's persona asset namespace.
+// The root route deliberately maps without a trailing slash to avoid a FastAPI
+// redirect that could obscure the original authorization header.
+func ProxyTalkWisePersonas(c *gin.Context) {
+	proxyTalkWiseScopedNamespace(
+		c,
+		"TALKWISE_PERSONA_PATH_INVALID",
+		talkWisePersonaProxyUnavailable,
+		talkWisePersonaUpstreamUnavailable,
+		talkWisePersonaUpstreamPath,
+		"TalkWise persona",
+		true,
+	)
+}
+
+// ProxyTalkWisePersonaDetectSpeakers exposes only the builder's speaker
+// detection action, not the wider stakeholder namespace.
+func ProxyTalkWisePersonaDetectSpeakers(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWisePersonaDetectSpeakersUpstreamPath,
+		talkWisePersonaBuilderProxyUnavailable,
+		talkWisePersonaBuilderUpstreamUnavailable,
+		"TalkWise persona builder",
+	)
+}
+
+// ProxyTalkWisePersonaBuild preserves the persona builder's SSE response.
+func ProxyTalkWisePersonaBuild(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWisePersonaBuildUpstreamPath,
+		talkWisePersonaBuilderProxyUnavailable,
+		talkWisePersonaBuilderUpstreamUnavailable,
+		"TalkWise persona builder",
+	)
+}
+
+func proxyTalkWiseScopedNamespace(
+	c *gin.Context,
+	pathErrorCode string,
+	unavailableCode string,
+	upstreamUnavailableCode string,
+	upstreamPath string,
+	serviceName string,
+	exactRoot bool,
+) {
+	upstream, err := configuredTalkWiseTrainingUpstream()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    unavailableCode,
+			"message": serviceName + " proxy is not configured",
+		})
+		return
+	}
+
+	rawSuffix := c.Param("path")
+	suffix, err := normalizeTalkWiseTrainingSuffix(rawSuffix)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"code":    pathErrorCode,
+			"message": "Invalid " + serviceName + " path",
+		})
+		return
+	}
+	if exactRoot && rawSuffix == "" {
+		suffix = ""
+	}
+
+	proxy := newTalkWiseScopedNamespaceReverseProxy(
+		upstream,
+		suffix,
+		upstreamPath,
+		upstreamUnavailableCode,
+		serviceName,
+	)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+func proxyTalkWiseFixedPath(
+	c *gin.Context,
+	upstreamPath string,
+	unavailableCode string,
+	upstreamUnavailableCode string,
+	serviceName string,
+) {
+	upstream, err := configuredTalkWiseTrainingUpstream()
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    unavailableCode,
+			"message": serviceName + " proxy is not configured",
+		})
+		return
+	}
+
+	proxy := newTalkWiseScopedNamespaceReverseProxy(
+		upstream,
+		"",
+		upstreamPath,
+		upstreamUnavailableCode,
+		serviceName,
+	)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
 func configuredTalkWiseTrainingUpstream() (*url.URL, error) {
 	raw := strings.TrimSpace(common.GetEnvOrDefaultString(talkWiseTrainingUpstreamEnv, ""))
 	if raw == "" {
@@ -485,6 +663,60 @@ func newTalkWiseConversationReverseProxy(upstream *url.URL, suffix string) *http
 	return proxy
 }
 
+func newTalkWiseConversationTreeReverseProxy(upstream *url.URL, suffix string) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		director(request)
+		request.URL.Path = joinTalkWiseConversationTreeUpstreamPath(upstream.Path, suffix)
+		request.URL.RawPath = ""
+		request.Host = upstream.Host
+		stripTalkWiseIdentityInputs(request)
+	}
+	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
+		common.SysLog(fmt.Sprintf("TalkWise conversation tree upstream request failed: %v", proxyErr))
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(writer).Encode(gin.H{
+			"success": false,
+			"code":    talkWiseConversationTreeUpstreamUnavailable,
+			"message": "TalkWise conversation tree service is unavailable",
+		})
+	}
+	return proxy
+}
+
+func newTalkWiseScopedNamespaceReverseProxy(
+	upstream *url.URL,
+	suffix string,
+	upstreamPath string,
+	upstreamUnavailableCode string,
+	serviceName string,
+) *httputil.ReverseProxy {
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		director(request)
+		request.URL.Path = joinTalkWiseUpstreamPath(upstream.Path, upstreamPath, suffix)
+		request.URL.RawPath = ""
+		request.Host = upstream.Host
+		stripTalkWiseIdentityInputs(request)
+	}
+	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
+		common.SysLog(fmt.Sprintf("%s upstream request failed: %v", serviceName, proxyErr))
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(writer).Encode(gin.H{
+			"success": false,
+			"code":    upstreamUnavailableCode,
+			"message": serviceName + " service is unavailable",
+		})
+	}
+	return proxy
+}
+
 func joinTalkWiseTrainingUpstreamPath(upstreamBasePath string, suffix string) string {
 	base := strings.TrimRight(upstreamBasePath, "/")
 	return base + talkWiseTrainingUpstreamPath + suffix
@@ -493,6 +725,16 @@ func joinTalkWiseTrainingUpstreamPath(upstreamBasePath string, suffix string) st
 func joinTalkWiseConversationUpstreamPath(upstreamBasePath string, suffix string) string {
 	base := strings.TrimRight(upstreamBasePath, "/")
 	return base + talkWiseConversationUpstreamPath + suffix
+}
+
+func joinTalkWiseConversationTreeUpstreamPath(upstreamBasePath string, suffix string) string {
+	base := strings.TrimRight(upstreamBasePath, "/")
+	return base + talkWiseConversationTreeUpstreamPath + suffix
+}
+
+func joinTalkWiseUpstreamPath(upstreamBasePath string, resourcePath string, suffix string) string {
+	base := strings.TrimRight(upstreamBasePath, "/")
+	return base + resourcePath + suffix
 }
 
 func stripTalkWiseIdentityInputs(request *http.Request) {

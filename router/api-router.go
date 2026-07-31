@@ -69,6 +69,13 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			talkwiseRoute.Any("/training/*path", middleware.UserAuth(), controller.ProxyTalkWiseTraining)
 			talkwiseRoute.Any("/conversations/*path", middleware.UserAuth(), controller.ProxyTalkWiseConversations)
+			talkwiseRoute.Any("/conversation-tree/*path", middleware.UserAuth(), controller.ProxyTalkWiseConversationTree)
+			talkwiseRoute.Any("/battle-prep/*path", middleware.UserAuth(), controller.ProxyTalkWiseBattlePrep)
+			talkwiseRoute.Any("/defense-prep/*path", middleware.UserAuth(), controller.ProxyTalkWiseDefensePrep)
+			talkwiseRoute.Any("/personas", middleware.UserAuth(), controller.ProxyTalkWisePersonas)
+			talkwiseRoute.Any("/personas/*path", middleware.UserAuth(), controller.ProxyTalkWisePersonas)
+			talkwiseRoute.POST("/persona-builder/detect-speakers", middleware.UserAuth(), controller.ProxyTalkWisePersonaDetectSpeakers)
+			talkwiseRoute.POST("/persona-builder/build", middleware.UserAuth(), controller.ProxyTalkWisePersonaBuild)
 			talkwiseRoute.POST("/auth/exchange", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeTalkWiseAuthCode)
 			talkwiseRoute.POST("/auth/handoff", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateTalkWiseAuthHandoff)
 			talkwiseRoute.POST("/team/members", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ListTalkWiseTeamMembers)

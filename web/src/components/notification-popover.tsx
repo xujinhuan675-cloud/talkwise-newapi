@@ -20,6 +20,7 @@ import type { TFunction } from 'i18next'
 import { Bell, Megaphone } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { headerActionIconClassName } from '@/components/header-action-styles'
 import { RichContent } from '@/components/rich-content'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -314,7 +315,7 @@ export function NotificationPopover({
           />
         }
       >
-        <Bell className='size-[1.2rem]' />
+        <Bell className={headerActionIconClassName} />
         {unreadCount > 0 ? (
           <Badge
             variant='destructive'

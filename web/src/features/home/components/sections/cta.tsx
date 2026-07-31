@@ -34,10 +34,6 @@ export interface CTAProps {
 export function CTA(props: CTAProps) {
   const { t } = useTranslation()
 
-  if (props.isAuthenticated) {
-    return null
-  }
-
   const renderAction = (action: HomeAction) => (
     <Button
       key={action.id}

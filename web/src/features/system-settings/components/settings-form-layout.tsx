@@ -70,7 +70,7 @@ export function SettingsFormGridItem(props: SettingsFormGridItemProps) {
     <div
       data-settings-form-span={props.span === 'full' ? 'full' : undefined}
       className={cn(
-        'min-w-0',
+        'min-w-0 space-y-2',
         props.span === 'full' && 'lg:col-span-2',
         props.className
       )}

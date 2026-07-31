@@ -19,33 +19,29 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import {
-  TRAINING_DEFAULT_SECTION,
-  TRAINING_SECTION_IDS,
+  resolveTrainingLegacySectionDestination,
+  TRAINING_SIDEBAR_ITEM,
+  TRAINING_SIDEBAR_MODULE,
 } from '@/features/training/section-registry'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute('/_authenticated/training/$section')({
   beforeLoad: ({ params }) => {
-    if (!isSidebarModuleEnabled('training', 'studio')) {
+    if (
+      !isSidebarModuleEnabled(TRAINING_SIDEBAR_MODULE, TRAINING_SIDEBAR_ITEM)
+    ) {
       throw redirect({ to: '/dashboard' })
     }
 
-    const validSections = TRAINING_SECTION_IDS as unknown as string[]
-    if (!validSections.includes(params.section)) {
+    const destination = resolveTrainingLegacySectionDestination(params.section)
+    if (!destination) {
       throw redirect({
         to: '/training',
       })
     }
 
-    const destinations: Record<string, string> = {
-      overview: '/training',
-      scenarios: '/training/scenarios',
-      sessions: '/training/sessions',
-      growth: '/training/growth',
-    }
     throw redirect({
-      to:
-        destinations[params.section] ?? `/training/${TRAINING_DEFAULT_SECTION}`,
+      to: destination,
     })
   },
 })

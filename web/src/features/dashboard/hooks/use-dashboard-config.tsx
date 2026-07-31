@@ -90,39 +90,53 @@ export function useModelStatCardsConfig(): StatCardConfig[] {
   ]
 }
 
-export function useSummaryCardsConfig(totals: {
-  todayUsageDisplay: string
-  usedDisplay: string
-  requestCountDisplay: string
-  currencyLabel: string
-  currencyEnabled: boolean
-}) {
+export function useSummaryCardsConfig(
+  totals: {
+    todayUsageDisplay: string
+    usedDisplay: string
+    requestCountDisplay: string
+    currencyLabel: string
+    currencyEnabled: boolean
+  },
+  labels?: {
+    todayUsageTitle?: string
+    todayUsageDescription?: string
+    historicalUsageTitle?: string
+    historicalUsageDescription?: string
+    requestCountTitle?: string
+    requestCountDescription?: string
+  }
+) {
   const { t } = useTranslation()
 
   return [
     {
       key: 'todayUsage',
-      title: t('Last 24h usage'),
+      title: labels?.todayUsageTitle ?? t('Last 24h usage'),
       value: totals.todayUsageDisplay,
-      description: totals.currencyEnabled
-        ? `${t('Consumed in the last 24 hours')} (${totals.currencyLabel})`
-        : t('Consumed in the last 24 hours'),
+      description:
+        labels?.todayUsageDescription ??
+        (totals.currencyEnabled
+          ? `${t('Consumed in the last 24 hours')} (${totals.currencyLabel})`
+          : t('Consumed in the last 24 hours')),
       icon: Flame,
     },
     {
       key: 'usage',
-      title: t('Historical Usage'),
+      title: labels?.historicalUsageTitle ?? t('Historical Usage'),
       value: totals.usedDisplay,
-      description: totals.currencyEnabled
-        ? `${t('Total consumed')} (${totals.currencyLabel})`
-        : t('Total consumed quota'),
+      description:
+        labels?.historicalUsageDescription ??
+        (totals.currencyEnabled
+          ? `${t('Total consumed')} (${totals.currencyLabel})`
+          : t('Total consumed quota')),
       icon: TrendingUp,
     },
     {
       key: 'requests',
-      title: t('Request Count'),
+      title: labels?.requestCountTitle ?? t('Request Count'),
       value: totals.requestCountDisplay,
-      description: t('Total requests made'),
+      description: labels?.requestCountDescription ?? t('Total requests made'),
       icon: Activity,
     },
   ]

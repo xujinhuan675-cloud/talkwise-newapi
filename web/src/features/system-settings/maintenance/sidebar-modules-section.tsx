@@ -69,23 +69,12 @@ export function SidebarModulesSection({
   const updateOption = useUpdateOption()
 
   const sectionMeta: Record<string, { title: string; description: string }> = {
-    conversations: {
-      title: localize('Conversations', '对话'),
-      description: localize(
-        'Conversation library and dialogue history.',
-        '对话库与历史会话。'
-      ),
-    },
     training: {
       title: localize('Training area', '训练区域'),
       description: localize(
         'Communication practice, review, and growth workflows.',
         '沟通训练、复盘与成长工作流。'
       ),
-    },
-    console: {
-      title: t('Console area'),
-      description: t('Dashboards, tokens, and usage analytics.'),
     },
     personal: {
       title: t('Personal area'),
@@ -101,15 +90,6 @@ export function SidebarModulesSection({
     string,
     Record<string, { title: string; description: string }>
   > = {
-    conversations: {
-      library: {
-        title: localize('Conversations', '对话'),
-        description: localize(
-          'Browse, create, and continue conversations.',
-          '浏览、新建和继续对话。'
-        ),
-      },
-    },
     training: {
       studio: {
         title: localize('Training Studio', '训练工作台'),
@@ -117,28 +97,6 @@ export function SidebarModulesSection({
           'Practice scenarios, review sessions, and track growth.',
           '练习场景、复盘训练并跟踪成长。'
         ),
-      },
-    },
-    console: {
-      detail: {
-        title: t('Dashboard'),
-        description: t('Aggregated usage metrics and trend charts.'),
-      },
-      token: {
-        title: t('Token management'),
-        description: t('Create, revoke, and audit API tokens.'),
-      },
-      log: {
-        title: t('Usage logs'),
-        description: t('Detailed request logs for investigations.'),
-      },
-      midjourney: {
-        title: t('Drawing logs'),
-        description: t('History of MjProxy-style image tasks.'),
-      },
-      task: {
-        title: t('Task logs'),
-        description: t('Background job tracker for queued work.'),
       },
     },
     personal: {
@@ -152,6 +110,41 @@ export function SidebarModulesSection({
       },
     },
     admin: {
+      overview: {
+        title: localize('Platform overview', '平台概览'),
+        description: localize(
+          'Service health and high-level operational context.',
+          '服务健康度与平台运营概览。'
+        ),
+      },
+      analytics: {
+        title: localize('Operational data', '运营数据'),
+        description: localize(
+          'Platform traffic, model calls, and user activity trends.',
+          '平台流量、模型调用和用户活跃趋势。'
+        ),
+      },
+      key: {
+        title: t('API Keys'),
+        description: localize(
+          'Manage administrator credentials and access controls.',
+          '管理管理员凭据与访问控制。'
+        ),
+      },
+      log: {
+        title: t('Usage logs'),
+        description: localize(
+          'Inspect platform requests, errors, and consumption records.',
+          '查看平台请求、错误和消耗记录。'
+        ),
+      },
+      task: {
+        title: t('Task logs'),
+        description: localize(
+          'Review background and image task execution records.',
+          '查看后台与图像任务的执行记录。'
+        ),
+      },
       channel: {
         title: t('Channels'),
         description: t('Configure upstream providers and routing.'),

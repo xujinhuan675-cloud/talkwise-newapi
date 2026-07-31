@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
   BarChart3,
@@ -38,6 +39,7 @@ import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { getTrainingScenarioConfig } from '../training/config/api'
 import { CTA, Features, Hero, HowItWorks, Stats } from './components'
 import { useHomePageContent } from './hooks'
 import type {
@@ -55,6 +57,13 @@ export function Home() {
   const { auth } = useAuthStore()
   const isAuthenticated = !!auth.user
   const { content, isLoaded, isUrl } = useHomePageContent()
+  const scenarioConfigQuery = useQuery({
+    queryKey: ['training', 'scenario-config', ''],
+    queryFn: () => getTrainingScenarioConfig(''),
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+  })
+  const trainingScenarioCount = scenarioConfigQuery.data?.scenarios.length ?? 0
   const localized = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -66,11 +75,8 @@ export function Home() {
   const talkWiseHero = useMemo<HomeHeroContent>(
     () => ({
       badge: localized('AI Communication Training', 'AI 沟通训练'),
-      title: 'TalkWise',
-      highlightedTitle: localized(
-        'Practice conversations that matter',
-        '演练每一次重要沟通'
-      ),
+      title: localized('For every important conversation', '为每一次重要沟通'),
+      highlightedTitle: localized('be prepared', '做好准备'),
       description: localized(
         'Rehearse realistic conversations, receive guidance in the moment, and turn every review into the next focused practice session.',
         '把重要沟通放进可重复演练的真实场景，在对话中获得提示，并把每次复盘变成下一轮针对性训练。'
@@ -371,12 +377,12 @@ export function Home() {
         label: localized('guidance and review layers', '提示与复盘层级'),
       },
       {
-        id: 'training-loop',
-        end: 1,
-        label: localized('continuous training loop', '持续训练闭环'),
+        id: 'training-scenarios',
+        end: trainingScenarioCount,
+        label: localized('training scenarios', '训练场景'),
       },
     ],
-    [localized]
+    [localized, trainingScenarioCount]
   )
 
   const talkWiseFeatures = useMemo<HomeFeaturesContent>(
@@ -691,7 +697,7 @@ export function Home() {
       <Stats stats={talkWiseStats} />
       <Features content={talkWiseFeatures} />
       <HowItWorks id='training-workflow' content={talkWiseFlow} />
-      <CTA isAuthenticated={isAuthenticated} content={talkWiseCta} />
+      <CTA content={talkWiseCta} />
       <Footer />
     </PublicLayout>
   )

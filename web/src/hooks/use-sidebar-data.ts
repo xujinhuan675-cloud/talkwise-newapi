@@ -27,13 +27,13 @@ import {
   Key,
   LayoutDashboard,
   ListTodo,
-  MessageSquare,
   Radio,
   ServerCog,
   Settings,
   Ticket,
   TrendingUp,
   User,
+  UserRoundCog,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -57,17 +57,6 @@ export function useSidebarData(): SidebarData {
 
   return {
     navGroups: [
-      {
-        id: 'conversations',
-        title: localize('Conversations', '对话'),
-        items: [
-          {
-            title: localize('Conversations', '对话'),
-            url: '/training/conversations',
-            icon: MessageSquare,
-          },
-        ],
-      },
       {
         id: 'training',
         title: localize('Training', '训练'),
@@ -94,6 +83,15 @@ export function useSidebarData(): SidebarData {
                 title: localize('Live coach', '实时教练'),
                 url: '/training/live-coach',
               },
+              {
+                title: localize('Conversations', '对话'),
+                url: '/training/conversations',
+              },
+              {
+                title: localize('Personas', '角色资产'),
+                url: '/training/personas',
+                icon: UserRoundCog,
+              },
             ],
           },
           {
@@ -111,7 +109,13 @@ export function useSidebarData(): SidebarData {
               },
               {
                 title: localize('Scenario leaderboard', '场景排行'),
-                url: '/training/growth/leaderboard',
+                url: '/training/team/scenarios',
+                requiredRole: ROLE.ADMIN,
+              },
+              {
+                title: localize('Competency leaderboard', '能力排行'),
+                url: '/training/team/competencies',
+                requiredRole: ROLE.ADMIN,
               },
             ],
           },
@@ -119,39 +123,6 @@ export function useSidebarData(): SidebarData {
             title: localize('Training settings', '训练设置'),
             url: '/training/settings',
             icon: Settings,
-          },
-        ],
-      },
-      {
-        id: 'general',
-        title: t('General'),
-        items: [
-          {
-            title: t('Overview'),
-            url: '/dashboard/overview',
-            icon: Activity,
-          },
-          {
-            title: t('Dashboard'),
-            url: '/dashboard/models',
-            icon: LayoutDashboard,
-          },
-          {
-            title: t('API Keys'),
-            url: '/keys',
-            icon: Key,
-          },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
-          },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
           },
         ],
       },
@@ -176,29 +147,67 @@ export function useSidebarData(): SidebarData {
         title: t('Admin'),
         items: [
           {
+            title: localize('Platform overview', '平台概览'),
+            url: '/dashboard/overview',
+            icon: Activity,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: localize('Operational data', '运营数据'),
+            url: '/dashboard/models',
+            activeUrls: ['/dashboard/flow', '/dashboard/users'],
+            icon: LayoutDashboard,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: t('API Keys'),
+            url: '/keys',
+            icon: Key,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: t('Usage Logs'),
+            url: '/usage-logs/common',
+            icon: FileText,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
+            title: t('Task Logs'),
+            url: '/usage-logs/task',
+            activeUrls: ['/usage-logs/drawing'],
+            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+            icon: ListTodo,
+            requiredRole: ROLE.ADMIN,
+          },
+          {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Models'),
             url: '/models/metadata',
             icon: Box,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Users'),
             url: '/users',
             icon: Users,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Redemption Codes'),
             url: '/redemption-codes',
             icon: Ticket,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('System Info'),
@@ -211,6 +220,7 @@ export function useSidebarData(): SidebarData {
             url: '/system-settings/site',
             activeUrls: ['/system-settings'],
             icon: Settings,
+            requiredRole: ROLE.ADMIN,
           },
         ],
       },
