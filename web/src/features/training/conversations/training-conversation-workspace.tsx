@@ -88,8 +88,9 @@ function selectedSession(
       ) ?? null
     )
   }
-  if (sessionId)
+  if (sessionId) {
     return sessions.find((session) => session.id === sessionId) ?? null
+  }
   if (conversationId) {
     return (
       sessions.find((session) => session.conversationId === conversationId) ??
@@ -116,7 +117,7 @@ function TrainingConversationWorkspaceContent({
     queryFn: () => listTrainingConversationSessions(host.apiBase),
     enabled: host.authStatus === 'authenticated',
   })
-  const sessions = sessionsQuery.data ?? []
+  const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data])
   const [isNewConversationOpen, setIsNewConversationOpen] = useState(false)
   const [isListCollapsed, setIsListCollapsed] = useState(false)
   const [sessionPendingDelete, setSessionPendingDelete] =
