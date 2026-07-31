@@ -75,7 +75,10 @@ export function NewTrainingConversationDialog({
     queryFn: () => listTrainingScenarios(apiBase),
     enabled: open,
   })
-  const scenarios = scenariosQuery.data ?? []
+  const scenarios = useMemo(
+    () => scenariosQuery.data ?? [],
+    [scenariosQuery.data]
+  )
   const selectedScenario = useMemo(
     () =>
       scenarios.find((scenario) => scenario.id === selectedScenarioId) ??
