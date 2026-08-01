@@ -40,6 +40,7 @@ import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getTrainingScenarioConfig } from '../training/config/api'
+import { listPersonas } from '../training/personas/api'
 import { CTA, Features, Hero, HowItWorks, Stats } from './components'
 import { useHomePageContent } from './hooks'
 import type {
@@ -63,7 +64,14 @@ export function Home() {
     enabled: isAuthenticated,
     staleTime: 30_000,
   })
+  const personasQuery = useQuery({
+    queryKey: ['training', 'personas'],
+    queryFn: listPersonas,
+    enabled: isAuthenticated,
+    staleTime: 30_000,
+  })
   const trainingScenarioCount = scenarioConfigQuery.data?.scenarios.length ?? 0
+  const personaCount = personasQuery.data?.length ?? 0
   const localized = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -372,9 +380,9 @@ export function Home() {
         label: localized('text and voice modes', '文本与语音模式'),
       },
       {
-        id: 'feedback-layers',
-        end: 3,
-        label: localized('guidance and review layers', '提示与复盘层级'),
+        id: 'personas',
+        end: personaCount,
+        label: localized('personas', '角色数'),
       },
       {
         id: 'training-scenarios',
@@ -382,7 +390,7 @@ export function Home() {
         label: localized('training scenarios', '训练场景'),
       },
     ],
-    [localized, trainingScenarioCount]
+    [localized, personaCount, trainingScenarioCount]
   )
 
   const talkWiseFeatures = useMemo<HomeFeaturesContent>(

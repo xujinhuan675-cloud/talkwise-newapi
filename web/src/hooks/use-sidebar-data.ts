@@ -33,7 +33,6 @@ import {
   Ticket,
   TrendingUp,
   User,
-  UserRoundCog,
   Users,
   Wallet,
 } from 'lucide-react'
@@ -90,7 +89,6 @@ export function useSidebarData(): SidebarData {
               {
                 title: localize('Personas', '角色资产'),
                 url: '/training/personas',
-                icon: UserRoundCog,
               },
             ],
           },
