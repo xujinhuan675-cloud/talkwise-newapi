@@ -20,6 +20,7 @@ export type TrainingScenarioCategory =
   | 'customer_service'
   | 'interview'
   | 'negotiation'
+  | 'product_management'
   | 'sales'
   | 'workplace'
 

@@ -48,6 +48,7 @@ const CATEGORIES = new Set<TrainingScenarioCategory>([
   'customer_service',
   'interview',
   'negotiation',
+  'product_management',
   'sales',
   'workplace',
 ])

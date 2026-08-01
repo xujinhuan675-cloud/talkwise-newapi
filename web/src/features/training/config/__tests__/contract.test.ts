@@ -117,6 +117,22 @@ describe('training scenario configuration contract', () => {
     assert.equal(state.selectedDimensionId, 'structure')
   })
 
+  test('keeps the backend product-management category instead of coercing it to sales', () => {
+    const state = normalizeTrainingScenarioConfig({
+      dimensions: [{ id: 'structure', name: 'Structure' }],
+      scenarios: [
+        {
+          id: 'prd-review',
+          title: 'PRD review',
+          category: 'product_management',
+          dimensionWeights: [{ dimensionId: 'structure', weight: 100 }],
+        },
+      ],
+    })
+
+    assert.equal(state.scenarios[0]?.category, 'product_management')
+  })
+
   test('normalizes backend rubric ratios to persisted percentage weights', () => {
     const defaults = normalizeTrainingRubricDefaults({
       version: 'interview-five-dimension-v1',

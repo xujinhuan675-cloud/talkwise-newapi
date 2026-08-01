@@ -41,6 +41,7 @@ import { DataTablePage, useDataTable } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -81,6 +82,10 @@ import type {
 } from './types'
 
 type Localize = (english: string, chinese: string) => string
+
+function personaInitial(name: string): string {
+  return [...name.trim()][0] ?? '?'
+}
 
 const DEFAULT_PERSONA: CreatePersonaInput = {
   id: '',
@@ -398,11 +403,11 @@ function PersonaListContent() {
         header: localize('Persona', '角色'),
         cell: ({ row }) => (
           <div className='flex min-w-0 items-center gap-2.5'>
-            <span
-              className='size-7 shrink-0 rounded-md border'
-              style={{ backgroundColor: row.original.avatarColor || '#888888' }}
-              aria-hidden='true'
-            />
+            <Avatar className='ring-border/60 size-7 ring-1'>
+              <AvatarFallback className='text-xs font-medium'>
+                {personaInitial(row.original.name)}
+              </AvatarFallback>
+            </Avatar>
             <div className='min-w-0'>
               <Link
                 to='/training/personas/$personaId'

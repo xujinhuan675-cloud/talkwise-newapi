@@ -93,6 +93,7 @@ const CATEGORIES: TrainingScenarioCategory[] = [
   'customer_service',
   'negotiation',
   'interview',
+  'product_management',
   'workplace',
 ]
 const DIFFICULTIES: TrainingScenarioDifficulty[] = [
@@ -255,6 +256,7 @@ function scenarioLabel(
     customer_service: ['Customer service', '客户服务'],
     negotiation: ['Negotiation', '谈判'],
     interview: ['Interview', '面试'],
+    product_management: ['Product management', '产品管理'],
     workplace: ['Workplace', '职场'],
   }
   return localize(...labels[scenario.category])
