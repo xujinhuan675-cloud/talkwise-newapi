@@ -22,6 +22,9 @@ import { api } from '@/lib/http-client'
 
 import type {
   ReviewSession,
+  ReviewBranchContext,
+  ReviewEvaluationState,
+  ReviewReportState,
   ScenarioProgress,
   ScenarioProgressDTO,
   ScenarioProgressSummary,
@@ -30,6 +33,7 @@ import type {
   TrainingCompetencyRadar,
   TrainingCompetencyRadarDTO,
   TrainingSessionDTO,
+  TrainingSessionMode,
   TrainingSessionReportDTO,
 } from './types'
 
@@ -49,6 +53,12 @@ export interface TrainingListPage<T> {
 export interface TrainingListRequest {
   readonly skip: number
   readonly limit: number
+  readonly scenarioId?: string | null
+  readonly query?: string | null
+  readonly mode?: TrainingSessionMode | null
+  readonly source?: string | null
+  readonly activityFrom?: string | null
+  readonly activityTo?: string | null
 }
 
 function requireTalkWiseData<T>(response: TalkWiseResponse<T>): T {
@@ -77,11 +87,325 @@ function normalizeScoreStatus(value: string): ScenarioScoreStatus {
   return value === 'ready' ? 'ready' : 'pending'
 }
 
+function completionReportMetadata(
+  metadata: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  return asRecord(metadata?.completionReport ?? metadata?.completion_report)
+}
+
+export function getReviewReportState(input: {
+  metadata?: Record<string, unknown> | null
+  reportId?: string | null
+}): ReviewReportState & { readonly reportId: string | null } {
+  const completion = completionReportMetadata(asRecord(input.metadata))
+  const metadataReportId = asText(completion?.reportId ?? completion?.report_id)
+  const reportId = asText(input.reportId) ?? metadataReportId
+  const status = asText(completion?.status)?.toLowerCase()
+  const generation = asText(completion?.generation)
+  const message = asText(
+    completion?.message ?? completion?.error ?? completion?.error_message
+  )
+  const completedWithoutReport =
+    completion?.completedWithoutReport === true ||
+    completion?.completed_without_report === true
+
+  if (reportId) {
+    return {
+      status: 'ready',
+      reportId,
+      generation,
+      message: null,
+      completedWithoutReport: false,
+    }
+  }
+  if (status === 'pending') {
+    return {
+      status: 'pending',
+      reportId: null,
+      generation,
+      message: null,
+      completedWithoutReport: false,
+    }
+  }
+  if (status === 'failed') {
+    return {
+      status: 'failed',
+      reportId: null,
+      generation,
+      message,
+      completedWithoutReport,
+    }
+  }
+  if (status === 'ready') {
+    return {
+      status: 'unavailable',
+      reportId: null,
+      generation,
+      message,
+      completedWithoutReport,
+    }
+  }
+  return {
+    status: completedWithoutReport ? 'unavailable' : 'not_requested',
+    reportId: null,
+    generation,
+    message,
+    completedWithoutReport,
+  }
+}
+
+export function getReviewEvaluationState(
+  metadata?: Record<string, unknown> | null
+): ReviewEvaluationState | null {
+  const completion = completionReportMetadata(asRecord(metadata))
+  const evaluation = asRecord(completion?.evaluation)
+  const status = asText(evaluation?.status)?.toLowerCase()
+  if (status !== 'failed' && status !== 'ready' && status !== 'unavailable') {
+    return null
+  }
+  const rawOverallScore = evaluation?.overallScore ?? evaluation?.overall_score
+  return {
+    status,
+    evaluationId: asText(evaluation?.evaluationId ?? evaluation?.evaluation_id),
+    overallScore:
+      typeof rawOverallScore === 'number' && Number.isFinite(rawOverallScore)
+        ? rawOverallScore
+        : null,
+    message: asText(
+      evaluation?.message ?? evaluation?.error ?? evaluation?.error_message
+    ),
+    retryable: evaluation?.retryable === true,
+  }
+}
+
 function scenarioMetadata(
   session: TrainingSessionDTO
 ): Record<string, unknown> | null {
   const metadata = asRecord(session.task_config.metadata)
   return asRecord(metadata?.scenario_training)
+}
+
+function firstText(
+  records: Record<string, unknown>[],
+  keys: string[]
+): string | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const text = asText(record[key])
+      if (text) return text
+    }
+  }
+  return null
+}
+
+function firstPositiveInteger(
+  records: Record<string, unknown>[],
+  keys: string[]
+): number | null {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = Number(record[key])
+      if (Number.isSafeInteger(value) && value > 0) return value
+    }
+  }
+  return null
+}
+
+const BRANCH_RECORD_KEYS = [
+  'messageTreeSelection',
+  'message_tree_selection',
+  'selectedPath',
+  'selected_path',
+  'currentBranchTail',
+  'current_branch_tail',
+  'branchContext',
+  'branch_context',
+  'conversation',
+]
+const BRANCH_ID_KEYS = ['branchId', 'branch_id']
+const TAIL_ID_KEYS = [
+  'selectedMessageId',
+  'selected_message_id',
+  'tailMessageId',
+  'tail_message_id',
+  'messageId',
+  'message_id',
+]
+const PARENT_ID_KEYS = [
+  'forkPointMessageId',
+  'fork_point_message_id',
+  'sourceMessageId',
+  'source_message_id',
+  'parentMessageId',
+  'parent_message_id',
+]
+
+function branchRecords(metadata: Record<string, unknown>) {
+  return [
+    ...BRANCH_RECORD_KEYS.flatMap((key) => {
+      const record = asRecord(metadata[key])
+      return record ? [record] : []
+    }),
+    metadata,
+  ]
+}
+
+function toReviewPathItem(
+  value: unknown,
+  defaultBranchId: string | null
+): ReviewBranchContext['selectedPath'][number] | null {
+  const id = asText(value)
+  if (id && typeof value !== 'object') {
+    return {
+      publicId: id,
+      role: '',
+      content: '',
+      branchId: defaultBranchId,
+      parentMessageId: null,
+    }
+  }
+  const record = asRecord(value)
+  if (!record) return null
+  const publicId = firstText(
+    [record],
+    ['publicId', 'public_id', 'messageId', 'message_id', 'id']
+  )
+  if (!publicId) return null
+  return {
+    publicId,
+    role: firstText([record], ['role', 'speaker', 'sender']) ?? '',
+    content: firstText([record], ['content', 'text', 'message']) ?? '',
+    branchId: firstText([record], BRANCH_ID_KEYS) ?? defaultBranchId,
+    parentMessageId: firstText([record], PARENT_ID_KEYS),
+  }
+}
+
+function selectedReviewPath(records: Record<string, unknown>[]) {
+  for (const record of records) {
+    const branchId = firstText([record], BRANCH_ID_KEYS)
+    const value =
+      (Array.isArray(record.path) && record.path) ||
+      (Array.isArray(record.messageIds) && record.messageIds) ||
+      (Array.isArray(record.message_ids) && record.message_ids)
+    if (!value) continue
+    const path = value
+      .map((item) => toReviewPathItem(item, branchId))
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+    if (path.length > 0) return path
+  }
+  return []
+}
+
+function branchContextFromMetadata(
+  metadata: Record<string, unknown>,
+  source: ReviewBranchContext['source'],
+  sourceDetail: string
+): ReviewBranchContext | null {
+  const records = branchRecords(metadata)
+  const selectedPath = selectedReviewPath(records)
+  const lastPathItem = selectedPath.at(-1)
+  const branchId =
+    firstText(records, BRANCH_ID_KEYS) ?? lastPathItem?.branchId ?? null
+  const selectedTailMessageId =
+    firstText(records, TAIL_ID_KEYS) ?? lastPathItem?.publicId ?? null
+  const forkPointMessageId =
+    firstText(records, PARENT_ID_KEYS) ?? lastPathItem?.parentMessageId ?? null
+  const explicitPathCount = firstPositiveInteger(records, [
+    'pathCount',
+    'path_count',
+  ])
+  const pathCount = selectedPath.length || explicitPathCount
+  const pathSummary = firstText(records, ['pathSummary', 'path_summary'])
+  const lastReplyPreview = firstText(records, [
+    'lastReplyPreview',
+    'last_reply_preview',
+  ])
+  const hasPathReference = Boolean(
+    selectedTailMessageId ||
+    forkPointMessageId ||
+    pathCount ||
+    pathSummary ||
+    lastReplyPreview
+  )
+  if (!hasPathReference && (!branchId || branchId === 'main')) return null
+  let pathTextState: ReviewBranchContext['pathTextState'] = 'reference_only'
+  if (selectedPath.length > 0) {
+    pathTextState = selectedPath.some((item) => item.content)
+      ? 'with_text'
+      : 'id_only'
+  }
+
+  return {
+    source,
+    sourceDetail,
+    provider: firstText(records, ['provider']),
+    conversationId: firstText(records, ['conversationId', 'conversation_id']),
+    branchId,
+    selectedTailMessageId,
+    forkPointMessageId,
+    pathCount,
+    pathSummary,
+    lastReplyPreview,
+    pathTextState,
+    selectedPath,
+  }
+}
+
+export function getReviewBranchContext(input: {
+  session: Pick<ReviewSession, 'taskMetadata'>
+  report?: TrainingSessionReportDTO | null
+  progress?: Pick<ScenarioProgress, 'metadata'> | null
+}): ReviewBranchContext | null {
+  const sessionMetadata = asRecord(input.session.taskMetadata)
+  const reportContent = asRecord(input.report?.content)
+  const candidates: Array<{
+    metadata: Record<string, unknown> | null
+    source: ReviewBranchContext['source']
+    sourceDetail: string
+  }> = [
+    {
+      metadata: sessionMetadata,
+      source: 'session',
+      sourceDetail: 'session.task_config.metadata',
+    },
+    {
+      metadata: asRecord(input.report?.metadata),
+      source: 'report',
+      sourceDetail: 'report.metadata',
+    },
+    {
+      metadata: asRecord(reportContent?.metadata),
+      source: 'report',
+      sourceDetail: 'report.content.metadata',
+    },
+    {
+      metadata: reportContent,
+      source: 'report',
+      sourceDetail: 'report.content',
+    },
+    {
+      metadata: asRecord(input.progress?.metadata),
+      source: 'progress',
+      sourceDetail: 'progress.metadata',
+    },
+  ]
+  for (const candidate of candidates) {
+    if (!candidate.metadata) continue
+    const context = branchContextFromMetadata(
+      candidate.metadata,
+      candidate.source,
+      candidate.sourceDetail
+    )
+    if (context) return context
+  }
+  return null
+}
+
+export function progressForReviewSession(
+  progress: ScenarioProgress[],
+  sessionId: string
+): ScenarioProgress | null {
+  return progress.find((item) => item.sessionId === sessionId) ?? null
 }
 
 export function trainingReviewApiUrl(apiBase: string, path: string): string {
@@ -90,7 +414,7 @@ export function trainingReviewApiUrl(apiBase: string, path: string): string {
   return `${normalizedBase}${path}`
 }
 
-function trainingListApiUrl(
+export function trainingReviewListApiUrl(
   apiBase: string,
   path: string,
   request: TrainingListRequest
@@ -99,6 +423,24 @@ function trainingListApiUrl(
     skip: String(request.skip),
     limit: String(request.limit),
   })
+  if (request.scenarioId?.trim()) {
+    params.set('scenario_template_id', request.scenarioId.trim())
+  }
+  if (request.query?.trim()) {
+    params.set('query', request.query.trim())
+  }
+  if (request.mode) {
+    params.set('mode', request.mode)
+  }
+  if (request.source?.trim()) {
+    params.set('source', request.source.trim())
+  }
+  if (request.activityFrom) {
+    params.set('activity_from', request.activityFrom)
+  }
+  if (request.activityTo) {
+    params.set('activity_to', request.activityTo)
+  }
   return trainingReviewApiUrl(apiBase, `${path}?${params.toString()}`)
 }
 
@@ -131,8 +473,28 @@ export function reviewRequestErrorMessage(
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+export type ReviewRequestAccessState =
+  | 'forbidden'
+  | 'request_error'
+  | 'unauthorized'
+
+export function reviewRequestAccessState(
+  error: unknown
+): ReviewRequestAccessState {
+  if (!axios.isAxiosError(error)) return 'request_error'
+  if (error.response?.status === 401) return 'unauthorized'
+  if (error.response?.status === 403) return 'forbidden'
+  return 'request_error'
+}
+
 export function toReviewSession(session: TrainingSessionDTO): ReviewSession {
   const metadata = scenarioMetadata(session)
+  const taskMetadata = asRecord(session.task_config.metadata)
+  const reportState = getReviewReportState({
+    metadata: taskMetadata,
+    reportId: session.report_id,
+  })
+  const evaluationState = getReviewEvaluationState(taskMetadata)
   const title =
     asText(metadata?.title) ||
     session.task_config.tech_stack[0] ||
@@ -151,14 +513,28 @@ export function toReviewSession(session: TrainingSessionDTO): ReviewSession {
     category: session.task_config.category,
     difficulty: session.task_config.difficulty,
     mode: session.mode,
+    trainingSource:
+      asText(
+        taskMetadata?.training_source ??
+          taskMetadata?.trainingSource ??
+          taskMetadata?.source
+      ) ?? null,
     status: session.status,
     messageCount: session.message_count,
+    roomId:
+      session.room_id === null || session.room_id === undefined
+        ? null
+        : String(session.room_id),
     startedAt: session.started_at ?? null,
     completedAt: session.completed_at ?? null,
-    reportId: session.report_id ?? null,
+    reportId: reportState.reportId,
+    reportState,
+    evaluationState,
     failureReason: session.failure_reason ?? null,
     score: null,
     scoreStatus: 'pending',
+    progressLinked: false,
+    taskMetadata,
   }
 }
 
@@ -177,6 +553,7 @@ export function toScenarioProgress(dto: ScenarioProgressDTO): ScenarioProgress {
     lastPracticedAt: dto.last_practiced_at ?? null,
     reportId: dto.report_id ?? null,
     failureReason: dto.failure_reason ?? null,
+    metadata: asRecord(dto.metadata),
   }
 }
 
@@ -232,6 +609,7 @@ export function mergeReviewSessionScores(
       ...session,
       score: matchingProgress.score,
       scoreStatus: matchingProgress.scoreStatus,
+      progressLinked: true,
     }
   })
 }
@@ -255,7 +633,7 @@ export async function listReviewSessions(
   request: TrainingListRequest
 ): Promise<TrainingListPage<ReviewSession>> {
   const response = await api.get<TalkWiseResponse<TrainingSessionDTO[]>>(
-    trainingListApiUrl(apiBase, '/sessions', request),
+    trainingReviewListApiUrl(apiBase, '/sessions', request),
     { skipBusinessError: true, skipErrorHandler: true }
   )
   const items = requireTalkWiseData(response.data).map(toReviewSession)
@@ -292,7 +670,7 @@ export async function listScenarioProgress(
   request: TrainingListRequest
 ): Promise<TrainingListPage<ScenarioProgress>> {
   const response = await api.get<TalkWiseResponse<ScenarioProgressDTO[]>>(
-    trainingListApiUrl(apiBase, '/scenario-progress', request),
+    trainingReviewListApiUrl(apiBase, '/scenario-progress', request),
     { skipBusinessError: true, skipErrorHandler: true }
   )
   const items = requireTalkWiseData(response.data).map(toScenarioProgress)

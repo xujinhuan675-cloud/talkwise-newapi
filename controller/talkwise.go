@@ -44,6 +44,9 @@ const (
 	talkWisePersonaBuildUpstreamPath            = "/api/v1/stakeholder/persona/build"
 	talkWisePersonaBuilderProxyUnavailable      = "TALKWISE_PERSONA_BUILDER_PROXY_UNAVAILABLE"
 	talkWisePersonaBuilderUpstreamUnavailable   = "TALKWISE_PERSONA_BUILDER_UPSTREAM_UNAVAILABLE"
+	talkWiseRealtimeWebSocketSuffix             = "/realtime"
+	talkWiseWebSocketBearerProtocolPrefix       = "talkwise.bearer."
+	talkWiseWebSocketBearerTokenMaxLength       = 4096
 )
 
 var errTalkWiseRedirectMismatch = errors.New("talkwise redirect_uri mismatch")
@@ -394,6 +397,80 @@ func ProxyTalkWiseTraining(c *gin.Context) {
 	proxy.ServeHTTP(c.Writer, c.Request)
 }
 
+// PromoteTalkWiseTrainingWebSocketAuthorization lets browser WebSocket clients
+// present the existing NewAPI access token without putting it in the URL. It
+// must run immediately before middleware.UserAuth on the TalkWise training
+// route. UserAuth remains the authority that validates the promoted token.
+func PromoteTalkWiseTrainingWebSocketAuthorization(c *gin.Context) {
+	promoteTalkWiseWebSocketAuthorization(
+		c,
+		isTalkWiseRealtimeWebSocketRequest(c),
+		"TALKWISE_REALTIME_AUTH_REQUIRED",
+		"TALKWISE_REALTIME_CREDENTIAL_INVALID",
+		"TALKWISE_REALTIME_CREDENTIAL_CONFLICT",
+		"TalkWise realtime",
+	)
+}
+
+// PromoteTalkWiseConversationWebSocketAuthorization applies the same browser
+// credential bridge to the turn-based room voice endpoint. The ordinary
+// talkwise.voice protocol is preserved; the credential protocol is removed
+// before UserAuth and the upstream proxy see the request.
+func PromoteTalkWiseConversationWebSocketAuthorization(c *gin.Context) {
+	promoteTalkWiseWebSocketAuthorization(
+		c,
+		isTalkWiseVoiceWebSocketRequest(c),
+		"TALKWISE_VOICE_AUTH_REQUIRED",
+		"TALKWISE_VOICE_CREDENTIAL_INVALID",
+		"TALKWISE_VOICE_CREDENTIAL_CONFLICT",
+		"TalkWise voice",
+	)
+}
+
+func promoteTalkWiseWebSocketAuthorization(
+	c *gin.Context,
+	isExpectedWebSocket bool,
+	requiredCode string,
+	invalidCode string,
+	conflictCode string,
+	serviceName string,
+) {
+	request := c.Request
+	if isExpectedWebSocket && containsTalkWiseWebSocketCredentialQuery(request.URL.Query()) {
+		stripTalkWiseWebSocketBearerProtocol(request.Header)
+		abortTalkWiseWebSocketAuth(c, http.StatusBadRequest, invalidCode, "Invalid "+serviceName+" credential")
+		return
+	}
+	if !containsTalkWiseWebSocketBearerProtocol(request.Header) {
+		if isExpectedWebSocket && strings.TrimSpace(request.Header.Get("Authorization")) == "" {
+			abortTalkWiseWebSocketAuth(c, http.StatusUnauthorized, requiredCode, serviceName+" authentication is required")
+			return
+		}
+		c.Next()
+		return
+	}
+
+	protocols, token, err := parseTalkWiseWebSocketBearerProtocol(request.Header)
+	if err != nil || !isExpectedWebSocket {
+		stripTalkWiseWebSocketBearerProtocol(request.Header)
+		abortTalkWiseWebSocketAuth(c, http.StatusBadRequest, invalidCode, "Invalid "+serviceName+" credential")
+		return
+	}
+
+	if authorization := strings.TrimSpace(request.Header.Get("Authorization")); authorization != "" {
+		authorizationToken, ok := normalizeTalkWiseAuthorizationToken(authorization)
+		if !ok || authorizationToken != token {
+			stripTalkWiseWebSocketBearerProtocol(request.Header)
+			abortTalkWiseWebSocketAuth(c, http.StatusBadRequest, conflictCode, "Conflicting "+serviceName+" credentials")
+			return
+		}
+	}
+
+	setTalkWiseWebSocketProtocols(request.Header, protocols)
+	request.Header.Set("Authorization", "Bearer "+token)
+	c.Next()
+}
+
 // ProxyTalkWiseConversations keeps legacy TalkWise room conversations behind
 // NewAPI's authenticated same-origin boundary.
 func ProxyTalkWiseConversations(c *gin.Context) {
@@ -624,6 +701,7 @@ func newTalkWiseTrainingReverseProxy(upstream *url.URL, suffix string) *httputil
 		request.URL.RawPath = ""
 		request.Host = upstream.Host
 		stripTalkWiseIdentityInputs(request)
+		stripTalkWiseWebSocketBearerProtocol(request.Header)
 	}
 	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
 		common.SysLog(fmt.Sprintf("TalkWise training upstream request failed: %v", proxyErr))
@@ -648,6 +726,7 @@ func newTalkWiseConversationReverseProxy(upstream *url.URL, suffix string) *http
 		request.URL.RawPath = ""
 		request.Host = upstream.Host
 		stripTalkWiseIdentityInputs(request)
+		stripTalkWiseWebSocketBearerProtocol(request.Header)
 	}
 	proxy.ErrorHandler = func(writer http.ResponseWriter, request *http.Request, proxyErr error) {
 		common.SysLog(fmt.Sprintf("TalkWise conversation upstream request failed: %v", proxyErr))
@@ -748,6 +827,140 @@ func stripTalkWiseIdentityInputs(request *http.Request) {
 		query.Del(key)
 	}
 	request.URL.RawQuery = query.Encode()
+}
+
+func isTalkWiseRealtimeWebSocketRequest(c *gin.Context) bool {
+	return c.Param("path") == talkWiseRealtimeWebSocketSuffix &&
+		headerContainsToken(c.Request.Header.Get("Connection"), "upgrade") &&
+		strings.EqualFold(strings.TrimSpace(c.Request.Header.Get("Upgrade")), "websocket")
+}
+
+func isTalkWiseVoiceWebSocketRequest(c *gin.Context) bool {
+	segments := strings.Split(strings.Trim(c.Param("path"), "/"), "/")
+	if len(segments) != 3 || segments[0] != "rooms" || segments[2] != "voice" {
+		return false
+	}
+	roomID, err := strconv.ParseInt(segments[1], 10, 64)
+	return err == nil && roomID > 0 &&
+		headerContainsToken(c.Request.Header.Get("Connection"), "upgrade") &&
+		strings.EqualFold(strings.TrimSpace(c.Request.Header.Get("Upgrade")), "websocket")
+}
+
+func headerContainsToken(header string, token string) bool {
+	for _, value := range strings.Split(header, ",") {
+		if strings.EqualFold(strings.TrimSpace(value), token) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsTalkWiseWebSocketCredentialQuery(query url.Values) bool {
+	for key := range query {
+		switch strings.ToLower(strings.TrimSpace(key)) {
+		case "access_token", "accesstoken", "authorization", "bearer", "bearer_token", "token":
+			return true
+		}
+	}
+	return false
+}
+
+func containsTalkWiseWebSocketBearerProtocol(header http.Header) bool {
+	prefix := strings.ToLower(talkWiseWebSocketBearerProtocolPrefix)
+	for _, value := range header.Values("Sec-WebSocket-Protocol") {
+		for _, protocol := range strings.Split(value, ",") {
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(protocol)), prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func parseTalkWiseWebSocketBearerProtocol(header http.Header) ([]string, string, error) {
+	protocols := make([]string, 0)
+	credential := ""
+	prefixLower := strings.ToLower(talkWiseWebSocketBearerProtocolPrefix)
+
+	for _, value := range header.Values("Sec-WebSocket-Protocol") {
+		for _, rawProtocol := range strings.Split(value, ",") {
+			protocol := strings.TrimSpace(rawProtocol)
+			if protocol == "" || !isValidTalkWiseHTTPToken(protocol) {
+				return nil, "", errors.New("invalid WebSocket subprotocol")
+			}
+			if strings.HasPrefix(strings.ToLower(protocol), prefixLower) {
+				if !strings.HasPrefix(protocol, talkWiseWebSocketBearerProtocolPrefix) || credential != "" {
+					return nil, "", errors.New("invalid WebSocket bearer subprotocol")
+				}
+				credential = strings.TrimPrefix(protocol, talkWiseWebSocketBearerProtocolPrefix)
+				if len(credential) == 0 || len(credential) > talkWiseWebSocketBearerTokenMaxLength || !isValidTalkWiseHTTPToken(credential) {
+					return nil, "", errors.New("invalid WebSocket bearer token")
+				}
+				continue
+			}
+			protocols = append(protocols, protocol)
+		}
+	}
+	if credential == "" {
+		return nil, "", errors.New("WebSocket bearer token is required")
+	}
+	return protocols, credential, nil
+}
+
+func stripTalkWiseWebSocketBearerProtocol(header http.Header) {
+	if !containsTalkWiseWebSocketBearerProtocol(header) {
+		return
+	}
+	protocols, _, err := parseTalkWiseWebSocketBearerProtocol(header)
+	if err != nil {
+		header.Del("Sec-WebSocket-Protocol")
+		return
+	}
+	setTalkWiseWebSocketProtocols(header, protocols)
+}
+
+func setTalkWiseWebSocketProtocols(header http.Header, protocols []string) {
+	header.Del("Sec-WebSocket-Protocol")
+	if len(protocols) > 0 {
+		header.Set("Sec-WebSocket-Protocol", strings.Join(protocols, ", "))
+	}
+}
+
+func normalizeTalkWiseAuthorizationToken(header string) (string, bool) {
+	parts := strings.Fields(header)
+	if len(parts) == 1 && isValidTalkWiseHTTPToken(parts[0]) {
+		return parts[0], true
+	}
+	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && isValidTalkWiseHTTPToken(parts[1]) {
+		return parts[1], true
+	}
+	return "", false
+}
+
+func isValidTalkWiseHTTPToken(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range []byte(value) {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') {
+			continue
+		}
+		switch char {
+		case '!', '#', '$', '%', '&', '\'', '*', '+', '-', '.', '^', '_', '`', '|', '~':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func abortTalkWiseWebSocketAuth(c *gin.Context, status int, code string, message string) {
+	c.AbortWithStatusJSON(status, gin.H{
+		"success": false,
+		"code":    code,
+		"message": message,
+	})
 }
 
 func validateTalkWiseClient(clientID string, clientSecret string, requireSecret bool) (string, error) {

@@ -19,7 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { buildTrainingGrowthSummary } from '../contract'
+import {
+  buildTrainingGrowthSummary,
+  getTrainingGrowthProfileState,
+  getTrainingGrowthScoreState,
+  selectRecentTrainingActivity,
+} from '../contract'
 
 describe('training growth contract', () => {
   test('uses only completed, ready score records for progress summaries', () => {
@@ -55,5 +60,128 @@ describe('training growth contract', () => {
       averageScore: 80,
       completionPercentage: 50,
     })
+  })
+
+  test('keeps pending and failed score states explicit', () => {
+    const baseProgress = {
+      scenarioId: 'renewal',
+      sessionId: 'session-1',
+      overallScore: null,
+      lastPracticedAt: '2026-07-30T09:00:00Z',
+      reportId: null,
+    }
+
+    assert.equal(
+      getTrainingGrowthScoreState({
+        ...baseProgress,
+        status: 'completed',
+        score: null,
+        scoreStatus: 'pending',
+        failureReason: null,
+      }),
+      'pending'
+    )
+    assert.equal(
+      getTrainingGrowthScoreState({
+        ...baseProgress,
+        status: 'failed',
+        score: 80,
+        scoreStatus: 'ready',
+        failureReason: 'Evaluation failed',
+      }),
+      'failed'
+    )
+    assert.equal(
+      getTrainingGrowthScoreState({
+        ...baseProgress,
+        status: 'in_progress',
+        score: null,
+        scoreStatus: 'pending',
+        failureReason: null,
+      }),
+      'not_available'
+    )
+  })
+
+  test('builds a profile only from real server competency samples', () => {
+    assert.equal(getTrainingGrowthProfileState(undefined), 'empty')
+    assert.equal(
+      getTrainingGrowthProfileState({
+        sampleSize: 1,
+        dimensions: [
+          { dimensionId: 'persuasion', score: 80, sampleCount: 1 },
+          { dimensionId: 'listening', score: 75, sampleCount: 1 },
+        ],
+      }),
+      'empty'
+    )
+    assert.equal(
+      getTrainingGrowthProfileState({
+        sampleSize: 2,
+        dimensions: [
+          { dimensionId: 'persuasion', score: 80, sampleCount: 2 },
+          { dimensionId: 'listening', score: 75, sampleCount: 2 },
+          { dimensionId: 'alignment', score: 70, sampleCount: 2 },
+        ],
+      }),
+      'ready'
+    )
+  })
+
+  test('orders the training timeline by persisted activity without inventing dates', () => {
+    const base = {
+      scenarioId: null,
+      title: 'Practice',
+      description: null,
+      role: 'Counterpart',
+      category: 'practice',
+      difficulty: 'medium',
+      mode: 'text' as const,
+      trainingSource: null,
+      messageCount: 2,
+      roomId: null,
+      reportId: null,
+      reportState: {
+        status: 'not_requested' as const,
+        generation: null,
+        message: null,
+        completedWithoutReport: false,
+      },
+      evaluationState: null,
+      failureReason: null,
+      score: null,
+      scoreStatus: 'pending' as const,
+      progressLinked: false,
+      taskMetadata: null,
+    }
+    const sessions = [
+      {
+        ...base,
+        id: 'undated',
+        status: 'created' as const,
+        startedAt: null,
+        completedAt: null,
+      },
+      {
+        ...base,
+        id: 'latest',
+        status: 'completed' as const,
+        startedAt: '2026-07-31T08:00:00Z',
+        completedAt: '2026-08-01T08:00:00Z',
+      },
+      {
+        ...base,
+        id: 'failed',
+        status: 'failed' as const,
+        startedAt: '2026-07-30T08:00:00Z',
+        completedAt: null,
+      },
+    ]
+
+    assert.deepEqual(
+      selectRecentTrainingActivity(sessions, 2).map((session) => session.id),
+      ['latest', 'failed']
+    )
+    assert.equal(selectRecentTrainingActivity(sessions, 20)[2].id, 'undated')
   })
 })

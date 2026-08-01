@@ -39,6 +39,7 @@ interface TrainingSessionDTO {
   scenario_template_id?: string | null
   status: 'active' | 'completed' | 'created' | 'failed'
   room_id?: string | number | null
+  report_id?: string | number | null
   started_at?: string | null
   completed_at?: string | null
   message_count: number
@@ -54,6 +55,7 @@ export type TrainingConversationSession = {
   readonly messageCount: number
   readonly updatedAt: string | null
   readonly scenarioId: string | null
+  readonly reportId: string | null
   readonly metadata: Record<string, unknown> | undefined
 }
 
@@ -132,6 +134,10 @@ function toTrainingConversationSession(
     messageCount: session.message_count,
     updatedAt: session.completed_at || session.started_at || null,
     scenarioId: session.scenario_template_id ?? null,
+    reportId:
+      session.report_id === null || session.report_id === undefined
+        ? null
+        : String(session.report_id),
     metadata: metadata ?? undefined,
   }
 }

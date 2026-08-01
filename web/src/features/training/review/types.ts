@@ -32,6 +32,30 @@ export type ScenarioProgressStatus =
 
 export type ScenarioScoreStatus = 'pending' | 'ready'
 
+export type ReviewReportStatus =
+  | 'failed'
+  | 'not_requested'
+  | 'pending'
+  | 'ready'
+  | 'unavailable'
+
+export interface ReviewReportState {
+  readonly status: ReviewReportStatus
+  readonly generation: string | null
+  readonly message: string | null
+  readonly completedWithoutReport: boolean
+}
+
+export type ReviewEvaluationStatus = 'failed' | 'ready' | 'unavailable'
+
+export interface ReviewEvaluationState {
+  readonly status: ReviewEvaluationStatus
+  readonly evaluationId: string | null
+  readonly overallScore: number | null
+  readonly message: string | null
+  readonly retryable: boolean
+}
+
 export interface TrainingSessionDTO {
   session_id: string
   task_config: {
@@ -54,6 +78,33 @@ export interface TrainingSessionDTO {
   failure_reason?: string | null
 }
 
+export type ReviewDataSource = 'progress' | 'report' | 'session'
+
+export type ReviewPathTextState = 'id_only' | 'reference_only' | 'with_text'
+
+export interface ReviewPathItem {
+  readonly publicId: string
+  readonly role: string
+  readonly content: string
+  readonly branchId: string | null
+  readonly parentMessageId: string | null
+}
+
+export interface ReviewBranchContext {
+  readonly source: ReviewDataSource
+  readonly sourceDetail: string
+  readonly provider: string | null
+  readonly conversationId: string | null
+  readonly branchId: string | null
+  readonly selectedTailMessageId: string | null
+  readonly forkPointMessageId: string | null
+  readonly pathCount: number | null
+  readonly pathSummary: string | null
+  readonly lastReplyPreview: string | null
+  readonly pathTextState: ReviewPathTextState
+  readonly selectedPath: ReviewPathItem[]
+}
+
 export interface ScenarioProgressDTO {
   scenario_id: string
   status: ScenarioProgressStatus
@@ -66,6 +117,7 @@ export interface ScenarioProgressDTO {
   training_session_id: string
   report_id?: string | null
   score_id?: string | null
+  metadata?: Record<string, unknown> | null
 }
 
 export interface TrainingSessionReportDTO {
@@ -86,14 +138,20 @@ export interface ReviewSession {
   readonly category: string
   readonly difficulty: string
   readonly mode: TrainingSessionMode
+  readonly trainingSource: string | null
   readonly status: TrainingSessionStatus
   readonly messageCount: number
+  readonly roomId?: string | null
   readonly startedAt: string | null
   readonly completedAt: string | null
   readonly reportId: string | null
+  readonly reportState: ReviewReportState
+  readonly evaluationState: ReviewEvaluationState | null
   readonly failureReason: string | null
   readonly score: number | null
   readonly scoreStatus: ScenarioScoreStatus
+  readonly progressLinked?: boolean
+  readonly taskMetadata?: Record<string, unknown> | null
 }
 
 export interface ScenarioProgress {
@@ -106,6 +164,7 @@ export interface ScenarioProgress {
   readonly lastPracticedAt: string | null
   readonly reportId: string | null
   readonly failureReason: string | null
+  readonly metadata?: Record<string, unknown> | null
 }
 
 export interface ScenarioProgressSummaryDTO {

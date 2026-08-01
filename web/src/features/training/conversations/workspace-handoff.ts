@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 export interface TrainingConversationWorkspaceSearch {
   readonly session?: string
   readonly conversation?: string
+  readonly message?: string
 }
 
 /**
@@ -48,9 +49,11 @@ export function normalizeTrainingConversationWorkspaceSearch(
   const raw = value as TrainingConversationWorkspaceSearch | null
   const session = identifier(raw?.session)
   const conversation = identifier(raw?.conversation)
+  const message = identifier(raw?.message)
   return {
     ...(session ? { session } : {}),
     ...(conversation ? { conversation } : {}),
+    ...(message ? { message } : {}),
   }
 }
 

@@ -67,8 +67,18 @@ func SetApiRouter(router *gin.Engine) {
 
 		talkwiseRoute := apiRouter.Group("/talkwise")
 		{
-			talkwiseRoute.Any("/training/*path", middleware.UserAuth(), controller.ProxyTalkWiseTraining)
-			talkwiseRoute.Any("/conversations/*path", middleware.UserAuth(), controller.ProxyTalkWiseConversations)
+			talkwiseRoute.Any(
+				"/training/*path",
+				controller.PromoteTalkWiseTrainingWebSocketAuthorization,
+				middleware.UserAuth(),
+				controller.ProxyTalkWiseTraining,
+			)
+			talkwiseRoute.Any(
+				"/conversations/*path",
+				controller.PromoteTalkWiseConversationWebSocketAuthorization,
+				middleware.UserAuth(),
+				controller.ProxyTalkWiseConversations,
+			)
 			talkwiseRoute.Any("/conversation-tree/*path", middleware.UserAuth(), controller.ProxyTalkWiseConversationTree)
 			talkwiseRoute.Any("/battle-prep/*path", middleware.UserAuth(), controller.ProxyTalkWiseBattlePrep)
 			talkwiseRoute.Any("/defense-prep/*path", middleware.UserAuth(), controller.ProxyTalkWiseDefensePrep)

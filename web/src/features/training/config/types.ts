@@ -39,6 +39,12 @@ export interface TrainingScenarioDimensionWeight {
   weight: number
 }
 
+export interface TrainingRubricDefaults {
+  version: string
+  sourceCategory: string
+  dimensionWeights: TrainingScenarioDimensionWeight[]
+}
+
 export interface TrainingScenarioConfigDraft {
   id: string
   title: string

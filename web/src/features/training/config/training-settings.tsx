@@ -22,6 +22,7 @@ import {
   CircleAlert,
   LoaderCircle,
   Plus,
+  RotateCcw,
   Trash2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -61,10 +62,15 @@ import { SettingsPageFormActions } from '@/features/system-settings/components/s
 
 import { useTrainingHost } from '../host'
 import {
+  getTrainingRubricDefaults,
   getTrainingScenarioConfig,
   saveTrainingScenarioConfig,
   trainingConfigRequestErrorMessage,
 } from './api'
+import {
+  canManageTrainingScenarioConfig,
+  rubricDefaultsForConfiguredDimensions,
+} from './contract'
 import type {
   TrainingScenarioCategory,
   TrainingScenarioConfigDraft,
@@ -289,6 +295,7 @@ export function TrainingSettings() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<SettingsTab>('scenarios')
   const [draft, setDraft] = useState<TrainingScenarioConfigState | null>(null)
+  const canManage = canManageTrainingScenarioConfig(host.role)
   const localize = (english: string, chinese: string) =>
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
@@ -316,6 +323,42 @@ export function TrainingSettings() {
     },
   })
 
+  const rubricDefaultsMutation = useMutation({
+    mutationFn: async (input: {
+      scenarioId: string
+      category: TrainingScenarioCategory
+      dimensions: TrainingScenarioDimension[]
+    }) => {
+      const defaults = await getTrainingRubricDefaults(
+        host.apiBase,
+        input.category
+      )
+      return {
+        scenarioId: input.scenarioId,
+        dimensionWeights: rubricDefaultsForConfiguredDimensions(
+          defaults,
+          input.dimensions
+        ),
+      }
+    },
+    onSuccess: ({ scenarioId, dimensionWeights }) => {
+      saveMutation.reset()
+      setDraft((current) =>
+        current
+          ? {
+              ...current,
+              scenarios: current.scenarios.map((scenario) =>
+                scenario.id === scenarioId
+                  ? { ...scenario, dimensionWeights, updatedAt: nowIso() }
+                  : scenario
+              ),
+              updatedAt: nowIso(),
+            }
+          : current
+      )
+    },
+  })
+
   const selectedScenario = useMemo(
     () =>
       draft?.scenarios.find(
@@ -338,8 +381,10 @@ export function TrainingSettings() {
     selectedWeightTotal === 100
   const canSave =
     host.authStatus === 'authenticated' &&
+    canManage &&
     draft !== null &&
     !saveMutation.isPending &&
+    !rubricDefaultsMutation.isPending &&
     draft.dimensions.every(
       (dimension) => dimension.id.trim() && dimension.name.trim()
     ) &&
@@ -356,6 +401,7 @@ export function TrainingSettings() {
     ) => TrainingScenarioConfigState
   ) => {
     saveMutation.reset()
+    rubricDefaultsMutation.reset()
     setDraft((current) => (current ? updater(current) : current))
   }
 
@@ -404,6 +450,7 @@ export function TrainingSettings() {
   }
 
   const createScenario = () => {
+    if (!canManage) return
     updateDraft((current) => {
       const scenario = newScenario(current.dimensions)
       return {
@@ -417,7 +464,14 @@ export function TrainingSettings() {
   }
 
   const removeScenario = () => {
-    if (!draft || !selectedScenario || draft.scenarios.length <= 1) return
+    if (
+      !canManage ||
+      !draft ||
+      !selectedScenario ||
+      draft.scenarios.length <= 1
+    ) {
+      return
+    }
     const scenarios = draft.scenarios.filter(
       (scenario) => scenario.id !== selectedScenario.id
     )
@@ -430,6 +484,7 @@ export function TrainingSettings() {
   }
 
   const createDimension = () => {
+    if (!canManage) return
     updateDraft((current) => {
       const dimension = newDimension()
       return {
@@ -443,7 +498,12 @@ export function TrainingSettings() {
   }
 
   const removeDimension = () => {
-    if (!draft || !selectedDimension || selectedDimension.source !== 'local') {
+    if (
+      !canManage ||
+      !draft ||
+      !selectedDimension ||
+      selectedDimension.source !== 'local'
+    ) {
       return
     }
     const dimensions = draft.dimensions.filter(
@@ -467,8 +527,19 @@ export function TrainingSettings() {
     if (draft && canSave) saveMutation.mutate(draft)
   }
 
+  const applyCategoryDefaults = () => {
+    if (!canManage || !draft || !selectedScenario) return
+    rubricDefaultsMutation.reset()
+    rubricDefaultsMutation.mutate({
+      scenarioId: selectedScenario.id,
+      category: selectedScenario.category,
+      dimensions: draft.dimensions,
+    })
+  }
+
   const reset = () => {
     saveMutation.reset()
+    rubricDefaultsMutation.reset()
     void configQuery.refetch()
   }
 
@@ -527,6 +598,39 @@ export function TrainingSettings() {
               {trainingConfigRequestErrorMessage(
                 saveMutation.error,
                 localize('Request failed', '请求失败')
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {rubricDefaultsMutation.isError && (
+          <Alert variant='destructive'>
+            <CircleAlert />
+            <AlertTitle>
+              {localize(
+                'Unable to load rubric defaults',
+                '无法加载默认评分权重'
+              )}
+            </AlertTitle>
+            <AlertDescription>
+              {trainingConfigRequestErrorMessage(
+                rubricDefaultsMutation.error,
+                localize('Request failed', '请求失败')
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {host.authStatus === 'authenticated' && !canManage && (
+          <Alert>
+            <CircleAlert />
+            <AlertTitle>
+              {localize('Read-only training settings', '训练设置为只读')}
+            </AlertTitle>
+            <AlertDescription>
+              {localize(
+                'Your account can view the published training configuration. An administrator is required to change it.',
+                '当前账号可以查看已发布的训练配置，修改配置需要管理员权限。'
               )}
             </AlertDescription>
           </Alert>
@@ -601,7 +705,12 @@ export function TrainingSettings() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                  <Button variant='outline' size='sm' onClick={createScenario}>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={createScenario}
+                    disabled={!canManage}
+                  >
                     <Plus data-icon='inline-start' />
                     {localize('Add scenario', '新建场景')}
                   </Button>
@@ -609,7 +718,7 @@ export function TrainingSettings() {
                     variant='destructive'
                     size='sm'
                     onClick={removeScenario}
-                    disabled={draft.scenarios.length <= 1}
+                    disabled={!canManage || draft.scenarios.length <= 1}
                   >
                     <Trash2 data-icon='inline-start' />
                     {localize('Remove', '删除')}
@@ -621,7 +730,10 @@ export function TrainingSettings() {
                     scenario={selectedScenario}
                     dimensions={draft.dimensions}
                     isWeightValid={isWeightValid}
+                    readOnly={!canManage}
+                    isApplyingDefaults={rubricDefaultsMutation.isPending}
                     localize={localize}
+                    onApplyCategoryDefaults={applyCategoryDefaults}
                     onChange={(updater) =>
                       updateScenario(selectedScenario.id, updater)
                     }
@@ -673,7 +785,12 @@ export function TrainingSettings() {
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                  <Button variant='outline' size='sm' onClick={createDimension}>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={createDimension}
+                    disabled={!canManage}
+                  >
                     <Plus data-icon='inline-start' />
                     {localize('Add dimension', '新建维度')}
                   </Button>
@@ -681,7 +798,9 @@ export function TrainingSettings() {
                     variant='destructive'
                     size='sm'
                     onClick={removeDimension}
-                    disabled={selectedDimension?.source !== 'local'}
+                    disabled={
+                      !canManage || selectedDimension?.source !== 'local'
+                    }
                   >
                     <Trash2 data-icon='inline-start' />
                     {localize('Remove', '删除')}
@@ -695,6 +814,7 @@ export function TrainingSettings() {
                       selectedDimension,
                       localize
                     )}
+                    readOnly={!canManage}
                     localize={localize}
                     onChange={(updater) =>
                       updateDimension(selectedDimension.id, updater)
@@ -722,7 +842,10 @@ type ScenarioFormProps = {
   scenario: TrainingScenarioConfigDraft
   dimensions: TrainingScenarioDimension[]
   isWeightValid: boolean
+  readOnly: boolean
+  isApplyingDefaults: boolean
   localize: Localize
+  onApplyCategoryDefaults: () => void
   onChange: (
     updater: (
       scenario: TrainingScenarioConfigDraft
@@ -790,6 +913,7 @@ function ScenarioForm(props: ScenarioFormProps) {
       <div className='grid gap-4 md:grid-cols-2'>
         <SettingsSwitchField
           checked={props.scenario.enabled}
+          disabled={props.readOnly}
           onCheckedChange={(enabled) => patch({ enabled })}
           label={props.localize('Publish scenario', '启用场景')}
           description={props.localize(
@@ -799,6 +923,7 @@ function ScenarioForm(props: ScenarioFormProps) {
         />
         <SettingsSwitchField
           checked={props.scenario.required}
+          disabled={props.readOnly}
           onCheckedChange={(required) => patch({ required })}
           label={props.localize('Required practice', '标记为必练')}
           description={props.localize(
@@ -815,6 +940,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-title'
+            disabled={props.readOnly}
             value={props.scenario.title}
             onChange={(event) => patch({ title: event.target.value })}
           />
@@ -825,6 +951,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-learner-role'
+            disabled={props.readOnly}
             value={learnerRoleLabel(props.scenario.learnerRole, props.localize)}
             onChange={(event) => patch({ learnerRole: event.target.value })}
           />
@@ -832,6 +959,7 @@ function ScenarioForm(props: ScenarioFormProps) {
         <SettingsFormGridItem>
           <Label>{props.localize('Category', '分类')}</Label>
           <Select
+            disabled={props.readOnly}
             value={props.scenario.category}
             onValueChange={(value) =>
               value && patch({ category: value as TrainingScenarioCategory })
@@ -859,6 +987,7 @@ function ScenarioForm(props: ScenarioFormProps) {
         <SettingsFormGridItem>
           <Label>{props.localize('Difficulty', '难度')}</Label>
           <Select
+            disabled={props.readOnly}
             value={props.scenario.difficulty}
             onValueChange={(value) =>
               value &&
@@ -884,6 +1013,7 @@ function ScenarioForm(props: ScenarioFormProps) {
         <SettingsFormGridItem>
           <Label>{props.localize('Framework', '表达框架')}</Label>
           <Select
+            disabled={props.readOnly}
             value={props.scenario.framework}
             onValueChange={(value) => value && patch({ framework: value })}
           >
@@ -909,6 +1039,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-opening-line'
+            disabled={props.readOnly}
             value={props.scenario.openingLine}
             onChange={(event) => patch({ openingLine: event.target.value })}
           />
@@ -919,6 +1050,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Textarea
             id='training-scenario-description'
+            disabled={props.readOnly}
             rows={3}
             value={props.scenario.description}
             onChange={(event) => patch({ description: event.target.value })}
@@ -930,6 +1062,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Textarea
             id='training-scenario-customer-profile'
+            disabled={props.readOnly}
             rows={3}
             value={props.scenario.customerProfile}
             onChange={(event) => patch({ customerProfile: event.target.value })}
@@ -941,6 +1074,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Textarea
             id='training-scenario-points'
+            disabled={props.readOnly}
             rows={4}
             value={props.scenario.trainingPoints.join('\n')}
             onChange={(event) =>
@@ -961,6 +1095,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-persona-name'
+            disabled={props.readOnly}
             value={props.scenario.persona.name}
             onChange={(event) => patchPersona('name', event.target.value)}
           />
@@ -971,6 +1106,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Input
             id='training-scenario-persona-role'
+            disabled={props.readOnly}
             value={props.scenario.persona.role}
             onChange={(event) => patchPersona('role', event.target.value)}
           />
@@ -981,6 +1117,7 @@ function ScenarioForm(props: ScenarioFormProps) {
           </Label>
           <Textarea
             id='training-scenario-persona-style'
+            disabled={props.readOnly}
             rows={2}
             value={props.scenario.persona.style}
             onChange={(event) => patchPersona('style', event.target.value)}
@@ -1009,15 +1146,36 @@ function ScenarioForm(props: ScenarioFormProps) {
                   )}
             </p>
           </div>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            onClick={balanceWeights}
-            disabled={props.scenario.dimensionWeights.length === 0}
-          >
-            {props.localize('Balance weights', '平均分配')}
-          </Button>
+          <div className='flex flex-wrap gap-2'>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={props.onApplyCategoryDefaults}
+              disabled={props.readOnly || props.isApplyingDefaults}
+            >
+              {props.isApplyingDefaults ? (
+                <LoaderCircle
+                  className='animate-spin'
+                  data-icon='inline-start'
+                />
+              ) : (
+                <RotateCcw data-icon='inline-start' />
+              )}
+              {props.localize('Category defaults', '分类默认值')}
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={balanceWeights}
+              disabled={
+                props.readOnly || props.scenario.dimensionWeights.length === 0
+              }
+            >
+              {props.localize('Balance weights', '平均分配')}
+            </Button>
+          </div>
         </div>
         <div className='divide-y'>
           {props.dimensions.map((dimension) => {
@@ -1035,7 +1193,7 @@ function ScenarioForm(props: ScenarioFormProps) {
                 <div className='min-w-0 space-y-1'>
                   <SettingsSwitchField
                     checked={selected}
-                    disabled={disabled}
+                    disabled={props.readOnly || disabled}
                     onCheckedChange={(checked) =>
                       toggleDimension(dimension.id, checked)
                     }
@@ -1053,7 +1211,7 @@ function ScenarioForm(props: ScenarioFormProps) {
                     type='number'
                     min='0'
                     max='100'
-                    disabled={!selected}
+                    disabled={props.readOnly || !selected}
                     value={weight ?? 0}
                     onChange={(event) =>
                       updateWeight(dimension.id, event.target.value)
@@ -1076,6 +1234,7 @@ function ScenarioForm(props: ScenarioFormProps) {
 type DimensionFormProps = {
   dimension: TrainingScenarioDimension
   presentation: Pick<TrainingScenarioDimension, 'name' | 'description'>
+  readOnly: boolean
   localize: Localize
   onChange: (
     updater: (dimension: TrainingScenarioDimension) => TrainingScenarioDimension
@@ -1120,6 +1279,7 @@ function DimensionForm(props: DimensionFormProps) {
           </Label>
           <Input
             id='training-dimension-name'
+            disabled={props.readOnly}
             value={props.presentation.name}
             onChange={(event) => patch({ name: event.target.value })}
           />
@@ -1130,6 +1290,7 @@ function DimensionForm(props: DimensionFormProps) {
           </Label>
           <Textarea
             id='training-dimension-description'
+            disabled={props.readOnly}
             rows={3}
             value={props.presentation.description}
             onChange={(event) => patch({ description: event.target.value })}
@@ -1139,6 +1300,7 @@ function DimensionForm(props: DimensionFormProps) {
       <SettingsControlGroup>
         <SettingsSwitchField
           checked={props.dimension.enabled}
+          disabled={props.readOnly}
           onCheckedChange={(enabled) => patch({ enabled })}
           label={props.localize('Enable this dimension', '启用此维度')}
           description={props.localize(

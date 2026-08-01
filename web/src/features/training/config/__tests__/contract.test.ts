@@ -19,7 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { normalizeTrainingScenarioConfig, trainingConfigApiUrl } from '../api'
+import {
+  normalizeTrainingRubricDefaults,
+  normalizeTrainingScenarioConfig,
+  trainingConfigApiUrl,
+  trainingRubricDefaultsApiUrl,
+} from '../api'
+import {
+  canManageTrainingScenarioConfig,
+  rubricDefaultsForConfiguredDimensions,
+} from '../contract'
 
 describe('training scenario configuration contract', () => {
   test('uses the authenticated same-origin training proxy by default', () => {
@@ -30,6 +39,21 @@ describe('training scenario configuration contract', () => {
     assert.equal(
       trainingConfigApiUrl('https://talkwise.example/api/v1/training-studio/'),
       'https://talkwise.example/api/v1/training-studio/scenario-config'
+    )
+  })
+
+  test('uses the backend rubric contract and maps customer service to its workplace rubric', () => {
+    assert.equal(
+      trainingRubricDefaultsApiUrl('', 'sales'),
+      '/api/talkwise/training/rubrics/default?category=sales'
+    )
+    assert.equal(
+      trainingRubricDefaultsApiUrl('', 'customer_service'),
+      '/api/talkwise/training/rubrics/default?category=workplace'
+    )
+    assert.doesNotMatch(
+      trainingRubricDefaultsApiUrl('', 'negotiation'),
+      /user|team|role|token/i
     )
   })
 
@@ -91,5 +115,56 @@ describe('training scenario configuration contract', () => {
 
     assert.equal(state.selectedScenarioId, 'candidate-intro')
     assert.equal(state.selectedDimensionId, 'structure')
+  })
+
+  test('normalizes backend rubric ratios to persisted percentage weights', () => {
+    const defaults = normalizeTrainingRubricDefaults({
+      version: 'interview-five-dimension-v1',
+      category: 'sales',
+      weights: {
+        substance: 0.25,
+        structure: 0.15,
+        relevance: 0.25,
+        credibility: 0.2,
+        differentiation: 0.15,
+      },
+    })
+
+    assert.equal(defaults.sourceCategory, 'sales')
+    assert.deepEqual(defaults.dimensionWeights, [
+      { dimensionId: 'substance', weight: 25 },
+      { dimensionId: 'structure', weight: 15 },
+      { dimensionId: 'relevance', weight: 25 },
+      { dimensionId: 'credibility', weight: 20 },
+      { dimensionId: 'differentiation', weight: 15 },
+    ])
+  })
+
+  test('only grants writes to roles that the host maps to backend administrators', () => {
+    assert.equal(canManageTrainingScenarioConfig({ isAdmin: true }), true)
+    assert.equal(canManageTrainingScenarioConfig({ isAdmin: false }), false)
+  })
+
+  test('does not apply incomplete backend defaults to hidden dimensions', () => {
+    const defaults = normalizeTrainingRubricDefaults({
+      version: 'v1',
+      category: 'sales',
+      weights: { substance: 0.6, structure: 0.4 },
+    })
+    const dimensions = [
+      {
+        id: 'substance',
+        name: 'Substance',
+        description: '',
+        enabled: true,
+        source: 'default' as const,
+        updatedAt: '',
+      },
+    ]
+
+    assert.throws(
+      () => rubricDefaultsForConfiguredDimensions(defaults, dimensions),
+      /do not match/
+    )
   })
 })

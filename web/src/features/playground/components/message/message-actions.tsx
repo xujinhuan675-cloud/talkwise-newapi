@@ -21,6 +21,7 @@ import {
   Copy,
   Edit,
   FileCode2,
+  GitFork,
   MoreHorizontal,
   RefreshCw,
   Trash2,
@@ -55,6 +56,8 @@ interface MessageActionsProps {
   onRegenerate?: (message: Message) => void
   onToggleSource?: (message: Message) => void
   onEdit?: (message: Message) => void
+  onFork?: (message: Message) => void
+  forkLabel?: string
   onDelete?: (message: Message) => void
   isSourceVisible?: boolean
   isGenerating?: boolean
@@ -77,6 +80,8 @@ export function MessageActions({
   onRegenerate,
   onToggleSource,
   onEdit,
+  onFork,
+  forkLabel,
   onDelete,
   isSourceVisible = false,
   isGenerating = false,
@@ -103,6 +108,7 @@ export function MessageActions({
   const handleRegenerate = guardAction(() => onRegenerate?.(message))
   const handleToggleSource = () => onToggleSource?.(message)
   const handleEdit = guardAction(() => onEdit?.(message))
+  const handleFork = guardAction(() => onFork?.(message))
   const handleDelete = guardAction(() => onDelete?.(message))
 
   const visibilityClass = getMessageActionsVisibilityClass(alwaysVisible)
@@ -144,6 +150,15 @@ export function MessageActions({
       icon: Edit,
       label: MESSAGE_ACTION_LABELS.EDIT,
       onClick: handleEdit,
+    })
+  }
+
+  if (hasContent && !isLoading && onFork) {
+    actions.push({
+      disabled: isGenerating,
+      icon: GitFork,
+      label: forkLabel || MESSAGE_ACTION_LABELS.FORK,
+      onClick: handleFork,
     })
   }
 

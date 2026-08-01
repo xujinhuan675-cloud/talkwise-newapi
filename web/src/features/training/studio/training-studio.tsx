@@ -22,9 +22,10 @@ import {
   CircleCheck,
   LoaderCircle,
   Play,
+  Radio,
   Settings2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -47,14 +48,20 @@ import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
   launchTrainingSession,
   trainingStudioErrorMessage,
+  type RealtimeProfile,
   type TrainingFeedbackMode,
   type TrainingSession,
   type TrainingStudioMode,
 } from './api'
+import { RealtimeTrainingPanel } from './realtime-training-panel'
+import { TrainingRoomTimeline } from './training-room-timeline'
+import { TurnBasedVoicePanel } from './turn-based-voice-panel'
+import { VideoAnswerPanel } from './video-answer-panel'
 
 const MODES: Array<{ value: TrainingStudioMode; label: string }> = [
   { value: 'text', label: 'Text' },
   { value: 'voice', label: 'Voice' },
+  { value: 'realtime', label: 'Realtime' },
   { value: 'video', label: 'Video' },
 ]
 
@@ -67,6 +74,7 @@ const FEEDBACK_MODES: Array<{ value: TrainingFeedbackMode; label: string }> = [
 function chineseModeLabel(label: string): string {
   if (label === 'Text') return '文本'
   if (label === 'Voice') return '语音'
+  if (label === 'Realtime') return '实时'
   return '视频'
 }
 
@@ -82,9 +90,16 @@ function TrainingStudioContent() {
   const [role, setRole] = useState('')
   const [goal, setGoal] = useState('')
   const [mode, setMode] = useState<TrainingStudioMode>('voice')
+  const [realtimeProfile, setRealtimeProfile] =
+    useState<RealtimeProfile>('cascade')
+  const [launchedRealtimeProfile, setLaunchedRealtimeProfile] =
+    useState<RealtimeProfile>('cascade')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
+  const [launchedFeedbackMode, setLaunchedFeedbackMode] =
+    useState<TrainingFeedbackMode>('simulation')
   const [session, setSession] = useState<TrainingSession | null>(null)
+  const [roomRefreshVersion, setRoomRefreshVersion] = useState(0)
   const [isLaunching, setIsLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const localize = (english: string, chinese: string) =>
@@ -101,8 +116,12 @@ function TrainingStudioContent() {
         goal,
         mode,
         feedbackMode,
+        realtimeProfile,
       })
       setSession(nextSession)
+      setLaunchedRealtimeProfile(realtimeProfile)
+      setLaunchedFeedbackMode(feedbackMode)
+      setRoomRefreshVersion((current) => current + 1)
     } catch (nextError) {
       setError(
         trainingStudioErrorMessage(
@@ -114,6 +133,10 @@ function TrainingStudioContent() {
       setIsLaunching(false)
     }
   }
+
+  const refreshRoomTimeline = useCallback(() => {
+    setRoomRefreshVersion((current) => current + 1)
+  }, [])
 
   return (
     <SectionPageLayout>
@@ -127,8 +150,8 @@ function TrainingStudioContent() {
               <CardTitle>{localize('Session setup', '会话设置')}</CardTitle>
               <CardDescription>
                 {localize(
-                  'Create a scoped TalkWise session from the NewAPI host.',
-                  '从 NewAPI 宿主创建受当前账户范围约束的 TalkWise 训练会话。'
+                  'Create a training session scoped to the current account.',
+                  '创建受当前账户范围约束的训练会话。'
                 )}
               </CardDescription>
             </CardHeader>
@@ -172,7 +195,7 @@ function TrainingStudioContent() {
                       }
                     }}
                     variant='outline'
-                    className='grid w-full grid-cols-3'
+                    className='grid w-full grid-cols-4'
                     disabled={isLaunching}
                     aria-label={localize('Training mode', '训练模式')}
                   >
@@ -188,6 +211,37 @@ function TrainingStudioContent() {
                   </ToggleGroup>
                 </div>
               </div>
+
+              {mode === 'realtime' && (
+                <div className='space-y-2'>
+                  <Label>{localize('Realtime profile', '实时模式')}</Label>
+                  <ToggleGroup
+                    value={[realtimeProfile]}
+                    onValueChange={(values) => {
+                      const nextProfile = values.find(
+                        (value) => value !== realtimeProfile
+                      )
+                      if (nextProfile) {
+                        setRealtimeProfile(nextProfile as RealtimeProfile)
+                      }
+                    }}
+                    variant='outline'
+                    className='grid w-full grid-cols-2'
+                    disabled={isLaunching}
+                    aria-label={localize('Realtime profile', '实时模式')}
+                  >
+                    <ToggleGroupItem value='cascade' className='w-full'>
+                      {localize('Near realtime', '近实时')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem
+                      value='speech_to_speech'
+                      className='w-full'
+                    >
+                      {localize('True realtime', '真实时')}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+              )}
 
               <div className='space-y-2'>
                 <Label htmlFor='training-studio-goal'>
@@ -269,8 +323,8 @@ function TrainingStudioContent() {
               <CardTitle>{localize('Session state', '会话状态')}</CardTitle>
               <CardDescription>
                 {localize(
-                  'The server owns training identity and room binding.',
-                  '服务端负责训练身份范围和房间绑定。'
+                  'Training identity and room binding are server-owned.',
+                  '训练身份范围和房间绑定由服务端负责。'
                 )}
               </CardDescription>
             </CardHeader>
@@ -322,6 +376,56 @@ function TrainingStudioContent() {
             </CardFooter>
           </Card>
         </div>
+
+        {session?.roomId && session.mode !== 'text' && (
+          <div className='mx-auto mt-4 w-full max-w-5xl'>
+            {session.mode === 'voice' && (
+              <TurnBasedVoicePanel
+                apiBase={apiBase}
+                roomId={session.roomId}
+                sessionId={session.sessionId}
+                onMessagePersisted={refreshRoomTimeline}
+              />
+            )}
+
+            {session.mode === 'video' && (
+              <VideoAnswerPanel
+                apiBase={apiBase}
+                feedbackMode={launchedFeedbackMode}
+                roomId={session.roomId}
+                sessionId={session.sessionId}
+                onPersisted={refreshRoomTimeline}
+              />
+            )}
+
+            {session.mode === 'realtime' && (
+              <>
+                <div className='mb-2 flex items-center gap-2'>
+                  <Radio className='text-muted-foreground size-4' />
+                  <span className='text-muted-foreground text-xs'>
+                    {localize(
+                      'Session-bound realtime channel',
+                      '会话绑定的实时通道'
+                    )}
+                  </span>
+                </div>
+                <RealtimeTrainingPanel
+                  apiBase={apiBase}
+                  profile={launchedRealtimeProfile}
+                  roomId={session.roomId}
+                  sessionId={session.sessionId}
+                />
+              </>
+            )}
+
+            <TrainingRoomTimeline
+              enableAudioOutput={session.mode === 'voice'}
+              refreshVersion={roomRefreshVersion}
+              roomId={session.roomId}
+              sessionId={session.sessionId}
+            />
+          </div>
+        )}
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

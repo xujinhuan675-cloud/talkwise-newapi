@@ -23,7 +23,13 @@ import type {
   OnChangeFn,
   PaginationState,
 } from '@tanstack/react-table'
-import { CircleAlert, RefreshCw, Target } from 'lucide-react'
+import {
+  CircleAlert,
+  History,
+  RefreshCw,
+  Target,
+  UserRound,
+} from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart } from 'recharts'
@@ -32,9 +38,11 @@ import { DataTablePage, useDataTable } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -60,14 +68,23 @@ import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
   getTrainingCompetencyRadar,
   getScenarioProgressSummary,
+  listReviewSessions,
   listScenarioProgress,
+  mergeReviewSessionScores,
   reviewRequestErrorMessage,
 } from '../review/api'
 import type {
+  ReviewSession,
   ScenarioProgress,
   ScenarioProgressStatus,
   TrainingCompetencyRadar,
+  TrainingSessionStatus,
 } from '../review/types'
+import {
+  getTrainingGrowthProfileState,
+  getTrainingGrowthScoreState,
+  selectRecentTrainingActivity,
+} from './contract'
 
 const route = getRouteApi('/_authenticated/training/growth')
 
@@ -118,6 +135,26 @@ function progressStatusLabel(
   return localize(...labels[status])
 }
 
+function sessionStatusVariant(status: TrainingSessionStatus) {
+  if (status === 'completed') return 'success' as const
+  if (status === 'failed') return 'danger' as const
+  if (status === 'active') return 'warning' as const
+  return 'info' as const
+}
+
+function sessionStatusLabel(
+  status: TrainingSessionStatus,
+  localize: (english: string, chinese: string) => string
+): string {
+  const labels: Record<TrainingSessionStatus, readonly [string, string]> = {
+    active: ['Active', '进行中'],
+    completed: ['Completed', '已完成'],
+    created: ['Created', '待开始'],
+    failed: ['Failed', '失败'],
+  }
+  return localize(...labels[status])
+}
+
 function GrowthSkeleton() {
   return (
     <div className='space-y-3'>
@@ -152,12 +189,14 @@ function TrainingCompetencyRadarCard({
   isError,
   onRetry,
   localize,
+  userName,
 }: {
   radar: TrainingCompetencyRadar | undefined
   isPending: boolean
   isError: boolean
   onRetry: () => void
   localize: (english: string, chinese: string) => string
+  userName: string
 }) {
   const chartData = (radar?.dimensions ?? []).map((dimension) => {
     const labels = COMPETENCY_LABELS[dimension.dimensionId]
@@ -168,18 +207,26 @@ function TrainingCompetencyRadarCard({
       score: dimension.score,
     }
   })
-  const hasRadar = chartData.length >= 3 && (radar?.sampleSize ?? 0) > 0
+  const hasRadar = getTrainingGrowthProfileState(radar) === 'ready'
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{localize('Competency profile', '能力画像')}</CardTitle>
-        <CardDescription>
-          {localize(
-            'Average across the latest scored training sessions',
-            '基于最近已评分训练会话的真实维度均值'
-          )}
-        </CardDescription>
+        <CardTitle className='flex items-center gap-2'>
+          <UserRound className='text-muted-foreground size-4' />
+          {localize('Communication profile', '沟通能力名片')}
+        </CardTitle>
+        <CardDescription>{userName}</CardDescription>
+        {hasRadar && radar && (
+          <CardAction>
+            <Badge variant='secondary'>
+              {localize(
+                `${radar.sampleSize} scored sessions`,
+                `${radar.sampleSize} 次已评分训练`
+              )}
+            </Badge>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         {isPending && <Skeleton className='mx-auto size-70 rounded-full' />}
@@ -198,7 +245,7 @@ function TrainingCompetencyRadarCard({
           </div>
         )}
         {!isPending && !isError && hasRadar && radar && (
-          <>
+          <div className='grid items-center gap-6 lg:grid-cols-2'>
             <ChartContainer
               className='mx-auto aspect-square h-72 w-full max-w-md'
               config={competencyRadarChartConfig}
@@ -217,13 +264,31 @@ function TrainingCompetencyRadarCard({
                 />
               </RadarChart>
             </ChartContainer>
-            <div className='text-muted-foreground mt-2 text-center text-xs tabular-nums'>
-              {localize(
-                `Based on ${radar.sampleSize} scored sessions`,
-                `基于 ${radar.sampleSize} 次已评分训练`
-              )}
+            <div className='space-y-4'>
+              {radar.dimensions.map((dimension) => {
+                const labels = COMPETENCY_LABELS[dimension.dimensionId]
+                const label = labels
+                  ? localize(labels[0], labels[1])
+                  : dimension.dimensionId
+                return (
+                  <div key={dimension.dimensionId} className='space-y-1.5'>
+                    <Progress value={dimension.score}>
+                      <ProgressLabel>{label}</ProgressLabel>
+                      <ProgressValue>
+                        {() => `${dimension.score}/100`}
+                      </ProgressValue>
+                    </Progress>
+                    <div className='text-muted-foreground text-xs tabular-nums'>
+                      {localize(
+                        `${dimension.sampleCount} scored samples`,
+                        `${dimension.sampleCount} 个有效评分样本`
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          </>
+          </div>
         )}
         {!isPending && !isError && !hasRadar && (
           <div className='text-muted-foreground flex min-h-60 items-center justify-center text-center text-sm'>
@@ -231,6 +296,124 @@ function TrainingCompetencyRadarCard({
               'Complete scored training sessions to build your competency profile.',
               '完成并获得评分的训练后，这里会展示能力画像。'
             )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function TrainingActivityTimeline({
+  sessions,
+  isPending,
+  isError,
+  onRetry,
+  locale,
+  localize,
+}: {
+  sessions: ReviewSession[]
+  isPending: boolean
+  isError: boolean
+  onRetry: () => void
+  locale: string
+  localize: (english: string, chinese: string) => string
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center gap-2'>
+          <History className='text-muted-foreground size-4' />
+          {localize('Recent training activity', '近期训练时间线')}
+        </CardTitle>
+        <CardDescription>
+          {localize(
+            'Persisted TrainingSession activity in your current access scope',
+            '当前身份权限范围内已持久化的训练会话'
+          )}
+        </CardDescription>
+        <CardAction>
+          <Button
+            size='sm'
+            variant='outline'
+            render={<Link to='/training/sessions' />}
+          >
+            {localize('View all', '查看全部')}
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        {isPending && (
+          <div className='space-y-3'>
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton
+                key={`training-activity-skeleton-${index + 1}`}
+                className='h-12 w-full'
+              />
+            ))}
+          </div>
+        )}
+        {isError && (
+          <div className='text-muted-foreground flex min-h-28 flex-col items-center justify-center gap-3 text-sm'>
+            <span>
+              {localize(
+                'Unable to load recent activity.',
+                '无法加载近期训练。'
+              )}
+            </span>
+            <Button size='sm' variant='outline' onClick={onRetry}>
+              <RefreshCw />
+              {localize('Retry', '重试')}
+            </Button>
+          </div>
+        )}
+        {!isPending && !isError && sessions.length === 0 && (
+          <div className='text-muted-foreground flex min-h-28 flex-col items-center justify-center gap-3 text-center text-sm'>
+            <span>
+              {localize('No training activity yet.', '暂无训练记录。')}
+            </span>
+            <Button render={<Link to='/training/scenarios' />}>
+              {localize('Browse scenarios', '查看场景')}
+            </Button>
+          </div>
+        )}
+        {!isPending && !isError && sessions.length > 0 && (
+          <div className='divide-y'>
+            {sessions.map((session) => (
+              <div
+                key={session.id}
+                className='grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2 first:pt-0 last:pb-0'
+              >
+                <div className='min-w-0'>
+                  <Link
+                    to='/training/sessions/$sessionId'
+                    params={{ sessionId: session.id }}
+                    className='hover:text-primary block truncate font-medium'
+                  >
+                    {session.title}
+                  </Link>
+                  <div className='text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
+                    <span>
+                      {formatDate(
+                        session.completedAt ?? session.startedAt,
+                        locale
+                      )}
+                    </span>
+                    <span>{session.mode}</span>
+                    {session.scoreStatus === 'ready' &&
+                      session.score !== null && (
+                        <span className='tabular-nums'>
+                          {session.score}/100
+                        </span>
+                      )}
+                  </div>
+                </div>
+                <StatusBadge
+                  label={sessionStatusLabel(session.status, localize)}
+                  variant={sessionStatusVariant(session.status)}
+                  copyable={false}
+                />
+              </div>
+            ))}
           </div>
         )}
       </CardContent>
@@ -284,9 +467,15 @@ function ScenarioProgressDataTable({
         header: localize('Score', '得分'),
         cell: ({ row }) => {
           const item = row.original
-          return item.scoreStatus === 'ready' && item.score !== null
-            ? `${item.score}/100`
-            : '-'
+          const scoreState = getTrainingGrowthScoreState(item)
+          if (scoreState === 'ready') return `${item.score}/100`
+          if (scoreState === 'pending') {
+            return localize('Pending', '待评分')
+          }
+          if (scoreState === 'failed') {
+            return localize('Unavailable', '不可用')
+          }
+          return localize('Not scored', '未评分')
         },
       },
       {
@@ -380,6 +569,20 @@ function TrainingGrowthContent() {
   const radarQuery = useQuery({
     queryKey: ['training', 'competency-radar', host.apiBase],
     queryFn: () => getTrainingCompetencyRadar(host.apiBase),
+    enabled: host.authStatus === 'authenticated',
+  })
+  const activityQuery = useQuery({
+    queryKey: ['training', 'growth-activity', host.apiBase],
+    queryFn: async () => {
+      const [sessions, progress] = await Promise.all([
+        listReviewSessions(host.apiBase, { skip: 0, limit: 20 }),
+        listScenarioProgress(host.apiBase, { skip: 0, limit: 500 }),
+      ])
+      return selectRecentTrainingActivity(
+        mergeReviewSessionScores(sessions.items, progress.items),
+        6
+      )
+    },
     enabled: host.authStatus === 'authenticated',
   })
   const scenarioConfigQuery = useQuery({
@@ -526,6 +729,20 @@ function TrainingGrowthContent() {
         isPending={radarQuery.isPending}
         isError={radarQuery.isError}
         onRetry={() => void radarQuery.refetch()}
+        localize={localize}
+        userName={
+          host.user?.displayName ||
+          host.user?.username ||
+          localize('Current learner', '当前学员')
+        }
+      />
+
+      <TrainingActivityTimeline
+        sessions={activityQuery.data ?? []}
+        isPending={activityQuery.isPending}
+        isError={activityQuery.isError}
+        onRetry={() => void activityQuery.refetch()}
+        locale={i18n.language}
         localize={localize}
       />
 

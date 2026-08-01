@@ -16,10 +16,49 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
+import {
+  CheckCircle2,
+  ClipboardCheck,
+  Clock3,
+  Flag,
+  LoaderCircle,
+  PanelRightOpen,
+  ShieldAlert,
+  TriangleAlert,
+} from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import {
+  Branch,
+  BranchMessages,
+  BranchNext,
+  BranchPage,
+  BranchPrevious,
+  BranchSelector,
+} from '@/components/ai-elements/branch'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { PlaygroundChat } from '@/features/playground/components/chat/playground-chat'
 import { PlaygroundInput } from '@/features/playground/components/input/playground-input'
 import {
@@ -35,12 +74,26 @@ import {
 import type { Message } from '@/features/playground/types'
 
 import {
+  completeTrainingConversationSession,
   editTrainingConversationMessage,
+  forkTrainingSessionConversation,
   loadTrainingConversationMessages,
+  selectTrainingConversationBranch as authorizeTrainingConversationBranch,
   sendTrainingConversationMessage,
+  TrainingConversationApiError,
+  type TrainingConversationCompletionResult,
   type TrainingConversationMessage,
+  type TrainingConversationForkOption,
   type TrainingConversationSessionContext,
+  type TrainingSessionConversationForkResult,
 } from './api'
+import {
+  projectTrainingConversationTree,
+  selectTrainingConversationBranch,
+  type TrainingConversationBranchStep,
+  type TrainingConversationTreeProjection,
+} from './branch-model'
+import { TrainingConversationInsights } from './training-conversation-insights'
 
 export type { TrainingConversationSessionContext } from './api'
 
@@ -51,7 +104,97 @@ type MessageRecord = {
 
 export interface TrainingConversationSurfaceProps {
   readonly conversationId: string
+  readonly onCompletionConfirmed: (
+    result: TrainingConversationCompletionResult
+  ) => void | Promise<void>
+  readonly onForkCreated: (
+    result: TrainingSessionConversationForkResult
+  ) => void | Promise<void>
+  readonly onSelectedTailChange: (messageId: string | null) => void
+  readonly selectedTailId?: string
+  readonly trainingApiBase: string
   readonly trainingSession: TrainingConversationSessionContext
+}
+
+const EMPTY_TREE_PROJECTION: TrainingConversationTreeProjection = {
+  path: [],
+  selectedTailId: null,
+  branchSteps: [],
+  excludedMessageIds: [],
+}
+
+function metadataRecord(
+  value: unknown
+): Readonly<Record<string, unknown>> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : null
+}
+
+function metadataText(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || null
+}
+
+function selectedTailFromSession(
+  session: TrainingConversationSessionContext
+): string | null {
+  const selectedPath = metadataRecord(
+    session.metadata?.selectedPath ?? session.metadata?.selected_path
+  )
+  const currentTail = metadataRecord(
+    session.metadata?.currentBranchTail ?? session.metadata?.current_branch_tail
+  )
+  return (
+    metadataText(
+      selectedPath?.tailMessageId ?? selectedPath?.tail_message_id
+    ) ?? metadataText(currentTail?.messageId ?? currentTail?.message_id)
+  )
+}
+
+function TrainingMessageBranchSelector({
+  disabled,
+  messageRole,
+  onSelect,
+  pending,
+  step,
+}: {
+  readonly disabled: boolean
+  readonly messageRole: Message['from']
+  readonly onSelect: (messageId: string) => void
+  readonly pending: boolean
+  readonly step: TrainingConversationBranchStep
+}) {
+  const selectedIndex = Math.max(
+    0,
+    step.options.findIndex((option) => option.selected)
+  )
+
+  return (
+    <Branch
+      className='mt-1 gap-0'
+      currentBranch={selectedIndex}
+      onBranchChange={(branchIndex) => {
+        const option = step.options[branchIndex]
+        if (option) onSelect(option.message.publicId)
+      }}
+    >
+      <BranchMessages className='hidden'>
+        {step.options.map((option) => (
+          <span key={option.message.publicId} />
+        ))}
+      </BranchMessages>
+      <BranchSelector className='px-0' from={messageRole}>
+        <BranchPrevious disabled={disabled} />
+        {pending ? (
+          <LoaderCircle className='text-muted-foreground size-3.5 animate-spin' />
+        ) : (
+          <BranchPage />
+        )}
+        <BranchNext disabled={disabled} />
+      </BranchSelector>
+    </Branch>
+  )
 }
 
 function createdAtToMillis(value: string | null): number | undefined {
@@ -109,7 +252,8 @@ function retrySource(
   const source =
     target.from === 'user'
       ? target
-      : [...messages.slice(0, targetIndex)]
+      : messages
+          .slice(0, targetIndex)
           .reverse()
           .find((message) => message.from === 'user')
   if (!source) return null
@@ -129,10 +273,27 @@ function trainingConversationErrorMessage(error: unknown): string {
     : 'Training conversation request failed.'
 }
 
+function CompletionReportIcon({
+  status,
+}: {
+  readonly status: TrainingConversationCompletionResult['reportStatus']
+}) {
+  if (status === 'pending') return <Clock3 />
+  if (status === 'failed') return <TriangleAlert />
+  return <CheckCircle2 />
+}
+
 export function TrainingConversationSurface({
   conversationId,
+  onCompletionConfirmed,
+  onForkCreated,
+  onSelectedTailChange,
+  selectedTailId,
+  trainingApiBase,
   trainingSession,
 }: TrainingConversationSurfaceProps) {
+  const { i18n, t } = useTranslation()
+  const navigate = useNavigate()
   const {
     config,
     parameterEnabled,
@@ -147,18 +308,55 @@ export function TrainingConversationSurface({
     updateParameterEnabled,
   } = usePlaygroundState()
   const [isLoadingConversation, setIsLoadingConversation] = useState(true)
+  const [loadedConversationId, setLoadedConversationId] = useState<
+    string | null
+  >(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [editingMessageKey, setEditingMessageKey] = useState<string | null>(
     null
   )
   const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [forkTarget, setForkTarget] =
+    useState<TrainingConversationMessage | null>(null)
+  const [forkTitle, setForkTitle] = useState('')
+  const [forkOption, setForkOption] =
+    useState<TrainingConversationForkOption>('directPath')
+  const [isForking, setIsForking] = useState(false)
+  const [isInsightsOpen, setIsInsightsOpen] = useState(false)
+  const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false)
+  const [isCompleting, setIsCompleting] = useState(false)
+  const [completionError, setCompletionError] = useState<unknown>(null)
+  const [completionResult, setCompletionResult] =
+    useState<TrainingConversationCompletionResult | null>(null)
+  const [pendingBranchMessageId, setPendingBranchMessageId] = useState<
+    string | null
+  >(null)
+  const [treeProjection, setTreeProjection] =
+    useState<TrainingConversationTreeProjection>(EMPTY_TREE_PROJECTION)
   const messagesRef = useRef(messages)
   const messageRecordsRef = useRef(new Map<string, MessageRecord>())
+  const persistedMessagesRef = useRef<TrainingConversationMessage[]>([])
+  const selectedTailIdRef = useRef<string | null>(null)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const initialSelectedTailId =
+    selectedTailId?.trim() || selectedTailFromSession(trainingSession)
+  const localize = useCallback(
+    (english: string, chinese: string) =>
+      t(english, {
+        defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+      }),
+    [i18n.language, t]
+  )
 
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    setIsCompletionDialogOpen(false)
+    setCompletionError(null)
+    setCompletionResult(null)
+  }, [trainingSession.sessionId])
 
   const replaceMessages = useCallback(
     (nextMessages: Message[]) => {
@@ -180,25 +378,38 @@ export function TrainingConversationSurface({
   )
 
   const applyLoadedMessages = useCallback(
-    (loaded: TrainingConversationMessage[]) => {
+    (
+      loaded: TrainingConversationMessage[],
+      preferredTailId?: string | null
+    ) => {
+      const projection = projectTrainingConversationTree(
+        loaded,
+        preferredTailId
+      )
+      persistedMessagesRef.current = loaded
+      selectedTailIdRef.current = projection.selectedTailId
       messageRecordsRef.current = new Map(
         loaded.map((message) => [
           message.publicId,
           { key: message.publicId, message },
         ])
       )
-      replaceMessages(loaded.map(toPlaygroundMessage))
+      setTreeProjection(projection)
+      replaceMessages(projection.path.map(toPlaygroundMessage))
+      if (projection.selectedTailId !== (selectedTailId?.trim() || null)) {
+        onSelectedTailChange(projection.selectedTailId)
+      }
     },
-    [replaceMessages]
+    [onSelectedTailChange, replaceMessages, selectedTailId]
   )
 
   const refreshConversation = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, preferredTailId?: string | null) => {
       const loaded = await loadTrainingConversationMessages(
         conversationId,
         signal
       )
-      applyLoadedMessages(loaded)
+      applyLoadedMessages(loaded, preferredTailId)
     },
     [applyLoadedMessages, conversationId]
   )
@@ -208,7 +419,11 @@ export function TrainingConversationSurface({
 
     const controller = new AbortController()
     setIsLoadingConversation(true)
-    void refreshConversation(controller.signal)
+    setLoadedConversationId(null)
+    void refreshConversation(controller.signal, initialSelectedTailId)
+      .then(() => {
+        if (!controller.signal.aborted) setLoadedConversationId(conversationId)
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
           toast.error(trainingConversationErrorMessage(error))
@@ -219,7 +434,12 @@ export function TrainingConversationSurface({
       })
 
     return () => controller.abort()
-  }, [isLoadingMessages, refreshConversation])
+  }, [
+    conversationId,
+    initialSelectedTailId,
+    isLoadingMessages,
+    refreshConversation,
+  ])
 
   useEffect(
     () => () => {
@@ -242,7 +462,13 @@ export function TrainingConversationSurface({
       options?: { branchId?: string | null; parentMessageId?: string | null }
     ) => {
       const content = text.trim()
-      if (!content || streamAbortRef.current) return
+      if (
+        !content ||
+        streamAbortRef.current ||
+        trainingSession.status !== 'active'
+      ) {
+        return
+      }
 
       const userKey = `local-user-${nanoid()}`
       const assistantKey = `local-assistant-${nanoid()}`
@@ -259,8 +485,9 @@ export function TrainingConversationSurface({
           createLoadingAssistantMessage(createdAt),
         ].map((message, index, appended) => {
           if (index === appended.length - 2) return { ...message, key: userKey }
-          if (index === appended.length - 1)
+          if (index === appended.length - 1) {
             return { ...message, key: assistantKey }
+          }
           return message
         })
       )
@@ -297,6 +524,10 @@ export function TrainingConversationSurface({
                   key: event.publicId,
                   message,
                 })
+                persistedMessagesRef.current = [
+                  ...persistedMessagesRef.current,
+                  message,
+                ]
                 mutateMessages((current) =>
                   current.map((item) =>
                     item.key === userKey
@@ -332,16 +563,19 @@ export function TrainingConversationSurface({
                   key: event.publicId,
                   message,
                 })
+                const persistedMessages = [
+                  ...persistedMessagesRef.current,
+                  message,
+                ]
+                applyLoadedMessages(persistedMessages, event.publicId)
                 mutateMessages((current) =>
-                  current.map((item) => {
-                    if (item.key !== assistantKey) return item
-                    return completeAssistantMessage(
-                      updateMessageContent(
-                        { ...item, key: event.publicId },
-                        event.content
-                      )
-                    )
-                  })
+                  current.map((item) =>
+                    item.key === event.publicId
+                      ? completeAssistantMessage(
+                          updateMessageContent(item, event.content)
+                        )
+                      : item
+                  )
                 )
                 return
               }
@@ -396,6 +630,7 @@ export function TrainingConversationSurface({
       config.model,
       config.temperature,
       conversationId,
+      applyLoadedMessages,
       mutateMessages,
       parameterEnabled.max_tokens,
       parameterEnabled.temperature,
@@ -445,16 +680,10 @@ export function TrainingConversationSurface({
         content,
         trainingSession
       )
-        .then((result) => {
-          if (result.path.length > 0) {
-            applyLoadedMessages(result.path)
-          } else if (result.message) {
-            const currentRecords = Array.from(
-              messageRecordsRef.current.values(),
-              (record) => record.message
-            ).filter((message) => message.publicId !== result.message?.publicId)
-            applyLoadedMessages([...currentRecords, result.message])
-          }
+        .then(async (result) => {
+          const selectedMessageId =
+            result.message?.publicId ?? result.path.at(-1)?.publicId ?? null
+          await refreshConversation(undefined, selectedMessageId)
           setEditingMessageKey(null)
         })
         .catch((error: unknown) =>
@@ -462,7 +691,181 @@ export function TrainingConversationSurface({
         )
         .finally(() => setIsSavingEdit(false))
     },
-    [applyLoadedMessages, conversationId, editingMessageKey, trainingSession]
+    [conversationId, editingMessageKey, refreshConversation, trainingSession]
+  )
+
+  const handleSelectBranch = useCallback(
+    (selectedMessageId: string) => {
+      if (pendingBranchMessageId || isGenerating || isSavingEdit) return
+      const nextProjection = selectTrainingConversationBranch(
+        persistedMessagesRef.current,
+        selectedTailIdRef.current,
+        selectedMessageId
+      )
+      if (nextProjection.selectedTailId === selectedTailIdRef.current) return
+
+      setPendingBranchMessageId(selectedMessageId)
+      void authorizeTrainingConversationBranch(
+        conversationId,
+        selectedMessageId
+      )
+        .then((result) => {
+          if (result.message?.publicId !== selectedMessageId) {
+            throw new Error('Selected branch was not confirmed by the server.')
+          }
+          selectedTailIdRef.current = nextProjection.selectedTailId
+          messageRecordsRef.current = new Map(
+            persistedMessagesRef.current.map((message) => [
+              message.publicId,
+              { key: message.publicId, message },
+            ])
+          )
+          setEditingMessageKey(null)
+          setTreeProjection(nextProjection)
+          replaceMessages(nextProjection.path.map(toPlaygroundMessage))
+          onSelectedTailChange(nextProjection.selectedTailId)
+        })
+        .catch((error: unknown) =>
+          toast.error(trainingConversationErrorMessage(error))
+        )
+        .finally(() => setPendingBranchMessageId(null))
+    },
+    [
+      conversationId,
+      isGenerating,
+      isSavingEdit,
+      pendingBranchMessageId,
+      onSelectedTailChange,
+      replaceMessages,
+    ]
+  )
+
+  const handleOpenFork = useCallback((message: Message) => {
+    const persisted = messageRecordsRef.current.get(message.key)?.message
+    if (!persisted) return
+    setForkTitle('')
+    setForkOption('directPath')
+    setForkTarget(persisted)
+  }, [])
+
+  const handleFork = useCallback(() => {
+    if (!forkTarget || isForking) return
+    setIsForking(true)
+    void forkTrainingSessionConversation(trainingApiBase, forkTarget.publicId, {
+      session: trainingSession,
+      title: forkTitle,
+      option: forkOption,
+    })
+      .then(async (result) => {
+        await onForkCreated(result)
+        setForkTarget(null)
+        toast.success(
+          localize('Forked training session created.', '已创建分支训练会话。')
+        )
+      })
+      .catch((error: unknown) =>
+        toast.error(trainingConversationErrorMessage(error))
+      )
+      .finally(() => setIsForking(false))
+  }, [
+    forkOption,
+    forkTarget,
+    forkTitle,
+    isForking,
+    localize,
+    onForkCreated,
+    trainingApiBase,
+    trainingSession,
+  ])
+
+  const openSessionReview = useCallback(() => {
+    void navigate({
+      to: '/training/sessions/$sessionId',
+      params: { sessionId: trainingSession.sessionId },
+    })
+  }, [navigate, trainingSession.sessionId])
+
+  const handleCompleteTraining = useCallback(() => {
+    const selectedTail = treeProjection.selectedTailId?.trim()
+    if (!selectedTail || isCompleting || trainingSession.status !== 'active') {
+      return
+    }
+
+    setIsCompleting(true)
+    setCompletionError(null)
+    void completeTrainingConversationSession(
+      trainingApiBase,
+      trainingSession,
+      conversationId,
+      selectedTail
+    )
+      .then(async (result) => {
+        setCompletionResult(result)
+        try {
+          await onCompletionConfirmed(result)
+        } catch {
+          toast.error(
+            localize(
+              'Training finished, but the latest session state could not be refreshed.',
+              '训练已结束，但暂时无法刷新最新会话状态。'
+            )
+          )
+        }
+
+        if (result.reportStatus === 'ready') {
+          toast.success(
+            localize(
+              'Training finished. Opening the review.',
+              '训练已结束，正在打开复盘。'
+            )
+          )
+          openSessionReview()
+        }
+      })
+      .catch((error: unknown) => setCompletionError(error))
+      .finally(() => setIsCompleting(false))
+  }, [
+    conversationId,
+    isCompleting,
+    localize,
+    onCompletionConfirmed,
+    openSessionReview,
+    trainingApiBase,
+    trainingSession,
+    treeProjection.selectedTailId,
+  ])
+
+  const renderMessageBranchSelector = useCallback(
+    (message: Message) => {
+      const step = treeProjection.branchSteps.find(
+        (candidate) => candidate.selectedMessageId === message.key
+      )
+      if (!step || step.options.length <= 1) return null
+      return (
+        <TrainingMessageBranchSelector
+          disabled={
+            trainingSession.status !== 'active' ||
+            Boolean(pendingBranchMessageId) ||
+            isGenerating ||
+            isSavingEdit
+          }
+          messageRole={message.from}
+          onSelect={handleSelectBranch}
+          pending={step.options.some(
+            (option) => option.message.publicId === pendingBranchMessageId
+          )}
+          step={step}
+        />
+      )
+    },
+    [
+      handleSelectBranch,
+      isGenerating,
+      isSavingEdit,
+      pendingBranchMessageId,
+      trainingSession.status,
+      treeProjection.branchSteps,
+    ]
   )
 
   const handleSaveEditAndSubmit = useCallback(
@@ -482,31 +885,125 @@ export function TrainingConversationSurface({
     [editingMessageKey, startStream]
   )
 
-  const isBusy = isGenerating || isSavingEdit
+  const isBusy = isGenerating || isSavingEdit || isForking || isCompleting
+  const isSessionReadOnly = trainingSession.status !== 'active'
+  const canComplete =
+    !isBusy &&
+    !isLoadingConversation &&
+    !isLoadingMessages &&
+    !editingMessageKey &&
+    !pendingBranchMessageId &&
+    Boolean(treeProjection.selectedTailId) &&
+    !isSessionReadOnly
+  const completionPermissionDenied =
+    completionError instanceof TrainingConversationApiError &&
+    (completionError.status === 401 || completionError.status === 403)
+  let completionDialogTitle = ''
+  let completionDialogDescription = ''
+  let completionAlertTitle = ''
+  let completionReviewLabel = ''
+  if (completionResult?.reportStatus === 'pending') {
+    completionDialogTitle = localize('Review is being prepared', '复盘正在生成')
+    completionDialogDescription = localize(
+      'The selected conversation path is saved. You can continue to the session page while the report is generated.',
+      '当前对话路径已保存。报告生成期间可以前往会话页等待。'
+    )
+    completionAlertTitle = localize('Report queued', '报告已进入生成队列')
+    completionReviewLabel = localize('View review status', '查看复盘状态')
+  } else if (completionResult?.reportStatus === 'failed') {
+    completionDialogTitle = localize(
+      'Training finished without a report',
+      '训练已结束，但报告生成失败'
+    )
+    completionDialogDescription = localize(
+      'The session and selected path are preserved. Open the session page to inspect the report status.',
+      '会话和当前路径均已保留，可前往会话页查看报告状态。'
+    )
+    completionAlertTitle = localize('Report unavailable', '报告暂不可用')
+    completionReviewLabel = localize('Open session', '打开会话')
+  } else if (completionResult?.reportStatus === 'ready') {
+    completionDialogTitle = localize('Training finished', '训练已结束')
+    completionDialogDescription = localize(
+      'The report is ready for review.',
+      '复盘报告已就绪。'
+    )
+    completionAlertTitle = localize('Report ready', '报告已就绪')
+    completionReviewLabel = localize('Open session', '打开会话')
+  }
 
   return (
     <div className='relative flex size-full min-h-0 flex-col overflow-hidden'>
+      <div className='flex min-h-10 shrink-0 items-center justify-end gap-2 border-b px-3 py-1.5'>
+        {isSessionReadOnly ? (
+          <Button size='sm' variant='outline' onClick={openSessionReview}>
+            <ClipboardCheck />
+            {localize('Open review', '查看复盘')}
+          </Button>
+        ) : (
+          <Button
+            disabled={!canComplete}
+            size='sm'
+            variant='outline'
+            onClick={() => {
+              setCompletionError(null)
+              setCompletionResult(null)
+              setIsCompletionDialogOpen(true)
+            }}
+          >
+            <Flag />
+            {localize('Finish training', '结束训练')}
+          </Button>
+        )}
+        <Button
+          size='sm'
+          variant='ghost'
+          onClick={() => setIsInsightsOpen(true)}
+        >
+          <PanelRightOpen />
+          {localize('Training insights', '训练洞察')}
+        </Button>
+      </div>
       <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+        {treeProjection.excludedMessageIds.length > 0 && (
+          <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
+            <TriangleAlert />
+            <AlertDescription>
+              {localize(
+                'Some messages could not be placed in this conversation path.',
+                '部分消息无法放入当前会话路径。'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
         <PlaygroundChat
           editingKey={editingMessageKey}
+          forkMessageLabel={localize('Fork conversation', '创建会话分支')}
           isGenerating={isBusy}
           isLoadingMessages={isLoadingMessages || isLoadingConversation}
           messages={messages}
           onCancelEdit={(open) => {
             if (!open) setEditingMessageKey(null)
           }}
-          onEditMessage={(message) => setEditingMessageKey(message.key)}
-          onRegenerateMessage={handleRegenerateMessage}
+          onEditMessage={
+            isSessionReadOnly
+              ? undefined
+              : (message) => setEditingMessageKey(message.key)
+          }
+          onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
+          onRegenerateMessage={
+            isSessionReadOnly ? undefined : handleRegenerateMessage
+          }
           onSaveEdit={handleSaveEdit}
           onSaveEditAndSubmit={handleSaveEditAndSubmit}
           onSelectPrompt={handleSendMessage}
+          renderMessageFooter={renderMessageBranchSelector}
         />
       </div>
 
       <div className='mx-auto w-full max-w-4xl'>
         <PlaygroundInput
           config={config}
-          disabled={isBusy}
+          disabled={isBusy || isSessionReadOnly}
           groups={groups}
           groupValue={config.group}
           hasMessages={messages.length > 0}
@@ -523,6 +1020,198 @@ export function TrainingConversationSurface({
           parameterEnabled={parameterEnabled}
         />
       </div>
+      <Dialog
+        open={forkTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !isForking) setForkTarget(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {localize('Fork training conversation', '创建训练分支')}
+            </DialogTitle>
+            <DialogDescription>
+              {localize(
+                'The fork opens as a separate training session with its own review lifecycle.',
+                '分支将作为独立训练会话打开，并拥有独立的复盘周期。'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-4 py-2'>
+            <div className='grid gap-2'>
+              <Label htmlFor='training-fork-title'>
+                {localize('Title', '标题')}
+              </Label>
+              <Input
+                disabled={isForking}
+                id='training-fork-title'
+                maxLength={255}
+                placeholder={localize(
+                  'Optional training title',
+                  '可选的训练标题'
+                )}
+                value={forkTitle}
+                onChange={(event) => setForkTitle(event.target.value)}
+              />
+            </div>
+            <div className='grid gap-2'>
+              <Label htmlFor='training-fork-scope'>
+                {localize('Messages to include', '包含的消息')}
+              </Label>
+              <Select
+                disabled={isForking}
+                value={forkOption}
+                onValueChange={(value) =>
+                  setForkOption(value as TrainingConversationForkOption)
+                }
+              >
+                <SelectTrigger id='training-fork-scope' className='w-full'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='directPath'>
+                    {localize('Selected path', '当前路径')}
+                  </SelectItem>
+                  <SelectItem value='includeBranches'>
+                    {localize('Path and sibling branches', '路径及同层分支')}
+                  </SelectItem>
+                  <SelectItem value='targetLevel'>
+                    {localize(
+                      'All messages through this level',
+                      '截至当前层的所有消息'
+                    )}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={isForking}
+              variant='outline'
+              onClick={() => setForkTarget(null)}
+            >
+              {localize('Cancel', '取消')}
+            </Button>
+            <Button disabled={isForking || !forkTarget} onClick={handleFork}>
+              {isForking && <LoaderCircle className='animate-spin' />}
+              {localize('Create fork', '创建分支')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={isCompletionDialogOpen}
+        onOpenChange={(open) => {
+          if (!isCompleting) setIsCompletionDialogOpen(open)
+        }}
+      >
+        <DialogContent>
+          {completionResult ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{completionDialogTitle}</DialogTitle>
+                <DialogDescription>
+                  {completionDialogDescription}
+                </DialogDescription>
+              </DialogHeader>
+              <Alert
+                variant={
+                  completionResult.reportStatus === 'failed'
+                    ? 'destructive'
+                    : 'default'
+                }
+              >
+                <CompletionReportIcon status={completionResult.reportStatus} />
+                <AlertTitle>{completionAlertTitle}</AlertTitle>
+                {completionResult.reportStatus === 'failed' &&
+                  completionResult.reportError && (
+                    <AlertDescription>
+                      {completionResult.reportError}
+                    </AlertDescription>
+                  )}
+              </Alert>
+              <DialogFooter>
+                <Button
+                  variant='outline'
+                  onClick={() => setIsCompletionDialogOpen(false)}
+                >
+                  {localize('Stay here', '留在当前页面')}
+                </Button>
+                <Button onClick={openSessionReview}>
+                  <ClipboardCheck />
+                  {completionReviewLabel}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {completionPermissionDenied
+                    ? localize('Access denied', '没有结束权限')
+                    : localize('Finish this training?', '结束本次训练？')}
+                </DialogTitle>
+                <DialogDescription>
+                  {localize(
+                    'The server will evaluate the selected conversation path and finish the session only after the report is ready.',
+                    '服务端将评估当前对话路径，并仅在复盘报告生成成功后结束训练。'
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              {completionError !== null && (
+                <Alert variant='destructive'>
+                  <ShieldAlert />
+                  <AlertTitle>
+                    {completionPermissionDenied
+                      ? localize(
+                          'You cannot finish this training session',
+                          '你无权结束该训练会话'
+                        )
+                      : localize('Unable to finish training', '无法结束训练')}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {trainingConversationErrorMessage(completionError)}
+                  </AlertDescription>
+                </Alert>
+              )}
+              <DialogFooter>
+                <Button
+                  disabled={isCompleting}
+                  variant='outline'
+                  onClick={() => setIsCompletionDialogOpen(false)}
+                >
+                  {localize('Cancel', '取消')}
+                </Button>
+                <Button
+                  disabled={!canComplete}
+                  onClick={handleCompleteTraining}
+                >
+                  {isCompleting ? (
+                    <LoaderCircle className='animate-spin' />
+                  ) : (
+                    <Flag />
+                  )}
+                  {localize('Finish training', '结束训练')}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <TrainingConversationInsights
+        isGenerating={isGenerating}
+        isLoadingConversation={
+          isLoadingConversation || loadedConversationId !== conversationId
+        }
+        messages={treeProjection.path}
+        open={isInsightsOpen}
+        selectedTailId={treeProjection.selectedTailId}
+        trainingApiBase={trainingApiBase}
+        trainingSession={trainingSession}
+        onOpenChange={setIsInsightsOpen}
+      />
     </div>
   )
 }
