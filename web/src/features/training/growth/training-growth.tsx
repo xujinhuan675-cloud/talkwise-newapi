@@ -27,6 +27,7 @@ import {
   CircleAlert,
   History,
   RefreshCw,
+  Share2,
   Target,
   UserRound,
 } from 'lucide-react'
@@ -64,6 +65,7 @@ import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
 import { getTrainingScenarioConfig } from '../config/api'
+import { formatTrainingDateTime } from '../date'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
   getTrainingCompetencyRadar,
@@ -103,17 +105,6 @@ const competencyRadarChartConfig = {
     color: 'var(--chart-1)',
   },
 } satisfies ChartConfig
-
-function formatDate(value: string | null, locale: string): string {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale.startsWith('zh') ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
-}
 
 function statusVariant(status: ScenarioProgressStatus) {
   if (status === 'completed') return 'success' as const
@@ -217,16 +208,24 @@ function TrainingCompetencyRadarCard({
           {localize('Communication profile', '沟通能力名片')}
         </CardTitle>
         <CardDescription>{userName}</CardDescription>
-        {hasRadar && radar && (
-          <CardAction>
+        <CardAction className='flex items-center gap-2'>
+          {hasRadar && radar && (
             <Badge variant='secondary'>
               {localize(
                 `${radar.sampleSize} scored sessions`,
                 `${radar.sampleSize} 次已评分训练`
               )}
             </Badge>
-          </CardAction>
-        )}
+          )}
+          <Button
+            size='sm'
+            variant='outline'
+            render={<Link to='/training/growth/profile' />}
+          >
+            <Share2 />
+            {localize('Profile card', '\u6c9f\u901a\u540d\u7247')}
+          </Button>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {isPending && <Skeleton className='mx-auto size-70 rounded-full' />}
@@ -308,14 +307,12 @@ function TrainingActivityTimeline({
   isPending,
   isError,
   onRetry,
-  locale,
   localize,
 }: {
   sessions: ReviewSession[]
   isPending: boolean
   isError: boolean
   onRetry: () => void
-  locale: string
   localize: (english: string, chinese: string) => string
 }) {
   return (
@@ -393,9 +390,8 @@ function TrainingActivityTimeline({
                   </Link>
                   <div className='text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
                     <span>
-                      {formatDate(
-                        session.completedAt ?? session.startedAt,
-                        locale
+                      {formatTrainingDateTime(
+                        session.completedAt ?? session.startedAt
                       )}
                     </span>
                     <span>{session.mode}</span>
@@ -428,7 +424,6 @@ function ScenarioProgressDataTable({
   onPaginationChange,
   ensurePageInRange,
   isFetching,
-  locale,
   localize,
   scenarioTitles,
 }: {
@@ -438,7 +433,6 @@ function ScenarioProgressDataTable({
   onPaginationChange: OnChangeFn<PaginationState>
   ensurePageInRange: (pageCount: number) => void
   isFetching: boolean
-  locale: string
   localize: (english: string, chinese: string) => string
   scenarioTitles: ReadonlyMap<string, string>
 }) {
@@ -480,11 +474,11 @@ function ScenarioProgressDataTable({
       },
       {
         id: 'last-practiced',
-        header: localize('Last practiced', '最近练习'),
-        cell: ({ row }) => formatDate(row.original.lastPracticedAt, locale),
+        header: localize('Last trained', '最近训练'),
+        cell: ({ row }) => formatTrainingDateTime(row.original.lastPracticedAt),
       },
     ],
-    [locale, localize, scenarioTitles]
+    [localize, scenarioTitles]
   )
   const { table } = useDataTable({
     data: progress,
@@ -742,7 +736,6 @@ function TrainingGrowthContent() {
         isPending={activityQuery.isPending}
         isError={activityQuery.isError}
         onRetry={() => void activityQuery.refetch()}
-        locale={i18n.language}
         localize={localize}
       />
 
@@ -753,7 +746,6 @@ function TrainingGrowthContent() {
         onPaginationChange={onPaginationChange}
         ensurePageInRange={ensurePageInRange}
         isFetching={progressQuery.isFetching}
-        locale={i18n.language}
         localize={localize}
         scenarioTitles={scenarioTitles}
       />

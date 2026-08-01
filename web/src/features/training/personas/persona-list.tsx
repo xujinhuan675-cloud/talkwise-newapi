@@ -75,6 +75,7 @@ import {
   listPersonas,
   personaRequestErrorMessage,
 } from './api'
+import { personaInitial } from './avatar'
 import type {
   CreatePersonaInput,
   PersonaSummary,
@@ -83,15 +84,10 @@ import type {
 
 type Localize = (english: string, chinese: string) => string
 
-function personaInitial(name: string): string {
-  return [...name.trim()][0] ?? '?'
-}
-
 const DEFAULT_PERSONA: CreatePersonaInput = {
   id: '',
   name: '',
   role: '',
-  avatar_color: '#0f766e',
   content: '',
   visibility: 'private',
 }
@@ -286,31 +282,6 @@ function PersonaCreateDialog({
                 <SelectItem value='team'>{localize('Team', '团队')}</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <div className='grid gap-2'>
-            <Label htmlFor='persona-color'>
-              {localize('Color', '标识颜色')}
-            </Label>
-            <div className='flex items-center gap-2'>
-              <Input
-                id='persona-color-swatch'
-                type='color'
-                className='size-8 shrink-0 cursor-pointer p-1'
-                value={form.avatar_color}
-                aria-label={localize('Choose persona color', '选择角色颜色')}
-                onChange={(event) =>
-                  setForm({ ...form, avatar_color: event.target.value })
-                }
-              />
-              <Input
-                id='persona-color'
-                value={form.avatar_color}
-                maxLength={7}
-                onChange={(event) =>
-                  setForm({ ...form, avatar_color: event.target.value })
-                }
-              />
-            </div>
           </div>
           <div className='grid gap-2 sm:col-span-2'>
             <Label htmlFor='persona-context'>

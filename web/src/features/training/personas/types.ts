@@ -23,7 +23,6 @@ export interface PersonaSummary {
   readonly id: string
   readonly name: string
   readonly role: string
-  readonly avatarColor: string | null
   readonly parseStatus: string | null
   readonly supportsV2: boolean
   readonly source: PersonaSource
@@ -88,7 +87,6 @@ export interface PersonaV2 {
   id: string
   name: string
   role: string
-  avatar_color: string | null
   visibility: PersonaVisibility
   version: number
   can_manage: boolean
@@ -109,7 +107,6 @@ export type PersonaV2Patch = Pick<
   PersonaV2,
   | 'name'
   | 'role'
-  | 'avatar_color'
   | 'hard_rules'
   | 'identity'
   | 'expression'
@@ -123,7 +120,6 @@ export interface CreatePersonaInput {
   readonly id: string
   readonly name: string
   readonly role: string
-  readonly avatar_color: string
   readonly content: string
   readonly visibility: Exclude<PersonaVisibility, 'system'>
 }
@@ -131,7 +127,6 @@ export interface CreatePersonaInput {
 export interface UpdatePersonaInput {
   readonly name?: string
   readonly role?: string
-  readonly avatar_color?: string
   readonly content?: string
   readonly visibility?: Exclude<PersonaVisibility, 'system'>
 }

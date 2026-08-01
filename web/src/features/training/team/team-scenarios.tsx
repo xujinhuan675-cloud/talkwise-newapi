@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/card'
 
 import { getTrainingScenarioConfig } from '../config/api'
+import { formatTrainingDateTime } from '../date'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
   listTeamScenarioRankings,
@@ -49,17 +50,6 @@ import type { TeamScenarioRanking } from './types'
 
 function memberLabel(ranking: TeamScenarioRanking): string {
   return ranking.memberName || teamMemberDisplayId(ranking.memberId)
-}
-
-function formatDate(value: string | null, locale: string): string {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(locale.startsWith('zh') ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  })
 }
 
 function TeamScenarioSummary({
@@ -90,7 +80,7 @@ function TeamScenarioSummary({
       title: localize('Scenarios ranked', '\u5df2\u6392\u540d\u573a\u666f'),
       value: scenarioCount,
       description: localize(
-        'Scenario and member combinations in this view',
+        'Scenario and member combinations ranked globally',
         '\u5f53\u524d\u89c6\u56fe\u4e2d\u7684\u573a\u666f\u4e0e\u6210\u5458\u7ec4\u5408'
       ),
     },
@@ -210,12 +200,11 @@ function TeamScenariosContent() {
       },
       {
         id: 'last-practiced',
-        header: localize('Last practiced', '\u6700\u8fd1\u8bad\u7ec3'),
-        cell: ({ row }) =>
-          formatDate(row.original.lastPracticedAt, i18n.language),
+        header: localize('Last trained', '\u6700\u8fd1\u8bad\u7ec3'),
+        cell: ({ row }) => formatTrainingDateTime(row.original.lastPracticedAt),
       },
     ],
-    [i18n.language, localize, scenarioTitles]
+    [localize, scenarioTitles]
   )
   const { table } = useDataTable({
     data: rankings,
@@ -312,8 +301,8 @@ function TeamScenariosContent() {
                     {row.original.averageScore ?? '-'}
                   </span>
                   <span className='col-span-2'>
-                    {localize('Last practiced', '\u6700\u8fd1\u8bad\u7ec3')}:{' '}
-                    {formatDate(row.original.lastPracticedAt, i18n.language)}
+                    {localize('Last trained', '\u6700\u8fd1\u8bad\u7ec3')}:{' '}
+                    {formatTrainingDateTime(row.original.lastPracticedAt)}
                   </span>
                 </div>
               </Card>
