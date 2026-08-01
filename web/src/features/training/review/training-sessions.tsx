@@ -37,6 +37,7 @@ import { CompactDateTimeRangePicker } from '@/features/usage-logs/components/com
 import { useMediaQuery } from '@/hooks'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 
+import { formatTrainingDateTime } from '../date'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import { listTrainingScenarios } from '../scenarios/api'
 import {
@@ -74,19 +75,6 @@ function validDate(value: string | undefined): Date | undefined {
   if (!value) return undefined
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date
-}
-
-function formatDate(value: string | null, locale: string): string {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale.startsWith('zh') ? 'zh-CN' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function statusVariant(status: TrainingSessionStatus) {
@@ -134,7 +122,7 @@ function sessionStatusLabel(
   const labels: Record<TrainingSessionStatus, readonly [string, string]> = {
     active: ['Active', '进行中'],
     completed: ['Completed', '已完成'],
-    created: ['Created', '已创建'],
+    created: ['Created', '待开始'],
     failed: ['Failed', '失败'],
   }
   return localize(...labels[status])
@@ -195,7 +183,6 @@ function SessionDataTable({
   ensurePageInRange,
   isLoading,
   isFetching,
-  locale,
   localize,
   columnFilters,
   onColumnFiltersChange,
@@ -213,7 +200,6 @@ function SessionDataTable({
   ensurePageInRange: (pageCount: number) => void
   isLoading: boolean
   isFetching: boolean
-  locale: string
   localize: (english: string, chinese: string) => string
   columnFilters: ColumnFiltersState
   onColumnFiltersChange: OnChangeFn<ColumnFiltersState>
@@ -319,15 +305,14 @@ function SessionDataTable({
       },
       {
         id: 'last-activity',
-        header: localize('Last activity', '最近活动'),
+        header: localize('Training time', '训练时间'),
         cell: ({ row }) =>
-          formatDate(
-            row.original.completedAt || row.original.startedAt,
-            locale
+          formatTrainingDateTime(
+            row.original.completedAt || row.original.startedAt
           ),
       },
     ],
-    [locale, localize]
+    [localize]
   )
   const { table } = useDataTable({
     data: sessions,
@@ -610,7 +595,6 @@ export function TrainingSessions() {
         ensurePageInRange={tableState.ensurePageInRange}
         isLoading={host.authStatus === 'loading' || sessionsQuery.isPending}
         isFetching={sessionsQuery.isFetching}
-        locale={i18n.language}
         localize={localize}
         columnFilters={tableState.columnFilters}
         onColumnFiltersChange={tableState.onColumnFiltersChange}

@@ -40,6 +40,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -67,6 +68,7 @@ import {
   startPersonaTraining,
   updatePersona,
 } from './api'
+import { personaInitial } from './avatar'
 import type {
   PersonaDetail,
   PersonaEvidence,
@@ -88,7 +90,6 @@ function emptyPersonaV2(detail: PersonaDetail): PersonaV2 {
     id: detail.id,
     name: detail.name,
     role: detail.role,
-    avatar_color: detail.avatarColor,
     visibility: detail.visibility,
     version: detail.version,
     can_manage: detail.canManage,
@@ -121,7 +122,6 @@ function draftPatch(draft: PersonaV2): PersonaV2Patch {
   return {
     name: draft.name.trim(),
     role: draft.role.trim(),
-    avatar_color: draft.avatar_color,
     hard_rules: draft.hard_rules,
     identity: draft.identity,
     expression: draft.expression,
@@ -143,7 +143,6 @@ function changedSectionCount(previous: PersonaV2, next: PersonaV2): number {
   const keys: Array<keyof PersonaV2Patch> = [
     'name',
     'role',
-    'avatar_color',
     'hard_rules',
     'identity',
     'expression',
@@ -457,7 +456,6 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
       await updatePersona(personaId, {
         name: current.name.trim(),
         role: current.role.trim(),
-        avatar_color: current.avatar_color || '#888888',
         content: current.user_context ?? '',
         visibility,
       })
@@ -542,7 +540,6 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
       await updatePersona(personaId, {
         name: backup.draft.name,
         role: backup.draft.role,
-        avatar_color: backup.draft.avatar_color || '#888888',
         content: backup.draft.user_context ?? '',
         visibility: backup.visibility,
       })
@@ -643,11 +640,11 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
     <div className='mx-auto w-full max-w-5xl space-y-5'>
       <div className='flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-start sm:justify-between'>
         <div className='flex min-w-0 items-start gap-3'>
-          <span
-            className='mt-0.5 size-10 shrink-0 rounded-lg border'
-            style={{ backgroundColor: draft.avatar_color || '#888888' }}
-            aria-hidden='true'
-          />
+          <Avatar className='ring-border/60 mt-0.5 size-10 shrink-0 ring-1'>
+            <AvatarFallback className='text-sm font-medium'>
+              {personaInitial(draft.name)}
+            </AvatarFallback>
+          </Avatar>
           <div className='min-w-0'>
             <h2 className='truncate text-lg font-semibold'>{draft.name}</h2>
             <p className='text-muted-foreground mt-0.5 truncate text-sm'>
@@ -847,32 +844,6 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
                 </Select>
               </div>
             )}
-            <div className='grid gap-2'>
-              <Label htmlFor='editor-color'>
-                {localize('Color', '标识颜色')}
-              </Label>
-              <div className='flex items-center gap-2'>
-                <Input
-                  type='color'
-                  className='size-8 shrink-0 cursor-pointer p-1'
-                  value={draft.avatar_color || '#888888'}
-                  disabled={readOnly}
-                  aria-label={localize('Choose persona color', '选择角色颜色')}
-                  onChange={(event) =>
-                    setDraft({ ...draft, avatar_color: event.target.value })
-                  }
-                />
-                <Input
-                  id='editor-color'
-                  value={draft.avatar_color || ''}
-                  maxLength={7}
-                  disabled={readOnly}
-                  onChange={(event) =>
-                    setDraft({ ...draft, avatar_color: event.target.value })
-                  }
-                />
-              </div>
-            </div>
           </div>
           <div className='grid gap-2'>
             <Label htmlFor='editor-context'>
