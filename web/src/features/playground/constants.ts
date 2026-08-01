@@ -97,6 +97,7 @@ export const MESSAGE_ACTION_LABELS = {
   SHOW_PREVIEW: 'Show preview',
   SHOW_SOURCE: 'Show source',
   EDIT: 'Edit',
+  FORK: 'Fork conversation',
   DELETE: 'Delete',
   NO_CONTENT: 'No content to copy',
   WAIT_GENERATION: 'Please wait for the current generation to complete',

@@ -21,9 +21,11 @@ import axios from 'axios'
 import { api } from '@/lib/http-client'
 
 import { trainingApiUrl } from '../scenarios/api'
+import type { RealtimeProfile } from './realtime-client'
 
-export type TrainingStudioMode = 'text' | 'voice' | 'video'
+export type TrainingStudioMode = 'realtime' | 'text' | 'voice' | 'video'
 export type TrainingFeedbackMode = 'simulation' | 'assisted' | 'drill'
+export type { RealtimeProfile } from './realtime-client'
 
 interface TalkWiseResponse<T> {
   code: number
@@ -59,6 +61,7 @@ export interface StudioLaunchInput {
   goal: string
   mode: TrainingStudioMode
   feedbackMode: TrainingFeedbackMode
+  realtimeProfile?: RealtimeProfile
   liveCoach?: {
     sourceLanguage: string
     targetLanguage: string
@@ -135,7 +138,9 @@ function studioPersona(input: StudioLaunchInput) {
 
   return {
     name:
-      input.mode === 'voice' ? 'Voice practice partner' : 'Practice partner',
+      input.mode === 'voice' || input.mode === 'realtime'
+        ? 'Voice practice partner'
+        : 'Practice partner',
     role: 'Training counterpart',
     style:
       'Keep the conversation focused, ask one clear follow-up at a time, and respond in role.',
@@ -171,9 +176,18 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
       metadata: {
         source: 'newapi_training_studio',
         trainingMode: input.mode,
-        interactionMode: 'turn_based',
+        interactionMode: input.mode === 'realtime' ? 'realtime' : 'turn_based',
         feedbackMode: input.feedbackMode,
         trainingGoal: goal,
+        ...(input.mode === 'realtime'
+          ? {
+              realtimeProfile: input.realtimeProfile || 'cascade',
+              latencyProfile:
+                input.realtimeProfile === 'speech_to_speech'
+                  ? 'true_realtime'
+                  : 'near_realtime',
+            }
+          : {}),
         ...(input.liveCoach
           ? {
               liveCoach: {

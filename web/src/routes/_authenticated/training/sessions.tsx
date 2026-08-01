@@ -17,9 +17,33 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import z from 'zod'
 
 import { TrainingSessionsPage } from '@/features/training/review/training-sessions'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
+
+const trainingSessionSourceSchema = z
+  .string()
+  .min(1)
+  .max(80)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/)
+const offsetDateTimeSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/)
+
+const trainingSessionsSearchSchema = z.object({
+  page: z.number().optional().catch(1),
+  pageSize: z.number().optional().catch(undefined),
+  query: z.string().max(200).optional().catch(''),
+  scenario: z.array(z.string()).optional().catch([]),
+  mode: z
+    .array(z.enum(['text', 'voice', 'video', 'realtime']))
+    .optional()
+    .catch([]),
+  source: z.array(trainingSessionSourceSchema).optional().catch([]),
+  activityFrom: offsetDateTimeSchema.optional().catch(''),
+  activityTo: offsetDateTimeSchema.optional().catch(''),
+})
 
 export const Route = createFileRoute('/_authenticated/training/sessions')({
   beforeLoad: () => {
@@ -27,6 +51,7 @@ export const Route = createFileRoute('/_authenticated/training/sessions')({
       throw redirect({ to: '/dashboard' })
     }
   },
+  validateSearch: trainingSessionsSearchSchema,
   component: TrainingSessionsRoute,
 })
 

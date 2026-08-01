@@ -11,9 +11,12 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -92,6 +95,32 @@ func seedTalkWiseUser(t *testing.T, db *gorm.DB) *model.User {
 	}
 	require.NoError(t, db.Create(user).Error)
 	return user
+}
+
+func issueTalkWiseDashboardAccessToken(t *testing.T, user *model.User) string {
+	t.Helper()
+	require.Positive(t, user.AuthVersion)
+	now := time.Now().Unix()
+	session := &model.UserSession{
+		SID:             "talkwise-websocket-session",
+		UserID:          user.Id,
+		Version:         1,
+		UserAuthVersion: user.AuthVersion,
+		Status:          model.UserSessionStatusActive,
+		RefreshHash:     "talkwise-websocket-refresh-hash",
+		LoginMethod:     "password",
+		LastActiveAt:    now,
+		ExpiresAt:       now + 3600,
+	}
+	require.NoError(t, model.CreateUserSession(session))
+	token, _, err := service.IssueAccessToken(service.AuthIdentity{
+		UserID:          user.Id,
+		SessionID:       session.SID,
+		UserAuthVersion: session.UserAuthVersion,
+		SessionVersion:  session.Version,
+	})
+	require.NoError(t, err)
+	return token
 }
 
 func decodeTalkWiseResponse[T any](t *testing.T, recorder *httptest.ResponseRecorder) struct {
@@ -462,7 +491,7 @@ func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) 
 	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
 
 	router := gin.New()
-	router.Any("/api/talkwise/training/*path", ProxyTalkWiseTraining)
+	router.Any("/api/talkwise/training/*path", PromoteTalkWiseTrainingWebSocketAuthorization, ProxyTalkWiseTraining)
 	body := `{"mode":"text","scenario_template_id":"discovery"}`
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -505,6 +534,336 @@ func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) 
 	assert.Empty(t, forwarded.TeamID)
 	assert.Empty(t, forwarded.ForwardedUser)
 	assert.JSONEq(t, body, forwarded.Body)
+}
+
+func TestTalkWiseTrainingWebSocketProxyPromotesBearerAndStripsSensitiveInputs(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	user := seedTalkWiseUser(t, db)
+	accessToken := issueTalkWiseDashboardAccessToken(t, user)
+
+	type observedRequest struct {
+		Path          string
+		RawQuery      string
+		Authorization string
+		Protocols     string
+		Cookie        string
+		MockUser      string
+		UserID        string
+		TeamID        string
+	}
+	observed := make(chan observedRequest, 1)
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"talkwise.realtime"},
+		CheckOrigin:  func(*http.Request) bool { return true },
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			Protocols:     request.Header.Get("Sec-WebSocket-Protocol"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+			UserID:        request.Header.Get("X-User-Id"),
+			TeamID:        request.Header.Get("X-Team-Id"),
+		}
+		connection, err := upgrader.Upgrade(writer, request, nil)
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_ = connection.WriteMessage(websocket.TextMessage, []byte("ready"))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any(
+		"/api/talkwise/training/*path",
+		PromoteTalkWiseTrainingWebSocketAuthorization,
+		middleware.UserAuth(),
+		ProxyTalkWiseTraining,
+	)
+	proxyServer := httptest.NewServer(router)
+	defer proxyServer.Close()
+
+	dialer := websocket.Dialer{Subprotocols: []string{
+		"talkwise.realtime",
+		talkWiseWebSocketBearerProtocolPrefix + accessToken,
+	}}
+	headers := http.Header{}
+	headers.Set("Cookie", "talkwise_session=spoofed")
+	headers.Set("X-Mock-User", "admin")
+	headers.Set("X-User-Id", "other-user")
+	headers.Set("X-Team-Id", "other-team")
+	webSocketURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") +
+		"/api/talkwise/training/realtime?mode=pipecat&mock_user=admin&auth_user_id=other&auth_team_id=other-team"
+	connection, response, err := dialer.Dial(webSocketURL, headers)
+	require.NoError(t, err)
+	defer connection.Close()
+	require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode)
+	assert.Equal(t, "talkwise.realtime", connection.Subprotocol())
+	assert.NotContains(t, response.Header.Get("Sec-WebSocket-Protocol"), accessToken)
+
+	messageType, payload, err := connection.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, websocket.TextMessage, messageType)
+	assert.Equal(t, "ready", string(payload))
+
+	forwarded := <-observed
+	assert.Equal(t, "/internal/api/v1/training-studio/realtime", forwarded.Path)
+	assert.Equal(t, "mode=pipecat", forwarded.RawQuery)
+	assert.Equal(t, "Bearer "+accessToken, forwarded.Authorization)
+	assert.Equal(t, "talkwise.realtime", forwarded.Protocols)
+	assert.NotContains(t, forwarded.Protocols, accessToken)
+	assert.Empty(t, forwarded.Cookie)
+	assert.Empty(t, forwarded.MockUser)
+	assert.Empty(t, forwarded.UserID)
+	assert.Empty(t, forwarded.TeamID)
+}
+
+func TestTalkWiseConversationVoiceWebSocketProxyPromotesBearerAndStripsSensitiveInputs(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	user := seedTalkWiseUser(t, db)
+	accessToken := issueTalkWiseDashboardAccessToken(t, user)
+
+	type observedRequest struct {
+		Path          string
+		RawQuery      string
+		Authorization string
+		Protocols     string
+		Cookie        string
+		MockUser      string
+		UserID        string
+		TeamID        string
+	}
+	observed := make(chan observedRequest, 1)
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"talkwise.voice"},
+		CheckOrigin:  func(*http.Request) bool { return true },
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			Protocols:     request.Header.Get("Sec-WebSocket-Protocol"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+			UserID:        request.Header.Get("X-User-Id"),
+			TeamID:        request.Header.Get("X-Team-Id"),
+		}
+		connection, err := upgrader.Upgrade(writer, request, nil)
+		if err != nil {
+			return
+		}
+		defer connection.Close()
+		_ = connection.WriteMessage(websocket.TextMessage, []byte("ready"))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.Any(
+		"/api/talkwise/conversations/*path",
+		PromoteTalkWiseConversationWebSocketAuthorization,
+		middleware.UserAuth(),
+		ProxyTalkWiseConversations,
+	)
+	proxyServer := httptest.NewServer(router)
+	defer proxyServer.Close()
+
+	dialer := websocket.Dialer{Subprotocols: []string{
+		"talkwise.voice",
+		talkWiseWebSocketBearerProtocolPrefix + accessToken,
+	}}
+	headers := http.Header{}
+	headers.Set("Cookie", "talkwise_session=spoofed")
+	headers.Set("X-Mock-User", "admin")
+	headers.Set("X-User-Id", "other-user")
+	headers.Set("X-Team-Id", "other-team")
+	webSocketURL := "ws" + strings.TrimPrefix(proxyServer.URL, "http") +
+		"/api/talkwise/conversations/rooms/42/voice?trainingSessionId=session-1&mock_user=admin&auth_user_id=other&auth_team_id=other-team"
+	connection, response, err := dialer.Dial(webSocketURL, headers)
+	require.NoError(t, err)
+	defer connection.Close()
+	require.Equal(t, http.StatusSwitchingProtocols, response.StatusCode)
+	assert.Equal(t, "talkwise.voice", connection.Subprotocol())
+	assert.NotContains(t, response.Header.Get("Sec-WebSocket-Protocol"), accessToken)
+
+	messageType, payload, err := connection.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, websocket.TextMessage, messageType)
+	assert.Equal(t, "ready", string(payload))
+
+	forwarded := <-observed
+	assert.Equal(t, "/internal/api/v1/stakeholder/rooms/42/voice", forwarded.Path)
+	assert.Equal(t, "trainingSessionId=session-1", forwarded.RawQuery)
+	assert.Equal(t, "Bearer "+accessToken, forwarded.Authorization)
+	assert.Equal(t, "talkwise.voice", forwarded.Protocols)
+	assert.NotContains(t, forwarded.Protocols, accessToken)
+	assert.Empty(t, forwarded.Cookie)
+	assert.Empty(t, forwarded.MockUser)
+	assert.Empty(t, forwarded.UserID)
+	assert.Empty(t, forwarded.TeamID)
+}
+
+func TestTalkWiseTrainingWebSocketAuthRejectsMissingForgedAndConflictingCredentials(t *testing.T) {
+	setupTalkWiseControllerTestDB(t)
+	router := gin.New()
+	router.Any(
+		"/api/talkwise/training/*path",
+		PromoteTalkWiseTrainingWebSocketAuthorization,
+		middleware.UserAuth(),
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
+
+	tests := []struct {
+		name          string
+		path          string
+		protocols     string
+		authorization string
+		wantStatus    int
+		wantCode      string
+	}{
+		{
+			name:       "missing credential",
+			path:       "/api/talkwise/training/realtime",
+			protocols:  "talkwise.realtime",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "TALKWISE_REALTIME_AUTH_REQUIRED",
+		},
+		{
+			name:       "forged credential",
+			path:       "/api/talkwise/training/realtime",
+			protocols:  "talkwise.realtime, talkwise.bearer.forged-token",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "AUTH_UNAUTHORIZED",
+		},
+		{
+			name:          "conflicting authorization",
+			path:          "/api/talkwise/training/realtime",
+			protocols:     "talkwise.realtime, talkwise.bearer.protocol-token",
+			authorization: "Bearer header-token",
+			wantStatus:    http.StatusBadRequest,
+			wantCode:      "TALKWISE_REALTIME_CREDENTIAL_CONFLICT",
+		},
+		{
+			name:       "duplicate bearer protocols",
+			path:       "/api/talkwise/training/realtime",
+			protocols:  "talkwise.bearer.first-token, talkwise.bearer.second-token",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TALKWISE_REALTIME_CREDENTIAL_INVALID",
+		},
+		{
+			name:       "credential on non realtime path",
+			path:       "/api/talkwise/training/sessions",
+			protocols:  "talkwise.bearer.protocol-token",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TALKWISE_REALTIME_CREDENTIAL_INVALID",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Header.Set("Connection", "Upgrade")
+			request.Header.Set("Upgrade", "websocket")
+			request.Header.Set("Sec-WebSocket-Version", "13")
+			request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+			request.Header.Set("Sec-WebSocket-Protocol", test.protocols)
+			if test.authorization != "" {
+				request.Header.Set("Authorization", test.authorization)
+			}
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, test.wantStatus, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), test.wantCode)
+			assert.NotContains(t, recorder.Body.String(), "protocol-token")
+			assert.NotContains(t, recorder.Body.String(), "forged-token")
+		})
+	}
+}
+
+func TestTalkWiseConversationVoiceWebSocketAuthRejectsMissingForgedAndConflictingCredentials(t *testing.T) {
+	setupTalkWiseControllerTestDB(t)
+	router := gin.New()
+	router.Any(
+		"/api/talkwise/conversations/*path",
+		PromoteTalkWiseConversationWebSocketAuthorization,
+		middleware.UserAuth(),
+		func(c *gin.Context) { c.Status(http.StatusNoContent) },
+	)
+
+	tests := []struct {
+		name          string
+		path          string
+		protocols     string
+		authorization string
+		wantStatus    int
+		wantCode      string
+	}{
+		{
+			name:       "missing credential",
+			path:       "/api/talkwise/conversations/rooms/42/voice",
+			protocols:  "talkwise.voice",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "TALKWISE_VOICE_AUTH_REQUIRED",
+		},
+		{
+			name:       "forged credential",
+			path:       "/api/talkwise/conversations/rooms/42/voice",
+			protocols:  "talkwise.voice, talkwise.bearer.forged-token",
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "AUTH_UNAUTHORIZED",
+		},
+		{
+			name:          "conflicting authorization",
+			path:          "/api/talkwise/conversations/rooms/42/voice",
+			protocols:     "talkwise.voice, talkwise.bearer.protocol-token",
+			authorization: "Bearer header-token",
+			wantStatus:    http.StatusBadRequest,
+			wantCode:      "TALKWISE_VOICE_CREDENTIAL_CONFLICT",
+		},
+		{
+			name:       "credential on non voice path",
+			path:       "/api/talkwise/conversations/rooms/42/messages",
+			protocols:  "talkwise.bearer.protocol-token",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TALKWISE_VOICE_CREDENTIAL_INVALID",
+		},
+		{
+			name:       "credential in URL query",
+			path:       "/api/talkwise/conversations/rooms/42/voice?trainingSessionId=session-1&access_token=query-token",
+			protocols:  "talkwise.voice",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "TALKWISE_VOICE_CREDENTIAL_INVALID",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path, nil)
+			request.Header.Set("Connection", "Upgrade")
+			request.Header.Set("Upgrade", "websocket")
+			request.Header.Set("Sec-WebSocket-Version", "13")
+			request.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+			request.Header.Set("Sec-WebSocket-Protocol", test.protocols)
+			if test.authorization != "" {
+				request.Header.Set("Authorization", test.authorization)
+			}
+			recorder := httptest.NewRecorder()
+
+			router.ServeHTTP(recorder, request)
+
+			assert.Equal(t, test.wantStatus, recorder.Code)
+			assert.Contains(t, recorder.Body.String(), test.wantCode)
+			assert.NotContains(t, recorder.Body.String(), "protocol-token")
+			assert.NotContains(t, recorder.Body.String(), "forged-token")
+		})
+	}
 }
 
 func TestTalkWisePreparationProxiesUseFixedScopedNamespaces(t *testing.T) {

@@ -71,6 +71,24 @@ describe('training studio adapter', () => {
     )
   })
 
+  test('binds realtime profile and latency semantics to the training session', () => {
+    const request = buildStudioSessionRequest({
+      role: 'Account manager',
+      goal: 'Handle a pricing objection.',
+      mode: 'realtime',
+      feedbackMode: 'assisted',
+      realtimeProfile: 'speech_to_speech',
+    })
+
+    assert.equal(request.mode, 'realtime')
+    assert.equal(request.task_config.metadata.interactionMode, 'realtime')
+    assert.equal(
+      request.task_config.metadata.realtimeProfile,
+      'speech_to_speech'
+    )
+    assert.equal(request.task_config.metadata.latencyProfile, 'true_realtime')
+  })
+
   test('preserves language intent in the live coach training context', () => {
     const input = buildLiveCoachSessionInput({
       goal: 'Practice a concise answer.',

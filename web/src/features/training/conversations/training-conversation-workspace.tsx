@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
+import type { TrainingConversationCompletionResult } from '../conversation-workspace/api'
 import {
   TrainingConversationSurface,
   type TrainingConversationSessionContext,
@@ -63,6 +64,7 @@ import type { TrainingConversationWorkspaceSearch } from './workspace-handoff'
 
 type TrainingConversationWorkspaceProps = {
   conversationId?: string
+  messageId?: string
   sessionId?: string
   onSessionChange: (search: TrainingConversationWorkspaceSearch) => void
 }
@@ -102,6 +104,7 @@ function selectedSession(
 
 function TrainingConversationWorkspaceContent({
   conversationId,
+  messageId,
   sessionId,
   onSessionChange,
 }: TrainingConversationWorkspaceProps) {
@@ -330,10 +333,97 @@ function TrainingConversationWorkspaceContent({
         {activeSession ? (
           <TrainingConversationSurface
             conversationId={activeSession.conversationId}
+            onCompletionConfirmed={async (
+              result: TrainingConversationCompletionResult
+            ) => {
+              const sessionsKey = [
+                'training',
+                'conversation-sessions',
+                host.apiBase,
+              ]
+              queryClient.setQueryData<TrainingConversationSession[]>(
+                sessionsKey,
+                (current) =>
+                  current?.map((session) =>
+                    session.id === result.sessionId
+                      ? {
+                          ...session,
+                          status: result.status,
+                          reportId: result.reportId,
+                          metadata: {
+                            ...session.metadata,
+                            ...result.metadata,
+                          },
+                        }
+                      : session
+                  )
+              )
+              await Promise.all([
+                queryClient.refetchQueries({
+                  queryKey: sessionsKey,
+                  type: 'active',
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: [
+                    'training',
+                    'review-session',
+                    host.apiBase,
+                    result.sessionId,
+                  ],
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: [
+                    'training',
+                    'review-report',
+                    host.apiBase,
+                    result.sessionId,
+                  ],
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: ['training', 'review-sessions', host.apiBase],
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: ['training', 'review-progress', host.apiBase],
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: [
+                    'training',
+                    'scenario-progress-summary',
+                    host.apiBase,
+                  ],
+                }),
+                queryClient.invalidateQueries({
+                  queryKey: ['training', 'competency-radar', host.apiBase],
+                }),
+              ])
+            }}
+            onForkCreated={async (result) => {
+              await queryClient.refetchQueries({
+                queryKey: ['training', 'conversation-sessions', host.apiBase],
+                type: 'active',
+              })
+              onSessionChange({
+                session: result.trainingSession.id,
+                conversation: result.trainingSession.conversationId,
+              })
+            }}
+            onSelectedTailChange={(nextMessageId) =>
+              onSessionChange({
+                ...sessionSearch(activeSession),
+                ...(nextMessageId ? { message: nextMessageId } : {}),
+              })
+            }
+            selectedTailId={messageId}
+            trainingApiBase={host.apiBase}
             trainingSession={
               {
                 sessionId: activeSession.id,
                 scenarioId: activeSession.scenarioId,
+                title: activeSession.title,
+                description: activeSession.description,
+                difficulty: activeSession.difficulty,
+                status: activeSession.status,
+                reportId: activeSession.reportId,
                 metadata: activeSession.metadata,
               } satisfies TrainingConversationSessionContext
             }

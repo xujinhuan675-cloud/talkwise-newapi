@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -51,7 +51,10 @@ interface PlaygroundChatProps {
   onCopyMessage?: (message: MessageType) => void
   onRegenerateMessage?: (message: MessageType) => void
   onEditMessage?: (message: MessageType) => void
+  onForkMessage?: (message: MessageType) => void
+  forkMessageLabel?: string
   onDeleteMessage?: (message: MessageType) => void
+  renderMessageFooter?: (message: MessageType) => ReactNode
   onSelectPrompt?: (prompt: string) => void
   isGenerating?: boolean
   isLoadingMessages?: boolean
@@ -67,7 +70,10 @@ export function PlaygroundChat({
   onCopyMessage,
   onRegenerateMessage,
   onEditMessage,
+  onForkMessage,
+  forkMessageLabel,
   onDeleteMessage,
+  renderMessageFooter,
   onSelectPrompt,
   isGenerating = false,
   isLoadingMessages = false,
@@ -154,6 +160,8 @@ export function PlaygroundChat({
                   onRegenerate={onRegenerateMessage}
                   onToggleSource={handleToggleMessageSource}
                   onEdit={onEditMessage}
+                  onFork={onForkMessage}
+                  forkLabel={forkMessageLabel}
                   onDelete={onDeleteMessage}
                   isSourceVisible={isSourceVisible}
                   isGenerating={isGenerating}
@@ -188,6 +196,7 @@ export function PlaygroundChat({
               versionContent={content}
             />
           )}
+          {!isEditing && renderMessageFooter?.(message)}
         </div>
       </Message>
     )

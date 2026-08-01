@@ -36,7 +36,7 @@ export const Route = createFileRoute('/_authenticated/training/conversations')({
 })
 
 function TrainingConversationsRoute() {
-  const { conversation, session } = Route.useSearch()
+  const { conversation, message, session } = Route.useSearch()
   const navigate = Route.useNavigate()
 
   return (
@@ -46,6 +46,7 @@ function TrainingConversationsRoute() {
           void navigate({ search: nextSearch, replace: true })
         }
         conversationId={conversation}
+        messageId={message}
         sessionId={session}
       />
     </Main>

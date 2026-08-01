@@ -27,6 +27,7 @@ import type {
   TrainingScenarioDifficulty,
   TrainingScenarioDimension,
   TrainingScenarioDimensionWeight,
+  TrainingRubricDefaults,
 } from './types'
 
 interface TalkWiseResponse<T> {
@@ -42,6 +43,7 @@ type RecordValue = Record<string, unknown>
 
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
 const SCENARIO_CONFIG_PATH = '/scenario-config'
+const DEFAULT_RUBRIC_PATH = '/rubrics/default'
 const CATEGORIES = new Set<TrainingScenarioCategory>([
   'customer_service',
   'interview',
@@ -172,6 +174,18 @@ export function trainingConfigApiUrl(apiBase: string): string {
   return `${normalizedBase}${SCENARIO_CONFIG_PATH}`
 }
 
+export function trainingRubricDefaultsApiUrl(
+  apiBase: string,
+  category: TrainingScenarioCategory
+): string {
+  const normalizedBase =
+    apiBase.trim().replace(/\/+$/, '') || DEFAULT_TRAINING_API_BASE
+  const backendCategory =
+    category === 'customer_service' ? 'workplace' : category
+  const query = new URLSearchParams({ category: backendCategory })
+  return `${normalizedBase}${DEFAULT_RUBRIC_PATH}?${query.toString()}`
+}
+
 export function normalizeTrainingScenarioConfig(
   value: unknown
 ): TrainingScenarioConfigState {
@@ -205,6 +219,34 @@ export function normalizeTrainingScenarioConfig(
       ? selectedDimensionId
       : (dimensions[0]?.id ?? null),
     updatedAt: readString(value.updatedAt ?? value.updated_at),
+  }
+}
+
+export function normalizeTrainingRubricDefaults(
+  value: unknown
+): TrainingRubricDefaults {
+  if (!isRecord(value) || !isRecord(value.weights)) {
+    throw new Error('Training rubric defaults response has an invalid shape')
+  }
+
+  const dimensionWeights = Object.entries(value.weights)
+    .map(([dimensionId, rawWeight]) => ({
+      dimensionId: dimensionId.trim(),
+      weight: Math.round(readNumber(rawWeight, -1) * 100 * 10_000) / 10_000,
+    }))
+    .filter(
+      (item) =>
+        Boolean(item.dimensionId) && item.weight >= 0 && item.weight <= 100
+    )
+
+  if (dimensionWeights.length === 0) {
+    throw new Error('Training rubric defaults response has no usable weights')
+  }
+
+  return {
+    version: readString(value.version).trim(),
+    sourceCategory: readString(value.category).trim(),
+    dimensionWeights,
   }
 }
 
@@ -245,4 +287,15 @@ export async function saveTrainingScenarioConfig(
     { skipBusinessError: true, skipErrorHandler: true }
   )
   return normalizeTrainingScenarioConfig(requireTalkWiseData(response.data))
+}
+
+export async function getTrainingRubricDefaults(
+  apiBase: string,
+  category: TrainingScenarioCategory
+): Promise<TrainingRubricDefaults> {
+  const response = await api.get<TalkWiseResponse<unknown>>(
+    trainingRubricDefaultsApiUrl(apiBase, category),
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return normalizeTrainingRubricDefaults(requireTalkWiseData(response.data))
 }

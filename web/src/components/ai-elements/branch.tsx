@@ -57,21 +57,24 @@ const useBranch = () => {
 }
 
 export type BranchProps = HTMLAttributes<HTMLDivElement> & {
+  currentBranch?: number
   defaultBranch?: number
   onBranchChange?: (branchIndex: number) => void
 }
 
 export const Branch = ({
+  currentBranch: controlledBranch,
   defaultBranch = 0,
   onBranchChange,
   className,
   ...props
 }: BranchProps) => {
-  const [currentBranch, setCurrentBranch] = useState(defaultBranch)
+  const [uncontrolledBranch, setUncontrolledBranch] = useState(defaultBranch)
   const [branches, setBranches] = useState<ReactElement[]>([])
+  const currentBranch = controlledBranch ?? uncontrolledBranch
 
   const handleBranchChange = (newBranch: number) => {
-    setCurrentBranch(newBranch)
+    if (controlledBranch === undefined) setUncontrolledBranch(newBranch)
     onBranchChange?.(newBranch)
   }
 
