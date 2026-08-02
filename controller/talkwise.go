@@ -44,6 +44,9 @@ const (
 	talkWisePersonaBuildUpstreamPath            = "/api/v1/stakeholder/persona/build"
 	talkWisePersonaBuilderProxyUnavailable      = "TALKWISE_PERSONA_BUILDER_PROXY_UNAVAILABLE"
 	talkWisePersonaBuilderUpstreamUnavailable   = "TALKWISE_PERSONA_BUILDER_UPSTREAM_UNAVAILABLE"
+	talkWiseGrowthProfileCardUpstreamPath       = "/api/v1/stakeholder/growth/card"
+	talkWiseGrowthProfileProxyUnavailable       = "TALKWISE_GROWTH_PROFILE_PROXY_UNAVAILABLE"
+	talkWiseGrowthProfileUpstreamUnavailable    = "TALKWISE_GROWTH_PROFILE_UPSTREAM_UNAVAILABLE"
 	talkWiseRealtimeWebSocketSuffix             = "/realtime"
 	talkWiseWebSocketBearerProtocolPrefix       = "talkwise.bearer."
 	talkWiseWebSocketBearerTokenMaxLength       = 4096
@@ -89,6 +92,7 @@ type TalkWiseAuthExchangeRequest struct {
 type TalkWiseTeamMembersRequest struct {
 	ClientId     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
+	TeamId       string `json:"team_id"`
 	Group        string `json:"group"`
 	Limit        int    `json:"limit"`
 }
@@ -106,6 +110,16 @@ type TalkWiseTeamMemberAssignRequest struct {
 	ClientSecret string `json:"client_secret"`
 	UserId       int    `json:"user_id"`
 	Group        string `json:"group"`
+	Role         string `json:"role"`
+}
+
+type TalkWiseAdminTeamRequest struct {
+	Name string `json:"name"`
+}
+
+type TalkWiseAdminTeamMemberRequest struct {
+	UserId int    `json:"user_id"`
+	Role   string `json:"role"`
 }
 
 type talkWiseAuthFlowPayload struct {
@@ -247,37 +261,38 @@ func ListTalkWiseTeamMembers(c *gin.Context) {
 		return
 	}
 
-	group, err := normalizeTalkWiseGroup(req.Group)
+	team, err := resolveTalkWiseTrainingTeam(req.TeamId, req.Group)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	limit := normalizeTalkWiseLimit(req.Limit, 100, 200)
-	query := model.DB.Model(&model.User{}).
-		Where(&model.User{Group: group}).
-		Where("status = ?", common.UserStatusEnabled)
-
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
+	members, total, err := model.ListTrainingTeamMembers(team.Id, 0, limit)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
-	var users []*model.User
-	if err := query.Omit("password", "access_token").Order("username ASC").Limit(limit).Find(&users).Error; err != nil {
-		common.ApiError(c, err)
-		return
-	}
-
-	members := make([]gin.H, 0, len(users))
-	for _, user := range users {
-		members = append(members, buildTalkWiseTeamUserData(user, group))
+	memberData := make([]gin.H, 0, len(members))
+	for i := range members {
+		memberData = append(memberData, buildTalkWiseTeamUserData(&members[i], team.Id))
 	}
 	common.ApiSuccess(c, gin.H{
-		"team":    buildTalkWiseTeamData(group),
-		"members": members,
+		"team":    buildTalkWiseTeamData(team),
+		"members": memberData,
 		"total":   total,
 	})
+}
+
+func resolveTalkWiseTrainingTeam(teamID string, legacyGroup string) (*model.TrainingTeam, error) {
+	if normalizedTeamID := strings.TrimSpace(teamID); normalizedTeamID != "" {
+		return model.GetTrainingTeamById(normalizedTeamID)
+	}
+	group, err := normalizeTalkWiseGroup(legacyGroup)
+	if err != nil {
+		return nil, err
+	}
+	return model.FindOrCreateLegacyTrainingTeam(group)
 }
 
 func SearchTalkWiseTeamUsers(c *gin.Context) {
@@ -302,28 +317,24 @@ func SearchTalkWiseTeamUsers(c *gin.Context) {
 		return
 	}
 
-	status := common.UserStatusEnabled
+	team, err := model.FindOrCreateLegacyTrainingTeam(group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	limit := normalizeTalkWiseLimit(req.Limit, 20, 50)
-	users, total, err := model.SearchUsers(
-		keyword,
-		"",
-		nil,
-		&status,
-		0,
-		limit,
-		model.NewUserSortOptions("username", "asc"),
-	)
+	users, total, err := model.SearchTrainingTeamUsers(team.Id, keyword, 0, limit)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	results := make([]gin.H, 0, len(users))
-	for _, user := range users {
-		results = append(results, buildTalkWiseTeamUserData(user, group))
+	for i := range users {
+		results = append(results, buildTalkWiseTeamUserData(&users[i], team.Id))
 	}
 	common.ApiSuccess(c, gin.H{
-		"team":  buildTalkWiseTeamData(group),
+		"team":  buildTalkWiseTeamData(team),
 		"users": results,
 		"total": total,
 	})
@@ -349,25 +360,157 @@ func AssignTalkWiseTeamMember(c *gin.Context) {
 		return
 	}
 
-	user, err := model.GetUserById(req.UserId, true)
+	team, err := model.FindOrCreateLegacyTrainingTeam(group)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	if user.Status != common.UserStatusEnabled {
-		common.ApiErrorMsg(c, "TalkWise user is disabled")
+	if _, err := model.AddTrainingTeamMember(team.Id, req.UserId, req.Role); err != nil {
+		common.ApiError(c, err)
 		return
 	}
-
-	user.Group = group
-	if err := user.Edit(false); err != nil {
+	member, err := model.GetTrainingTeamMember(team.Id, req.UserId)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"team":   buildTalkWiseTeamData(group),
-		"member": buildTalkWiseTeamUserData(user, group),
+		"team":   buildTalkWiseTeamData(team),
+		"member": buildTalkWiseTeamUserData(member, team.Id),
 	})
+}
+
+func RemoveTalkWiseTeamMember(c *gin.Context) {
+	var req TalkWiseTeamMemberAssignRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid TalkWise team member removal request")
+		return
+	}
+	if _, err := validateTalkWiseClient(req.ClientId, req.ClientSecret, true); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if req.UserId <= 0 {
+		common.ApiErrorMsg(c, "TalkWise user_id is required")
+		return
+	}
+	group, err := normalizeTalkWiseGroup(req.Group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	team, err := model.FindOrCreateLegacyTrainingTeam(group)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.RemoveTrainingTeamMember(team.Id, req.UserId); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"team": buildTalkWiseTeamData(team), "user_id": req.UserId})
+}
+
+func AdminListTalkWiseTrainingTeams(c *gin.Context) {
+	startIdx, _ := strconv.Atoi(c.DefaultQuery("start_index", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	teams, total, err := model.ListTrainingTeams(startIdx, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"teams": teams, "total": total})
+}
+
+func AdminCreateTalkWiseTrainingTeam(c *gin.Context) {
+	var req TalkWiseAdminTeamRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid training team request")
+		return
+	}
+	team, err := model.CreateTrainingTeam(req.Name)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, team)
+}
+
+func AdminUpdateTalkWiseTrainingTeam(c *gin.Context) {
+	var req TalkWiseAdminTeamRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiErrorMsg(c, "invalid training team request")
+		return
+	}
+	team, err := model.UpdateTrainingTeam(c.Param("teamId"), req.Name)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, team)
+}
+
+func AdminDeleteTalkWiseTrainingTeam(c *gin.Context) {
+	teamID := c.Param("teamId")
+	if err := model.DeleteTrainingTeam(teamID); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"id": teamID})
+}
+
+func AdminListTalkWiseTrainingTeamMembers(c *gin.Context) {
+	startIdx, _ := strconv.Atoi(c.DefaultQuery("start_index", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
+	members, total, err := model.ListTrainingTeamMembers(c.Param("teamId"), startIdx, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"members": members, "total": total})
+}
+
+func AdminSearchTalkWiseTrainingTeamUsers(c *gin.Context) {
+	startIdx, _ := strconv.Atoi(c.DefaultQuery("start_index", "0"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	users, total, err := model.SearchTrainingTeamUsers(c.Param("teamId"), c.Query("keyword"), startIdx, limit)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"users": users, "total": total})
+}
+
+func AdminAddTalkWiseTrainingTeamMember(c *gin.Context) {
+	var req TalkWiseAdminTeamMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.UserId <= 0 {
+		common.ApiErrorMsg(c, "invalid training team member request")
+		return
+	}
+	teamID := c.Param("teamId")
+	if _, err := model.AddTrainingTeamMember(teamID, req.UserId, req.Role); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	member, err := model.GetTrainingTeamMember(teamID, req.UserId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, member)
+}
+
+func AdminRemoveTalkWiseTrainingTeamMember(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("userId"))
+	if err != nil || userID <= 0 {
+		common.ApiErrorMsg(c, "invalid training team user id")
+		return
+	}
+	if err := model.RemoveTrainingTeamMember(c.Param("teamId"), userID); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{"user_id": userID})
 }
 
 // ProxyTalkWiseTraining keeps the browser on the NewAPI origin while routing
@@ -587,6 +730,19 @@ func ProxyTalkWisePersonaBuild(c *gin.Context) {
 		talkWisePersonaBuilderProxyUnavailable,
 		talkWisePersonaBuilderUpstreamUnavailable,
 		"TalkWise persona builder",
+	)
+}
+
+// ProxyTalkWiseGrowthProfileCard exposes only the authenticated communication
+// profile generator. Account referral links remain owned by NewAPI and are not
+// used as training-resource share credentials.
+func ProxyTalkWiseGrowthProfileCard(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWiseGrowthProfileCardUpstreamPath,
+		talkWiseGrowthProfileProxyUnavailable,
+		talkWiseGrowthProfileUpstreamUnavailable,
+		"TalkWise growth profile",
 	)
 }
 
@@ -1080,46 +1236,49 @@ func normalizeTalkWiseLimit(raw int, fallback int, max int) int {
 	return raw
 }
 
-func buildTalkWiseTeamData(group string) gin.H {
-	return gin.H{
-		"id":    "newapi:" + group,
-		"name":  group,
-		"group": group,
+func buildTalkWiseTeamData(team *model.TrainingTeam) gin.H {
+	group := team.Id
+	if team.LegacyKey != nil && strings.TrimSpace(*team.LegacyKey) != "" {
+		group = strings.TrimSpace(*team.LegacyKey)
 	}
+	return gin.H{"id": team.Id, "name": team.Name, "group": group}
 }
 
-func buildTalkWiseTeamUserData(user *model.User, currentGroup string) gin.H {
-	teamID := "newapi"
-	teamName := "NewAPI"
-	if strings.TrimSpace(user.Group) != "" {
-		teamID = "newapi:" + user.Group
-		teamName = user.Group
-	}
+func buildTalkWiseTeamUserData(user *model.TrainingTeamMemberView, currentTeamID string) gin.H {
+	inTeam := strings.TrimSpace(user.MembershipTeamId) == strings.TrimSpace(currentTeamID)
 	return gin.H{
-		"id":            user.Id,
-		"user_id":       user.Id,
+		"id":            user.UserId,
+		"user_id":       user.UserId,
 		"username":      user.Username,
 		"display_name":  user.DisplayName,
 		"email":         user.Email,
-		"role":          user.Role,
+		"role":          user.PlatformRole,
 		"status":        user.Status,
-		"group":         user.Group,
-		"team_id":       teamID,
-		"team_name":     teamName,
+		"group":         user.GatewayGroup,
+		"team_id":       user.MembershipTeamId,
+		"team_name":     user.MembershipTeamName,
+		"team_role":     user.TeamRole,
 		"quota":         user.Quota,
 		"used_quota":    user.UsedQuota,
 		"request_count": user.RequestCount,
-		"in_team":       strings.TrimSpace(user.Group) == strings.TrimSpace(currentGroup),
+		"in_team":       inTeam,
 	}
 }
 
 func buildTalkWiseIdentityData(c *gin.Context, user *model.User) gin.H {
 	userData := buildSelfUserData(user)
-	teamID := "newapi"
-	teamName := "NewAPI"
-	if strings.TrimSpace(user.Group) != "" {
-		teamID = "newapi:" + user.Group
-		teamName = user.Group
+	var teamData any
+	teamID := ""
+	teamName := ""
+	teamRole := ""
+	team, membership, err := model.GetTrainingTeamForUser(user.Id)
+	if err == nil {
+		teamID = team.Id
+		teamName = team.Name
+		teamRole = membership.Role
+		teamData = buildTalkWiseTeamData(team)
+	} else if !errors.Is(err, model.ErrTrainingTeamMemberNotFound) {
+		common.SysError("failed to resolve TalkWise training team: " + err.Error())
 	}
 
 	subscriptionPlan, subscriptionStatus := talkWiseSubscriptionStatus(user.Id)
@@ -1140,12 +1299,10 @@ func buildTalkWiseIdentityData(c *gin.Context, user *model.User) gin.H {
 			"used_quota":    userData["used_quota"],
 			"request_count": userData["request_count"],
 		},
-		"team": gin.H{
-			"id":   teamID,
-			"name": teamName,
-		},
+		"team":                teamData,
 		"team_id":             teamID,
 		"team_name":           teamName,
+		"team_role":           teamRole,
 		"quota":               user.Quota,
 		"used_quota":          user.UsedQuota,
 		"request_count":       user.RequestCount,

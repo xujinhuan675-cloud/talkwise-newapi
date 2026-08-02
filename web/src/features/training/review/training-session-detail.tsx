@@ -61,6 +61,13 @@ import { ReviewReportDetails } from './report-details'
 import { ReviewSessionReplay } from './session-replay'
 import type { ReviewEvaluationState, ScenarioProgress } from './types'
 
+const COMPETENCY_LABELS: Record<string, readonly [string, string]> = {
+  attentiveness: ['Attentiveness', '\u503e\u542c\u5173\u6ce8'],
+  expression: ['Expression', '\u8868\u8fbe\u6e05\u6670'],
+  coordination: ['Coordination', '\u4e92\u52a8\u534f\u8c03'],
+  composure: ['Composure', '\u6c89\u7740\u5e94\u5bf9'],
+}
+
 function formatDate(value: string | null, locale: string): string {
   if (!value) return '-'
   const date = new Date(value)
@@ -101,6 +108,9 @@ function progressScoreLabel(
   }
   if (progress?.scoreStatus === 'pending') {
     return localize('Pending', '待评分')
+  }
+  if (progress?.scoreStatus === 'unavailable') {
+    return localize('N/A', '证据不足')
   }
   return localize('Not recorded', '未记录')
 }
@@ -291,7 +301,7 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
             </div>
             <div>
               <dt className='text-muted-foreground text-xs'>
-                {localize('Progress score', '进度评分')}
+                {localize('Task outcome', '任务表现')}
               </dt>
               <dd className='mt-1 tabular-nums'>
                 {progressScoreLabel(
@@ -359,7 +369,7 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
         <Alert variant='destructive'>
           <CircleAlert />
           <AlertTitle>
-            {localize('Score evaluation failed', '评分失败')}
+            {localize('Task outcome evaluation failed', '任务表现评估失败')}
           </AlertTitle>
           <AlertDescription>
             {session.evaluationState.message ||
@@ -373,7 +383,9 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
       {session.evaluationState?.status === 'unavailable' && (
         <Alert>
           <CircleAlert />
-          <AlertTitle>{localize('Score unavailable', '评分不可用')}</AlertTitle>
+          <AlertTitle>
+            {localize('Task outcome unavailable', '任务表现不可用')}
+          </AlertTitle>
           <AlertDescription>
             {session.evaluationState.message ||
               localize(
@@ -383,6 +395,117 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
           </AlertDescription>
         </Alert>
       )}
+      {session.evaluationState?.status === 'ready' &&
+        Object.keys(session.evaluationState.competencies).length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {localize(
+                  'Evidence-based competency observations',
+                  '\u6709\u8bc1\u636e\u7684\u80fd\u529b\u89c2\u5bdf'
+                )}
+              </CardTitle>
+              <CardDescription>
+                {localize(
+                  'Unobserved dimensions remain unscored instead of receiving a default value.',
+                  '\u672a\u89c2\u5bdf\u5230\u7684\u7ef4\u5ea6\u4fdd\u6301\u672a\u8bc4\u5206\uff0c\u4e0d\u4f7f\u7528\u9ed8\u8ba4\u5206\u6570\u3002'
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                {(
+                  [
+                    [
+                      'effectiveness',
+                      localize('Effectiveness', '\u76ee\u6807\u6548\u679c'),
+                      session.evaluationState.effectiveness,
+                    ],
+                    [
+                      'appropriateness',
+                      localize('Appropriateness', '\u60c5\u5883\u9002\u5207'),
+                      session.evaluationState.appropriateness,
+                    ],
+                  ] as const
+                ).map(([outcomeId, label, observation]) => (
+                  <div key={outcomeId} className='space-y-2 rounded-md border p-3'>
+                    <div className='flex items-center justify-between gap-3'>
+                      <span className='font-medium'>{label}</span>
+                      <Badge variant='secondary'>
+                        {observation?.rating == null
+                          ? localize('N/A', '\u65e0\u8bc1\u636e')
+                          : `${observation.rating}/5`}
+                      </Badge>
+                    </div>
+                    {observation?.reason && (
+                      <p className='text-muted-foreground text-sm leading-5'>
+                        {observation.reason}
+                      </p>
+                    )}
+                    {observation?.evidence.map((evidence) => (
+                      <blockquote
+                        key={`${outcomeId}:${evidence.messageId}:${evidence.quote}`}
+                        className='border-l-2 pl-3 text-sm leading-5'
+                      >
+                        {evidence.quote}
+                        <span className='text-muted-foreground mt-1 block font-mono text-xs'>
+                          {evidence.messageId}
+                        </span>
+                      </blockquote>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className='grid gap-3 sm:grid-cols-2'>
+                {Object.entries(session.evaluationState.competencies).map(
+                ([dimensionId, observation]) => {
+                  const labels = COMPETENCY_LABELS[dimensionId]
+                  const label = labels
+                    ? localize(labels[0], labels[1])
+                    : dimensionId
+                  return (
+                    <div
+                      key={dimensionId}
+                      className='space-y-2 rounded-md border p-3'
+                    >
+                      <div className='flex items-center justify-between gap-3'>
+                        <span className='font-medium'>{label}</span>
+                        <Badge variant='secondary'>
+                          {observation.rating === null
+                            ? localize('N/A', '\u65e0\u8bc1\u636e')
+                            : `${observation.rating}/5`}
+                        </Badge>
+                      </div>
+                      {observation.reason && (
+                        <p className='text-muted-foreground text-sm leading-5'>
+                          {observation.reason}
+                        </p>
+                      )}
+                      {observation.evidence.map((evidence) => (
+                        <blockquote
+                          key={`${evidence.messageId}:${evidence.quote}`}
+                          className='border-l-2 pl-3 text-sm leading-5'
+                        >
+                          {evidence.quote}
+                          <span className='text-muted-foreground mt-1 block font-mono text-xs'>
+                            {evidence.messageId}
+                          </span>
+                        </blockquote>
+                      ))}
+                      {observation.suggestion && (
+                        <p className='text-muted-foreground text-xs leading-5'>
+                          {localize('Next step', '\u4e0b\u4e00\u6b65')}:{' '}
+                          {observation.suggestion}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+              )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       <ReviewSessionReplay
         locale={i18n.language}
         localize={localize}

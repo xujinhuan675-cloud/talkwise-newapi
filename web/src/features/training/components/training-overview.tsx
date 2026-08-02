@@ -864,7 +864,9 @@ export function TrainingOverview() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{localize('Average score', '平均得分')}</CardTitle>
+            <CardTitle>
+              {localize('Average task outcome', '平均任务表现')}
+            </CardTitle>
             <CardDescription>
               {localize(
                 'Based on completed evaluations.',

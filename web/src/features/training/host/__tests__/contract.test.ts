@@ -147,6 +147,7 @@ describe('TrainingHostContext contract', () => {
       '/training/growth/leaderboard',
       '/training/team/competencies',
       '/training/team/scenarios',
+      '/training/team/members',
       '/training/prep/battle',
       '/training/prep/defense',
       '/training/settings',

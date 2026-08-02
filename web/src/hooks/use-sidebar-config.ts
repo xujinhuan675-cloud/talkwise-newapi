@@ -49,6 +49,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/training/growth/leaderboard': { section: 'training', module: 'studio' },
   '/training/team/competencies': { section: 'training', module: 'studio' },
   '/training/team/scenarios': { section: 'training', module: 'studio' },
+  '/training/team/members': { section: 'training', module: 'studio' },
   '/training/prep/battle': { section: 'training', module: 'studio' },
   '/training/prep/defense': { section: 'training', module: 'studio' },
   '/training/settings': { section: 'training', module: 'studio' },

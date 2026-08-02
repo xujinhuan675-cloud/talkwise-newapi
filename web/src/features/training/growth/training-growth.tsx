@@ -33,7 +33,13 @@ import {
 } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PolarAngleAxis, PolarGrid, Radar, RadarChart } from 'recharts'
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+} from 'recharts'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
@@ -87,21 +93,28 @@ import {
   getTrainingGrowthScoreState,
   selectRecentTrainingActivity,
 } from './contract'
+import { getTrainingPointsSummary } from './training-points'
+import { TrainingPointsCard } from './training-points-card'
 
 const route = getRouteApi('/_authenticated/training/growth')
 
 const COMPETENCY_LABELS: Record<string, [string, string]> = {
-  persuasion: ['Persuasion', '说服力'],
-  emotional_management: ['Emotional management', '情绪管理'],
-  active_listening: ['Active listening', '主动倾听'],
-  structured_expression: ['Structured expression', '结构表达'],
-  conflict_resolution: ['Conflict resolution', '冲突处理'],
-  stakeholder_alignment: ['Stakeholder alignment', '利益相关者对齐'],
+  attentiveness: ['Attentiveness', '倾听关注'],
+  expression: ['Expression', '表达清晰'],
+  coordination: ['Coordination', '互动协调'],
+  composure: ['Composure', '沉着应对'],
 }
+
+const COMPETENCY_DIMENSION_IDS = [
+  'attentiveness',
+  'expression',
+  'coordination',
+  'composure',
+] as const
 
 const competencyRadarChartConfig = {
   score: {
-    label: 'Average score',
+    label: 'Observed level',
     color: 'var(--chart-1)',
   },
 } satisfies ChartConfig
@@ -189,13 +202,17 @@ function TrainingCompetencyRadarCard({
   localize: (english: string, chinese: string) => string
   userName: string
 }) {
-  const chartData = (radar?.dimensions ?? []).map((dimension) => {
-    const labels = COMPETENCY_LABELS[dimension.dimensionId]
+  const dimensionsById = new Map(
+    (radar?.dimensions ?? []).map((dimension) => [
+      dimension.dimensionId,
+      dimension,
+    ])
+  )
+  const chartData = COMPETENCY_DIMENSION_IDS.map((dimensionId) => {
+    const labels = COMPETENCY_LABELS[dimensionId]
     return {
-      dimension: labels
-        ? localize(labels[0], labels[1])
-        : dimension.dimensionId,
-      score: dimension.score,
+      dimension: localize(labels[0], labels[1]),
+      score: dimensionsById.get(dimensionId)?.score,
     }
   })
   const hasRadar = getTrainingGrowthProfileState(radar) === 'ready'
@@ -212,8 +229,8 @@ function TrainingCompetencyRadarCard({
           {hasRadar && radar && (
             <Badge variant='secondary'>
               {localize(
-                `${radar.sampleSize} scored sessions`,
-                `${radar.sampleSize} 次已评分训练`
+                `${radar.sampleSize} evaluated sessions`,
+                `${radar.sampleSize} 次已评估训练`
               )}
             </Badge>
           )}
@@ -233,8 +250,8 @@ function TrainingCompetencyRadarCard({
           <div className='text-muted-foreground flex min-h-60 flex-col items-center justify-center gap-3 text-sm'>
             <span>
               {localize(
-                'Unable to load competency scores.',
-                '无法加载能力评分。'
+                'Unable to load competency observations.',
+                '无法加载能力观察。'
               )}
             </span>
             <Button size='sm' variant='outline' onClick={onRetry}>
@@ -252,37 +269,55 @@ function TrainingCompetencyRadarCard({
               <RadarChart data={chartData} outerRadius='72%'>
                 <PolarGrid />
                 <PolarAngleAxis dataKey='dimension' tick={{ fontSize: 12 }} />
+                <PolarRadiusAxis
+                  angle={90}
+                  domain={[0, 100]}
+                  tick={false}
+                  axisLine={false}
+                />
                 <ChartTooltip content={<ChartTooltipContent hideIndicator />} />
                 <Radar
                   dataKey='score'
                   fill='var(--color-score)'
                   fillOpacity={0.2}
-                  name={localize('Average score', '平均得分')}
+                  name={localize('Observed level', '观察水平')}
                   stroke='var(--color-score)'
                   strokeWidth={2}
                 />
               </RadarChart>
             </ChartContainer>
             <div className='space-y-4'>
-              {radar.dimensions.map((dimension) => {
-                const labels = COMPETENCY_LABELS[dimension.dimensionId]
-                const label = labels
-                  ? localize(labels[0], labels[1])
-                  : dimension.dimensionId
+              {COMPETENCY_DIMENSION_IDS.map((dimensionId) => {
+                const dimension = dimensionsById.get(dimensionId)
+                const labels = COMPETENCY_LABELS[dimensionId]
+                const label = localize(labels[0], labels[1])
                 return (
-                  <div key={dimension.dimensionId} className='space-y-1.5'>
-                    <Progress value={dimension.score}>
+                  <div key={dimensionId} className='space-y-1.5'>
+                    <Progress value={dimension?.score ?? 0}>
                       <ProgressLabel>{label}</ProgressLabel>
                       <ProgressValue>
-                        {() => `${dimension.score}/100`}
+                        {() =>
+                          dimension
+                            ? `${dimension.score}/100`
+                            : localize('Not observed', '未观察')
+                        }
                       </ProgressValue>
                     </Progress>
-                    <div className='text-muted-foreground text-xs tabular-nums'>
-                      {localize(
-                        `${dimension.sampleCount} scored samples`,
-                        `${dimension.sampleCount} 个有效评分样本`
-                      )}
-                    </div>
+                    {dimension && (
+                      <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs tabular-nums'>
+                        <span>
+                          {localize(
+                            `${dimension.sampleCount} valid observations across ${dimension.scenarioCount} scenarios`,
+                            `${dimension.sampleCount} 个有效观察，覆盖 ${dimension.scenarioCount} 个场景`
+                          )}
+                        </span>
+                        <Badge variant='outline'>
+                          {dimension.state === 'stable'
+                            ? localize('Stable estimate', '稳定估计')
+                            : localize('Exploring', '探索中')}
+                        </Badge>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -292,8 +327,8 @@ function TrainingCompetencyRadarCard({
         {!isPending && !isError && !hasRadar && (
           <div className='text-muted-foreground flex min-h-60 items-center justify-center text-center text-sm'>
             {localize(
-              'Complete scored training sessions to build your competency profile.',
-              '完成并获得评分的训练后，这里会展示能力画像。'
+              'Complete evaluated training sessions to build your competency profile.',
+              '完成经过评估的训练后，这里会展示能力画像。'
             )}
           </div>
         )}
@@ -458,7 +493,7 @@ function ScenarioProgressDataTable({
       },
       {
         id: 'score',
-        header: localize('Score', '得分'),
+        header: localize('Task outcome', '任务表现'),
         cell: ({ row }) => {
           const item = row.original
           const scoreState = getTrainingGrowthScoreState(item)
@@ -560,6 +595,11 @@ function TrainingGrowthContent() {
     queryFn: () => getScenarioProgressSummary(host.apiBase),
     enabled: host.authStatus === 'authenticated',
   })
+  const pointsQuery = useQuery({
+    queryKey: ['training', 'training-points', host.apiBase],
+    queryFn: () => getTrainingPointsSummary(host.apiBase),
+    enabled: host.authStatus === 'authenticated',
+  })
   const radarQuery = useQuery({
     queryKey: ['training', 'competency-radar', host.apiBase],
     queryFn: () => getTrainingCompetencyRadar(host.apiBase),
@@ -652,6 +692,23 @@ function TrainingGrowthContent() {
 
   return (
     <div className='space-y-3'>
+      <TrainingPointsCard
+        summary={pointsQuery.data}
+        isPending={pointsQuery.isPending}
+        errorMessage={
+          pointsQuery.isError
+            ? reviewRequestErrorMessage(
+                pointsQuery.error,
+                localize(
+                  'Unable to load Training Points.',
+                  '\u65e0\u6cd5\u52a0\u8f7d\u8bad\u7ec3\u79ef\u5206\u3002'
+                )
+              )
+            : null
+        }
+        onRetry={() => void pointsQuery.refetch()}
+        localize={localize}
+      />
       <div className='grid gap-3 sm:grid-cols-3'>
         <Card size='sm'>
           <CardHeader>
@@ -677,7 +734,9 @@ function TrainingGrowthContent() {
         </Card>
         <Card size='sm'>
           <CardHeader>
-            <CardTitle>{localize('Average score', '平均得分')}</CardTitle>
+            <CardTitle>
+              {localize('Average task outcome', '平均任务表现')}
+            </CardTitle>
             <CardDescription>
               {localize('Only completed evaluations', '仅基于已出结果的评估')}
             </CardDescription>

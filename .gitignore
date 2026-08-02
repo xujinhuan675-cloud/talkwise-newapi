@@ -4,6 +4,7 @@
 .history
 upload
 *.exe
+new-api-talkwise.exe.previous-*
 *.db
 build
 *.db-journal

@@ -16,15 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 
-import { isSidebarModuleEnabled } from '@/lib/nav-modules'
+import { TrainingGrowthPage } from '@/features/training/growth/training-growth'
 
-export const Route = createFileRoute('/_authenticated/training/growth')({
-  beforeLoad: () => {
-    if (!isSidebarModuleEnabled('training', 'studio')) {
-      throw redirect({ to: '/dashboard' })
-    }
-  },
-  component: Outlet,
+export const Route = createFileRoute('/_authenticated/training/growth/')({
+  component: TrainingGrowthPage,
 })

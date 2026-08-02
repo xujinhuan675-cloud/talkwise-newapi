@@ -30,7 +30,7 @@ export type ScenarioProgressStatus =
   | 'in_progress'
   | 'not_started'
 
-export type ScenarioScoreStatus = 'pending' | 'ready'
+export type ScenarioScoreStatus = 'pending' | 'ready' | 'unavailable'
 
 export type ReviewReportStatus =
   | 'failed'
@@ -51,9 +51,33 @@ export type ReviewEvaluationStatus = 'failed' | 'ready' | 'unavailable'
 export interface ReviewEvaluationState {
   readonly status: ReviewEvaluationStatus
   readonly evaluationId: string | null
-  readonly overallScore: number | null
+  readonly rubricVersion: string | null
+  readonly judgeVersion: string | null
+  readonly judgeModel: string | null
+  readonly effectiveness: ReviewOutcomeObservation | null
+  readonly appropriateness: ReviewOutcomeObservation | null
+  readonly competencies: Readonly<Record<string, ReviewCompetencyObservation>>
   readonly message: string | null
   readonly retryable: boolean
+}
+
+export interface ReviewEvidenceReference {
+  readonly messageId: string
+  readonly quote: string
+}
+
+export interface ReviewOutcomeObservation {
+  readonly rating: number | null
+  readonly evidence: readonly ReviewEvidenceReference[]
+  readonly reason: string
+}
+
+export interface ReviewCompetencyObservation {
+  readonly opportunityPresent: boolean
+  readonly rating: number | null
+  readonly evidence: readonly ReviewEvidenceReference[]
+  readonly reason: string
+  readonly suggestion: string
 }
 
 export interface TrainingSessionDTO {
@@ -111,7 +135,7 @@ export interface ScenarioProgressDTO {
   failure_reason?: string | null
   score?: number | null
   score_status: ScenarioScoreStatus
-  overall_score?: number | null
+  outcome_rating?: number | null
   evaluation_id?: number | null
   last_practiced_at?: string | null
   training_session_id: string
@@ -160,7 +184,7 @@ export interface ScenarioProgress {
   readonly status: ScenarioProgressStatus
   readonly score: number | null
   readonly scoreStatus: ScenarioScoreStatus
-  readonly overallScore: number | null
+  readonly outcomeRating: number | null
   readonly lastPracticedAt: string | null
   readonly reportId: string | null
   readonly failureReason: string | null
@@ -187,6 +211,8 @@ export interface TrainingCompetencyRadarDimensionDTO {
   dimension_id: string
   score: number
   sample_count: number
+  scenario_count: number
+  state: TrainingCompetencyObservationState
 }
 
 export interface TrainingCompetencyRadarDTO {
@@ -198,7 +224,11 @@ export interface TrainingCompetencyRadarDimension {
   readonly dimensionId: string
   readonly score: number
   readonly sampleCount: number
+  readonly scenarioCount: number
+  readonly state: TrainingCompetencyObservationState
 }
+
+export type TrainingCompetencyObservationState = 'exploring' | 'stable'
 
 export interface TrainingCompetencyRadar {
   readonly sampleSize: number

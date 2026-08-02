@@ -86,11 +86,26 @@ func SetApiRouter(router *gin.Engine) {
 			talkwiseRoute.Any("/personas/*path", middleware.UserAuth(), controller.ProxyTalkWisePersonas)
 			talkwiseRoute.POST("/persona-builder/detect-speakers", middleware.UserAuth(), controller.ProxyTalkWisePersonaDetectSpeakers)
 			talkwiseRoute.POST("/persona-builder/build", middleware.UserAuth(), controller.ProxyTalkWisePersonaBuild)
+			talkwiseRoute.POST("/growth/profile-card", middleware.UserAuth(), controller.ProxyTalkWiseGrowthProfileCard)
 			talkwiseRoute.POST("/auth/exchange", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ExchangeTalkWiseAuthCode)
 			talkwiseRoute.POST("/auth/handoff", middleware.UserAuth(), middleware.CriticalRateLimit(), middleware.DisableCache(), controller.CreateTalkWiseAuthHandoff)
 			talkwiseRoute.POST("/team/members", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.ListTalkWiseTeamMembers)
 			talkwiseRoute.POST("/team/users/search", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.SearchTalkWiseTeamUsers)
 			talkwiseRoute.POST("/team/members/assign", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.AssignTalkWiseTeamMember)
+			talkwiseRoute.POST("/team/members/remove", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.RemoveTalkWiseTeamMember)
+
+			talkwiseAdminRoute := talkwiseRoute.Group("/admin")
+			talkwiseAdminRoute.Use(middleware.AdminAuth())
+			{
+				talkwiseAdminRoute.GET("/teams", controller.AdminListTalkWiseTrainingTeams)
+				talkwiseAdminRoute.POST("/teams", controller.AdminCreateTalkWiseTrainingTeam)
+				talkwiseAdminRoute.PUT("/teams/:teamId", controller.AdminUpdateTalkWiseTrainingTeam)
+				talkwiseAdminRoute.DELETE("/teams/:teamId", controller.AdminDeleteTalkWiseTrainingTeam)
+				talkwiseAdminRoute.GET("/teams/:teamId/members", controller.AdminListTalkWiseTrainingTeamMembers)
+				talkwiseAdminRoute.GET("/teams/:teamId/users/search", controller.AdminSearchTalkWiseTrainingTeamUsers)
+				talkwiseAdminRoute.POST("/teams/:teamId/members", controller.AdminAddTalkWiseTrainingTeamMember)
+				talkwiseAdminRoute.DELETE("/teams/:teamId/members/:userId", controller.AdminRemoveTalkWiseTrainingTeamMember)
+			}
 		}
 
 		userRoute := apiRouter.Group("/user")

@@ -238,6 +238,7 @@ export function buildTrainingSessionRequest(
           required: scenario.required,
           category: scenario.category,
           difficulty: scenario.difficulty,
+          training_points: [...scenario.trainingPoints],
           dimension_weights: scenario.dimensionWeights,
           feedbackMode: 'simulation',
           trainingMode: mode,

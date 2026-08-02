@@ -76,7 +76,9 @@ import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
+import { Route as AuthenticatedTrainingGrowthIndexRouteImport } from './routes/_authenticated/training/growth/index'
 import { Route as AuthenticatedTrainingGrowthLeaderboardRouteImport } from './routes/_authenticated/training/growth/leaderboard'
+import { Route as AuthenticatedTrainingGrowthProfileRouteImport } from './routes/_authenticated/training/growth/profile'
 import { Route as AuthenticatedTrainingPersonasIndexRouteImport } from './routes/_authenticated/training/personas/index'
 import { Route as AuthenticatedTrainingPersonasPersonaIdRouteImport } from './routes/_authenticated/training/personas/$personaId'
 import { Route as AuthenticatedTrainingPersonasNewRouteImport } from './routes/_authenticated/training/personas/new'
@@ -84,6 +86,7 @@ import { Route as AuthenticatedTrainingPrepBattleRouteImport } from './routes/_a
 import { Route as AuthenticatedTrainingPrepDefenseRouteImport } from './routes/_authenticated/training/prep/defense'
 import { Route as AuthenticatedTrainingSessionsSessionIdRouteImport } from './routes/_authenticated/training/sessions/$sessionId'
 import { Route as AuthenticatedTrainingTeamCompetenciesRouteImport } from './routes/_authenticated/training/team/competencies'
+import { Route as AuthenticatedTrainingTeamMembersRouteImport } from './routes/_authenticated/training/team/members'
 import { Route as AuthenticatedTrainingTeamScenariosRouteImport } from './routes/_authenticated/training/team/scenarios'
 
 const IndexRoute = IndexRouteImport.update({
@@ -458,10 +461,22 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
     path: '/site/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedTrainingGrowthIndexRoute =
+  AuthenticatedTrainingGrowthIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedTrainingGrowthRoute,
+  } as any)
 const AuthenticatedTrainingGrowthLeaderboardRoute =
   AuthenticatedTrainingGrowthLeaderboardRouteImport.update({
     id: '/leaderboard',
     path: '/leaderboard',
+    getParentRoute: () => AuthenticatedTrainingGrowthRoute,
+  } as any)
+const AuthenticatedTrainingGrowthProfileRoute =
+  AuthenticatedTrainingGrowthProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
     getParentRoute: () => AuthenticatedTrainingGrowthRoute,
   } as any)
 const AuthenticatedTrainingPersonasIndexRoute =
@@ -504,6 +519,12 @@ const AuthenticatedTrainingTeamCompetenciesRoute =
   AuthenticatedTrainingTeamCompetenciesRouteImport.update({
     id: '/training/team/competencies',
     path: '/training/team/competencies',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingTeamMembersRoute =
+  AuthenticatedTrainingTeamMembersRouteImport.update({
+    id: '/training/team/members',
+    path: '/training/team/members',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedTrainingTeamScenariosRoute =
@@ -573,12 +594,14 @@ export interface FileRoutesByFullPath {
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
   '/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
   '/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
   '/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
   '/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
   '/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
   '/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
   '/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -587,6 +610,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/training/growth/': typeof AuthenticatedTrainingGrowthIndexRoute
   '/training/personas/': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRoutesByTo {
@@ -618,7 +642,6 @@ export interface FileRoutesByTo {
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/training/$section': typeof AuthenticatedTrainingSectionRoute
   '/training/conversations': typeof AuthenticatedTrainingConversationsRoute
-  '/training/growth': typeof AuthenticatedTrainingGrowthRouteWithChildren
   '/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
   '/training/scenarios': typeof AuthenticatedTrainingScenariosRoute
   '/training/sessions': typeof AuthenticatedTrainingSessionsRouteWithChildren
@@ -648,12 +671,14 @@ export interface FileRoutesByTo {
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
   '/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
   '/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
   '/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
   '/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
   '/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
   '/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
   '/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -662,6 +687,7 @@ export interface FileRoutesByTo {
   '/system-settings/operations': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/system-settings/security': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/training/growth': typeof AuthenticatedTrainingGrowthIndexRoute
   '/training/personas': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRoutesById {
@@ -727,12 +753,14 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/_authenticated/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/_authenticated/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
   '/_authenticated/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
   '/_authenticated/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
   '/_authenticated/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
   '/_authenticated/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
   '/_authenticated/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
   '/_authenticated/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/_authenticated/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
   '/_authenticated/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -741,6 +769,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/operations/': typeof AuthenticatedSystemSettingsOperationsIndexRoute
   '/_authenticated/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/_authenticated/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/_authenticated/training/growth/': typeof AuthenticatedTrainingGrowthIndexRoute
   '/_authenticated/training/personas/': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRouteTypes {
@@ -805,12 +834,14 @@ export interface FileRouteTypes {
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
     | '/training/growth/leaderboard'
+    | '/training/growth/profile'
     | '/training/personas/$personaId'
     | '/training/personas/new'
     | '/training/prep/battle'
     | '/training/prep/defense'
     | '/training/sessions/$sessionId'
     | '/training/team/competencies'
+    | '/training/team/members'
     | '/training/team/scenarios'
     | '/system-settings/auth/'
     | '/system-settings/billing/'
@@ -819,6 +850,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations/'
     | '/system-settings/security/'
     | '/system-settings/site/'
+    | '/training/growth/'
     | '/training/personas/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -850,7 +882,6 @@ export interface FileRouteTypes {
     | '/models/$section'
     | '/training/$section'
     | '/training/conversations'
-    | '/training/growth'
     | '/training/live-coach'
     | '/training/scenarios'
     | '/training/sessions'
@@ -880,12 +911,14 @@ export interface FileRouteTypes {
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
     | '/training/growth/leaderboard'
+    | '/training/growth/profile'
     | '/training/personas/$personaId'
     | '/training/personas/new'
     | '/training/prep/battle'
     | '/training/prep/defense'
     | '/training/sessions/$sessionId'
     | '/training/team/competencies'
+    | '/training/team/members'
     | '/training/team/scenarios'
     | '/system-settings/auth'
     | '/system-settings/billing'
@@ -894,6 +927,7 @@ export interface FileRouteTypes {
     | '/system-settings/operations'
     | '/system-settings/security'
     | '/system-settings/site'
+    | '/training/growth'
     | '/training/personas'
   id:
     | '__root__'
@@ -958,12 +992,14 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/security/$section'
     | '/_authenticated/system-settings/site/$section'
     | '/_authenticated/training/growth/leaderboard'
+    | '/_authenticated/training/growth/profile'
     | '/_authenticated/training/personas/$personaId'
     | '/_authenticated/training/personas/new'
     | '/_authenticated/training/prep/battle'
     | '/_authenticated/training/prep/defense'
     | '/_authenticated/training/sessions/$sessionId'
     | '/_authenticated/training/team/competencies'
+    | '/_authenticated/training/team/members'
     | '/_authenticated/training/team/scenarios'
     | '/_authenticated/system-settings/auth/'
     | '/_authenticated/system-settings/billing/'
@@ -972,6 +1008,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/operations/'
     | '/_authenticated/system-settings/security/'
     | '/_authenticated/system-settings/site/'
+    | '/_authenticated/training/growth/'
     | '/_authenticated/training/personas/'
   fileRoutesById: FileRoutesById
 }
@@ -1465,11 +1502,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/training/growth/': {
+      id: '/_authenticated/training/growth/'
+      path: '/'
+      fullPath: '/training/growth/'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthIndexRouteImport
+      parentRoute: typeof AuthenticatedTrainingGrowthRoute
+    }
     '/_authenticated/training/growth/leaderboard': {
       id: '/_authenticated/training/growth/leaderboard'
       path: '/leaderboard'
       fullPath: '/training/growth/leaderboard'
       preLoaderRoute: typeof AuthenticatedTrainingGrowthLeaderboardRouteImport
+      parentRoute: typeof AuthenticatedTrainingGrowthRoute
+    }
+    '/_authenticated/training/growth/profile': {
+      id: '/_authenticated/training/growth/profile'
+      path: '/profile'
+      fullPath: '/training/growth/profile'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthProfileRouteImport
       parentRoute: typeof AuthenticatedTrainingGrowthRoute
     }
     '/_authenticated/training/personas/': {
@@ -1519,6 +1570,13 @@ declare module '@tanstack/react-router' {
       path: '/training/team/competencies'
       fullPath: '/training/team/competencies'
       preLoaderRoute: typeof AuthenticatedTrainingTeamCompetenciesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/team/members': {
+      id: '/_authenticated/training/team/members'
+      path: '/training/team/members'
+      fullPath: '/training/team/members'
+      preLoaderRoute: typeof AuthenticatedTrainingTeamMembersRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/training/team/scenarios': {
@@ -1616,12 +1674,18 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
 
 interface AuthenticatedTrainingGrowthRouteChildren {
   AuthenticatedTrainingGrowthLeaderboardRoute: typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  AuthenticatedTrainingGrowthProfileRoute: typeof AuthenticatedTrainingGrowthProfileRoute
+  AuthenticatedTrainingGrowthIndexRoute: typeof AuthenticatedTrainingGrowthIndexRoute
 }
 
 const AuthenticatedTrainingGrowthRouteChildren: AuthenticatedTrainingGrowthRouteChildren =
   {
     AuthenticatedTrainingGrowthLeaderboardRoute:
       AuthenticatedTrainingGrowthLeaderboardRoute,
+    AuthenticatedTrainingGrowthProfileRoute:
+      AuthenticatedTrainingGrowthProfileRoute,
+    AuthenticatedTrainingGrowthIndexRoute:
+      AuthenticatedTrainingGrowthIndexRoute,
   }
 
 const AuthenticatedTrainingGrowthRouteWithChildren =
@@ -1678,6 +1742,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedTrainingPrepBattleRoute: typeof AuthenticatedTrainingPrepBattleRoute
   AuthenticatedTrainingPrepDefenseRoute: typeof AuthenticatedTrainingPrepDefenseRoute
   AuthenticatedTrainingTeamCompetenciesRoute: typeof AuthenticatedTrainingTeamCompetenciesRoute
+  AuthenticatedTrainingTeamMembersRoute: typeof AuthenticatedTrainingTeamMembersRoute
   AuthenticatedTrainingTeamScenariosRoute: typeof AuthenticatedTrainingTeamScenariosRoute
   AuthenticatedTrainingPersonasIndexRoute: typeof AuthenticatedTrainingPersonasIndexRoute
 }
@@ -1723,6 +1788,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedTrainingPrepDefenseRoute: AuthenticatedTrainingPrepDefenseRoute,
   AuthenticatedTrainingTeamCompetenciesRoute:
     AuthenticatedTrainingTeamCompetenciesRoute,
+  AuthenticatedTrainingTeamMembersRoute: AuthenticatedTrainingTeamMembersRoute,
   AuthenticatedTrainingTeamScenariosRoute:
     AuthenticatedTrainingTeamScenariosRoute,
   AuthenticatedTrainingPersonasIndexRoute:

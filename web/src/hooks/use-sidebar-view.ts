@@ -21,7 +21,11 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { resolveSidebarView } from '@/components/layout/lib/sidebar-view-registry'
-import type { NavGroup, ResolvedSidebarView } from '@/components/layout/types'
+import type {
+  NavGroup,
+  NavItem,
+  ResolvedSidebarView,
+} from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -30,6 +34,34 @@ import { useSidebarData } from './use-sidebar-data'
 
 /** Sentinel key used for the root navigation in animation `key=` props */
 const ROOT_VIEW_KEY = '__root'
+
+export function filterSidebarGroupsByRole(
+  groups: NavGroup[],
+  role: number
+): NavGroup[] {
+  return groups
+    .filter((group) => (group.id === 'admin' ? role >= ROLE.ADMIN : true))
+    .flatMap((group) => {
+      const items: NavItem[] = []
+      for (const item of group.items) {
+        if (item.requiredRole !== undefined && role < item.requiredRole) {
+          continue
+        }
+        if (!('items' in item) || !item.items) {
+          items.push(item)
+          continue
+        }
+        const allowedChildren = item.items.filter(
+          (child) =>
+            child.requiredRole === undefined || role >= child.requiredRole
+        )
+        if (allowedChildren.length) {
+          items.push({ ...item, items: allowedChildren })
+        }
+      }
+      return items.length ? [{ ...group, items }] : []
+    })
+}
 
 /**
  * Resolve the active sidebar view for the current location.
@@ -53,15 +85,7 @@ export function useSidebarView(): ResolvedSidebarView {
 
   const rootNavGroups = useMemo<NavGroup[]>(() => {
     const role = userRole ?? ROLE.GUEST
-    const isAdmin = role >= ROLE.ADMIN
-    return configFilteredRoot
-      .filter((group) => (group.id === 'admin' ? isAdmin : true))
-      .map((group) => {
-        const items = group.items.filter(
-          (item) => item.requiredRole === undefined || role >= item.requiredRole
-        )
-        return items.length === group.items.length ? group : { ...group, items }
-      })
+    return filterSidebarGroupsByRole(configFilteredRoot, role)
   }, [configFilteredRoot, userRole])
 
   const view = resolveSidebarView(pathname)

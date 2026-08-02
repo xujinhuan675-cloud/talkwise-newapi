@@ -39,6 +39,7 @@ func TestTalkWisePersonaProxyRoutesRequireDashboardAuth(t *testing.T) {
 		{method: http.MethodGet, path: "/api/talkwise/personas/cfo"},
 		{method: http.MethodPost, path: "/api/talkwise/persona-builder/detect-speakers"},
 		{method: http.MethodPost, path: "/api/talkwise/persona-builder/build"},
+		{method: http.MethodPost, path: "/api/talkwise/growth/profile-card"},
 	} {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(testCase.method, testCase.path, nil)

@@ -54,7 +54,7 @@ const progress = (
     status: 'completed',
     score: null,
     scoreStatus: 'pending',
-    overallScore: null,
+    outcomeRating: null,
     lastPracticedAt: null,
     reportId: null,
     failureReason: null,

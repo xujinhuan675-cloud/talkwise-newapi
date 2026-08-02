@@ -500,6 +500,7 @@ func GetSelf(c *gin.Context) {
 	permissions := calculateUserPermissions(userRole)
 	permissions["admin_permissions"] = authz.Capabilities(id, userRole)
 	responseData["permissions"] = permissions
+	attachTalkWiseTrainingTeamClaims(responseData, user.Id)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -507,6 +508,27 @@ func GetSelf(c *gin.Context) {
 		"data":    responseData,
 	})
 	return
+}
+
+// attachTalkWiseTrainingTeamClaims is an optional product extension for the
+// TalkWise identity bridge. A lookup failure must never break NewAPI account,
+// gateway, quota or billing flows, and User.Group is never used as a fallback.
+func attachTalkWiseTrainingTeamClaims(responseData map[string]interface{}, userID int) {
+	team, membership, err := model.GetTrainingTeamForUser(userID)
+	if err != nil {
+		if !errors.Is(err, model.ErrTrainingTeamMemberNotFound) {
+			common.SysError("failed to resolve TalkWise training team: " + err.Error())
+		}
+		return
+	}
+	responseData["team_id"] = team.Id
+	responseData["team_name"] = team.Name
+	responseData["team_role"] = membership.Role
+	responseData["team"] = map[string]interface{}{
+		"id":   team.Id,
+		"name": team.Name,
+		"role": membership.Role,
+	}
 }
 
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,

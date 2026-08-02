@@ -43,6 +43,7 @@ export function getTrainingGrowthScoreState(
   if (progress.scoreStatus === 'ready' && progress.score !== null) {
     return 'ready'
   }
+  if (progress.scoreStatus === 'unavailable') return 'not_available'
   if (progress.status === 'completed' && progress.scoreStatus === 'pending') {
     return 'pending'
   }
@@ -54,7 +55,7 @@ export type TrainingGrowthProfileState = 'empty' | 'ready'
 export function getTrainingGrowthProfileState(
   radar: TrainingCompetencyRadar | null | undefined
 ): TrainingGrowthProfileState {
-  return radar && radar.sampleSize > 0 && radar.dimensions.length >= 3
+  return radar && radar.sampleSize > 0 && radar.dimensions.length > 0
     ? 'ready'
     : 'empty'
 }

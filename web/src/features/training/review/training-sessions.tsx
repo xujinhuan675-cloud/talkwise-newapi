@@ -278,7 +278,7 @@ function SessionDataTable({
       },
       {
         id: 'score',
-        header: localize('Progress score', '进度评分'),
+        header: localize('Task outcome', '任务表现'),
         cell: ({ row }) => {
           const session = row.original
           if (session.evaluationState?.status === 'failed') {
@@ -288,6 +288,9 @@ function SessionDataTable({
             return localize('Unavailable', '评分不可用')
           }
           if (session.score !== null) return `${session.score}/100`
+          if (session.progressLinked && session.scoreStatus === 'unavailable') {
+            return localize('N/A', '证据不足')
+          }
           if (session.progressLinked && session.scoreStatus === 'pending') {
             return session.reportState.status === 'failed'
               ? localize('Unavailable', '不可用')
@@ -577,7 +580,7 @@ export function TrainingSessions() {
         <Alert>
           <CircleAlert />
           <AlertTitle>
-            {localize('Progress scores unavailable', '进度评分暂不可用')}
+            {localize('Task outcomes unavailable', '任务表现暂不可用')}
           </AlertTitle>
           <AlertDescription>
             {reviewRequestErrorMessage(

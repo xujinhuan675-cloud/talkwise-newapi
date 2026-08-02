@@ -47,7 +47,8 @@ func setupTalkWiseControllerTestDB(t *testing.T) *gorm.DB {
 	previousSecret := common.SessionSecret
 	previousRedirectDomains := constant.TrustedRedirectDomains
 
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	testDBName := strings.NewReplacer("/", "_", "\\", "_", " ", "_").Replace(t.Name())
+	db, err := gorm.Open(sqlite.Open("file:talkwise_"+testDBName+"?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&model.AuthFlow{},
@@ -55,6 +56,9 @@ func setupTalkWiseControllerTestDB(t *testing.T) *gorm.DB {
 		&model.UserSession{},
 		&model.SubscriptionPlan{},
 		&model.UserSubscription{},
+		&model.Log{},
+		&model.TrainingTeam{},
+		&model.TrainingTeamMembership{},
 	))
 	model.DB = db
 	model.LOG_DB = db
@@ -98,11 +102,15 @@ func seedTalkWiseUser(t *testing.T, db *gorm.DB) *model.User {
 }
 
 func issueTalkWiseDashboardAccessToken(t *testing.T, user *model.User) string {
+	return issueTalkWiseDashboardAccessTokenWithSID(t, user, "talkwise-websocket-session")
+}
+
+func issueTalkWiseDashboardAccessTokenWithSID(t *testing.T, user *model.User, sessionID string) string {
 	t.Helper()
 	require.Positive(t, user.AuthVersion)
 	now := time.Now().Unix()
 	session := &model.UserSession{
-		SID:             "talkwise-websocket-session",
+		SID:             sessionID,
 		UserID:          user.Id,
 		Version:         1,
 		UserAuthVersion: user.AuthVersion,
@@ -189,6 +197,10 @@ func TestCreateTalkWiseAuthHandoffBindsCodeToCurrentDashboardUser(t *testing.T) 
 func TestExchangeTalkWiseAuthCodeReturnsUserAndControlPlaneClaims(t *testing.T) {
 	db := setupTalkWiseControllerTestDB(t)
 	user := seedTalkWiseUser(t, db)
+	team, err := model.CreateTrainingTeam("Revenue Enablement")
+	require.NoError(t, err)
+	_, err = model.AddTrainingTeamMember(team.Id, user.Id, model.TrainingTeamRoleAdmin)
+	require.NoError(t, err)
 	plan := &model.SubscriptionPlan{Title: "Pro", Enabled: true}
 	require.NoError(t, db.Create(plan).Error)
 	require.NoError(t, db.Create(&model.UserSubscription{
@@ -244,6 +256,7 @@ func TestExchangeTalkWiseAuthCodeReturnsUserAndControlPlaneClaims(t *testing.T) 
 			Id   string `json:"id"`
 			Name string `json:"name"`
 		} `json:"team"`
+		TeamRole           string `json:"team_role"`
 		SubscriptionPlan   string `json:"subscription_plan"`
 		SubscriptionStatus string `json:"subscription_status"`
 		Gateway            struct {
@@ -260,8 +273,9 @@ func TestExchangeTalkWiseAuthCodeReturnsUserAndControlPlaneClaims(t *testing.T) 
 	assert.Equal(t, 1200, response.Data.User.Quota)
 	assert.Equal(t, 300, response.Data.User.UsedQuota)
 	assert.Equal(t, 12, response.Data.User.RequestCount)
-	assert.Equal(t, "newapi:paid", response.Data.Team.Id)
-	assert.Equal(t, "paid", response.Data.Team.Name)
+	assert.Equal(t, team.Id, response.Data.Team.Id)
+	assert.Equal(t, "Revenue Enablement", response.Data.Team.Name)
+	assert.Equal(t, model.TrainingTeamRoleAdmin, response.Data.TeamRole)
 	assert.Equal(t, "Pro", response.Data.SubscriptionPlan)
 	assert.Equal(t, "active", response.Data.SubscriptionStatus)
 	assert.Equal(t, "https://newapi.example", response.Data.Gateway.BaseURL)
@@ -317,7 +331,23 @@ func TestExchangeTalkWiseAuthCodeRejectsReplayAndRedirectMismatch(t *testing.T) 
 	assert.Contains(t, replayResponse.Message, "consumed")
 }
 
-func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T) {
+func TestTalkWiseIdentityDoesNotDeriveTrainingTeamFromGatewayGroup(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	user := seedTalkWiseUser(t, db)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	identity := buildTalkWiseIdentityData(context, user)
+
+	assert.Nil(t, identity["team"])
+	assert.Empty(t, identity["team_id"])
+	assert.Empty(t, identity["team_name"])
+	assert.Empty(t, identity["team_role"])
+	userData, ok := identity["user"].(gin.H)
+	require.True(t, ok)
+	assert.Equal(t, "paid", userData["group"])
+}
+
+func TestTalkWiseTeamMemberBridgeUsesIndependentTrainingMembership(t *testing.T) {
 	db := setupTalkWiseControllerTestDB(t)
 	alice := seedTalkWiseUser(t, db)
 	bob := &model.User{
@@ -345,6 +375,10 @@ func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T
 	}
 	require.NoError(t, db.Create(bob).Error)
 	require.NoError(t, db.Create(disabled).Error)
+	team, err := model.FindOrCreateLegacyTrainingTeam("paid")
+	require.NoError(t, err)
+	_, err = model.AddTrainingTeamMember(team.Id, alice.Id, model.TrainingTeamRoleOwner)
+	require.NoError(t, err)
 
 	router := gin.New()
 	router.POST("/api/talkwise/team/members", ListTalkWiseTeamMembers)
@@ -413,17 +447,54 @@ func TestTalkWiseTeamMemberBridgeListsSearchesAndAssignsNewAPIGroup(t *testing.T
 			Id       int    `json:"id"`
 			Username string `json:"username"`
 			Group    string `json:"group"`
+			TeamRole string `json:"team_role"`
 			InTeam   bool   `json:"in_team"`
 		} `json:"member"`
 	}](t, assignRecorder)
 	require.True(t, assignResponse.Success, assignResponse.Message)
 	assert.Equal(t, bob.Id, assignResponse.Data.Member.Id)
-	assert.Equal(t, "paid", assignResponse.Data.Member.Group)
+	assert.Equal(t, "free", assignResponse.Data.Member.Group)
+	assert.Equal(t, model.TrainingTeamRoleMember, assignResponse.Data.Member.TeamRole)
 	assert.True(t, assignResponse.Data.Member.InTeam)
 
 	var updatedBob model.User
 	require.NoError(t, db.First(&updatedBob, bob.Id).Error)
-	assert.Equal(t, "paid", updatedBob.Group)
+	assert.Equal(t, "free", updatedBob.Group)
+	assert.Equal(t, 400, updatedBob.Quota)
+	assert.Equal(t, 30, updatedBob.UsedQuota)
+	assert.Equal(t, 4, updatedBob.RequestCount)
+}
+
+func TestTalkWiseTeamMemberBridgeCanListAnExplicitTrainingTeam(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	user := seedTalkWiseUser(t, db)
+	team, err := model.CreateTrainingTeam("Customer Success Practice")
+	require.NoError(t, err)
+	_, err = model.AddTrainingTeamMember(team.Id, user.Id, model.TrainingTeamRoleOwner)
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.POST("/api/talkwise/team/members", ListTalkWiseTeamMembers)
+	body := `{"client_id":"talkwise-test","client_secret":"client-secret","team_id":"` + team.Id + `","limit":100}`
+	request := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/members", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	response := decodeTalkWiseResponse[struct {
+		Team struct {
+			Id string `json:"id"`
+		} `json:"team"`
+		Members []struct {
+			UserId   int    `json:"user_id"`
+			TeamRole string `json:"team_role"`
+		} `json:"members"`
+	}](t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, team.Id, response.Data.Team.Id)
+	require.Len(t, response.Data.Members, 1)
+	assert.Equal(t, user.Id, response.Data.Members[0].UserId)
+	assert.Equal(t, model.TrainingTeamRoleOwner, response.Data.Members[0].TeamRole)
 }
 
 func TestTalkWiseTeamMemberBridgeRejectsInvalidClientSecret(t *testing.T) {
@@ -442,6 +513,171 @@ func TestTalkWiseTeamMemberBridgeRejectsInvalidClientSecret(t *testing.T) {
 	response := decodeTalkWiseResponse[gin.H](t, recorder)
 	assert.False(t, response.Success)
 	assert.Contains(t, response.Message, "client_secret")
+}
+
+func TestTalkWiseTeamMemberRemovalPreservesGatewayAccountFields(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	user := seedTalkWiseUser(t, db)
+	team, err := model.FindOrCreateLegacyTrainingTeam("enablement")
+	require.NoError(t, err)
+	_, err = model.AddTrainingTeamMember(team.Id, user.Id, model.TrainingTeamRoleMember)
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.POST("/api/talkwise/team/members/remove", RemoveTalkWiseTeamMember)
+	body := `{"client_id":"talkwise-test","client_secret":"client-secret","group":"enablement","user_id":` + strconv.Itoa(user.Id) + `}`
+	request := httptest.NewRequest(http.MethodPost, "/api/talkwise/team/members/remove", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+
+	response := decodeTalkWiseResponse[struct {
+		UserId int `json:"user_id"`
+	}](t, recorder)
+	require.True(t, response.Success, response.Message)
+	assert.Equal(t, user.Id, response.Data.UserId)
+	_, _, err = model.GetTrainingTeamForUser(user.Id)
+	assert.ErrorIs(t, err, model.ErrTrainingTeamMemberNotFound)
+
+	var current model.User
+	require.NoError(t, db.First(&current, user.Id).Error)
+	assert.Equal(t, "paid", current.Group)
+	assert.Equal(t, 1200, current.Quota)
+	assert.Equal(t, 300, current.UsedQuota)
+	assert.Equal(t, 12, current.RequestCount)
+}
+
+func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	admin := seedTalkWiseUser(t, db)
+	member := &model.User{
+		Username:     "bob",
+		Password:     "password",
+		DisplayName:  "Bob Li",
+		Role:         common.RoleCommonUser,
+		Status:       common.UserStatusEnabled,
+		Email:        "bob@example.com",
+		Group:        "free",
+		AffCode:      "aff-bob",
+		Quota:        400,
+		UsedQuota:    30,
+		RequestCount: 4,
+	}
+	require.NoError(t, db.Create(member).Error)
+
+	adminToken := issueTalkWiseDashboardAccessToken(t, admin)
+	memberToken := issueTalkWiseDashboardAccessTokenWithSID(t, member, "talkwise-common-session")
+	router := gin.New()
+	adminRoutes := router.Group("/api/talkwise/admin")
+	adminRoutes.Use(middleware.AdminAuth())
+	adminRoutes.GET("/teams", AdminListTalkWiseTrainingTeams)
+	adminRoutes.POST("/teams", AdminCreateTalkWiseTrainingTeam)
+	adminRoutes.PUT("/teams/:teamId", AdminUpdateTalkWiseTrainingTeam)
+	adminRoutes.DELETE("/teams/:teamId", AdminDeleteTalkWiseTrainingTeam)
+	adminRoutes.GET("/teams/:teamId/users/search", AdminSearchTalkWiseTrainingTeamUsers)
+	adminRoutes.POST("/teams/:teamId/members", AdminAddTalkWiseTrainingTeamMember)
+	adminRoutes.DELETE("/teams/:teamId/members/:userId", AdminRemoveTalkWiseTrainingTeamMember)
+
+	forbiddenRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams", nil)
+	forbiddenRequest.Header.Set("Authorization", "Bearer "+memberToken)
+	forbiddenRecorder := httptest.NewRecorder()
+	router.ServeHTTP(forbiddenRecorder, forbiddenRequest)
+	assert.Equal(t, http.StatusForbidden, forbiddenRecorder.Code)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/admin/teams", strings.NewReader(`{"name":"Revenue Coaching"}`))
+	createRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRecorder := httptest.NewRecorder()
+	router.ServeHTTP(createRecorder, createRequest)
+	createResponse := decodeTalkWiseResponse[model.TrainingTeam](t, createRecorder)
+	require.True(t, createResponse.Success, createResponse.Message)
+	teamID := createResponse.Data.Id
+	require.NotEmpty(t, teamID)
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams", nil)
+	listRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	listRecorder := httptest.NewRecorder()
+	router.ServeHTTP(listRecorder, listRequest)
+	listResponse := decodeTalkWiseResponse[struct {
+		Teams []model.TrainingTeam `json:"teams"`
+		Total int64                `json:"total"`
+	}](t, listRecorder)
+	require.True(t, listResponse.Success, listResponse.Message)
+	require.Len(t, listResponse.Data.Teams, 1)
+	assert.EqualValues(t, 1, listResponse.Data.Total)
+
+	updateRequest := httptest.NewRequest(http.MethodPut, "/api/talkwise/admin/teams/"+teamID, strings.NewReader(`{"name":"Revenue Practice"}`))
+	updateRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	updateRequest.Header.Set("Content-Type", "application/json")
+	updateRecorder := httptest.NewRecorder()
+	router.ServeHTTP(updateRecorder, updateRequest)
+	updateResponse := decodeTalkWiseResponse[model.TrainingTeam](t, updateRecorder)
+	require.True(t, updateResponse.Success, updateResponse.Message)
+	assert.Equal(t, "Revenue Practice", updateResponse.Data.Name)
+
+	searchRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams/"+teamID+"/users/search?keyword=bob", nil)
+	searchRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	searchRecorder := httptest.NewRecorder()
+	router.ServeHTTP(searchRecorder, searchRequest)
+	searchResponse := decodeTalkWiseResponse[struct {
+		Users []model.TrainingTeamMemberView `json:"users"`
+	}](t, searchRecorder)
+	require.True(t, searchResponse.Success, searchResponse.Message)
+	require.Len(t, searchResponse.Data.Users, 1)
+	assert.Equal(t, member.Id, searchResponse.Data.Users[0].UserId)
+	assert.Empty(t, searchResponse.Data.Users[0].MembershipTeamId)
+
+	addBody := `{"user_id":` + strconv.Itoa(member.Id) + `,"role":"member"}`
+	addRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/admin/teams/"+teamID+"/members", strings.NewReader(addBody))
+	addRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	addRequest.Header.Set("Content-Type", "application/json")
+	addRecorder := httptest.NewRecorder()
+	router.ServeHTTP(addRecorder, addRequest)
+	addResponse := decodeTalkWiseResponse[model.TrainingTeamMemberView](t, addRecorder)
+	require.True(t, addResponse.Success, addResponse.Message)
+	assert.Equal(t, teamID, addResponse.Data.MembershipTeamId)
+
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/talkwise/admin/teams/"+teamID+"/members/"+strconv.Itoa(member.Id), nil)
+	removeRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	removeRecorder := httptest.NewRecorder()
+	router.ServeHTTP(removeRecorder, removeRequest)
+	removeResponse := decodeTalkWiseResponse[gin.H](t, removeRecorder)
+	require.True(t, removeResponse.Success, removeResponse.Message)
+
+	var current model.User
+	require.NoError(t, db.First(&current, member.Id).Error)
+	assert.Equal(t, "free", current.Group)
+	assert.Equal(t, 400, current.Quota)
+	assert.Equal(t, 30, current.UsedQuota)
+	assert.Equal(t, 4, current.RequestCount)
+
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/talkwise/admin/teams/"+teamID, nil)
+	deleteRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	deleteRecorder := httptest.NewRecorder()
+	router.ServeHTTP(deleteRecorder, deleteRequest)
+	deleteResponse := decodeTalkWiseResponse[gin.H](t, deleteRecorder)
+	require.True(t, deleteResponse.Success, deleteResponse.Message)
+	_, err := model.GetTrainingTeamById(teamID)
+	assert.ErrorIs(t, err, model.ErrTrainingTeamNotFound)
+	var archivedTeam model.TrainingTeam
+	require.NoError(t, db.Where("id = ?", teamID).First(&archivedTeam).Error)
+	assert.NotNil(t, archivedTeam.ArchivedTime)
+}
+
+func TestLegacyTrainingTeamCanBeRestoredAfterArchive(t *testing.T) {
+	db := setupTalkWiseControllerTestDB(t)
+	team, err := model.FindOrCreateLegacyTrainingTeam("enablement")
+	require.NoError(t, err)
+	require.NoError(t, model.DeleteTrainingTeam(team.Id))
+
+	restored, err := model.FindOrCreateLegacyTrainingTeam("enablement")
+	require.NoError(t, err)
+	assert.Equal(t, team.Id, restored.Id)
+	assert.Nil(t, restored.ArchivedTime)
+
+	var count int64
+	require.NoError(t, db.Model(&model.TrainingTeam{}).Where("legacy_key = ?", "enablement").Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) {
@@ -1091,6 +1327,55 @@ func TestTalkWisePersonaBuilderMapsOnlyFixedPostActionsAndStreamsSSE(t *testing.
 		assert.Empty(t, forwarded.MockUser)
 		assert.JSONEq(t, body, forwarded.Body)
 	}
+}
+
+func TestTalkWiseGrowthProfileCardMapsFixedAuthenticatedPost(t *testing.T) {
+	type observedRequest struct {
+		Method        string
+		Path          string
+		RawQuery      string
+		Authorization string
+		Cookie        string
+		MockUser      string
+	}
+	observed := make(chan observedRequest, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			Method:        request.Method,
+			Path:          request.URL.Path,
+			RawQuery:      request.URL.RawQuery,
+			Authorization: request.Header.Get("Authorization"),
+			Cookie:        request.Header.Get("Cookie"),
+			MockUser:      request.Header.Get("X-Mock-User"),
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"code":0,"message":"ok","data":{"style_label":"Strategic listener"}}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.POST("/api/talkwise/growth/profile-card", ProxyTalkWiseGrowthProfileCard)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/talkwise/growth/profile-card?locale=zh&mock_user=admin&auth_user_id=other",
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer dashboard-access-token")
+	request.Header.Set("Cookie", "talkwise_session=spoofed")
+	request.Header.Set("X-Mock-User", "admin")
+	recorder := newCloseNotifyRecorder()
+
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	forwarded := <-observed
+	assert.Equal(t, http.MethodPost, forwarded.Method)
+	assert.Equal(t, "/internal/api/v1/stakeholder/growth/card", forwarded.Path)
+	assert.Equal(t, "locale=zh", forwarded.RawQuery)
+	assert.Equal(t, "Bearer dashboard-access-token", forwarded.Authorization)
+	assert.Empty(t, forwarded.Cookie)
+	assert.Empty(t, forwarded.MockUser)
 }
 
 func TestTalkWisePersonaProxiesReportUnavailableConfigurationAndUpstream(t *testing.T) {

@@ -17,12 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import type {
   ColumnDef,
   OnChangeFn,
   PaginationState,
 } from '@tanstack/react-table'
-import { CircleAlert, RefreshCw, Trophy } from 'lucide-react'
+import { CircleAlert, RefreshCw, Trophy, UsersRound } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -42,7 +43,10 @@ import { getTrainingScenarioConfig } from '../config/api'
 import { formatTrainingDateTime } from '../date'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
+  isTrainingTeamAssignmentRequired,
+  isTrainingTeamQueryLoading,
   listTeamScenarioRankings,
+  retryTrainingTeamQuery,
   teamMemberDisplayId,
   teamAnalyticsRequestErrorMessage,
 } from './api'
@@ -85,7 +89,10 @@ function TeamScenarioSummary({
       ),
     },
     {
-      title: localize('Average score', '\u5e73\u5747\u5206'),
+      title: localize(
+        'Average task outcome',
+        '\u5e73\u5747\u4efb\u52a1\u8868\u73b0'
+      ),
       value: averageScore === null ? '-' : `${averageScore}/100`,
       description: localize(
         'Across scored scenario rankings on this page',
@@ -147,6 +154,7 @@ function TeamScenariosContent() {
       }),
     enabled: host.authStatus === 'authenticated',
     placeholderData: (previousData) => previousData,
+    retry: retryTrainingTeamQuery,
   })
   const scenarioConfigQuery = useQuery({
     queryKey: ['training', 'scenario-config', host.apiBase],
@@ -165,6 +173,9 @@ function TeamScenariosContent() {
   )
   const rankings = rankingsQuery.data?.items ?? []
   const total = rankingsQuery.data?.total ?? 0
+  const assignmentRequired = isTrainingTeamAssignmentRequired(
+    rankingsQuery.error
+  )
   const columns = useMemo<ColumnDef<TeamScenarioRanking>[]>(
     () => [
       {
@@ -192,7 +203,10 @@ function TeamScenariosContent() {
       },
       {
         id: 'score',
-        header: localize('Average score', '\u5e73\u5747\u5206'),
+        header: localize(
+          'Average task outcome',
+          '\u5e73\u5747\u4efb\u52a1\u8868\u73b0'
+        ),
         cell: ({ row }) =>
           row.original.averageScore === null
             ? '-'
@@ -225,32 +239,56 @@ function TeamScenariosContent() {
       <SectionPageLayout.Content>
         <div className='space-y-4'>
           {rankingsQuery.isError && (
-            <Alert variant='destructive'>
-              <CircleAlert />
+            <Alert variant={assignmentRequired ? 'default' : 'destructive'}>
+              {assignmentRequired ? <UsersRound /> : <CircleAlert />}
               <AlertTitle>
-                {localize(
-                  'Unable to load team analytics',
-                  '\u65e0\u6cd5\u52a0\u8f7d\u56e2\u961f\u6570\u636e'
-                )}
+                {assignmentRequired
+                  ? localize(
+                      'Training team assignment required',
+                      '\u9700\u8981\u5206\u914d\u8bad\u7ec3\u56e2\u961f'
+                    )
+                  : localize(
+                      'Unable to load team analytics',
+                      '\u65e0\u6cd5\u52a0\u8f7d\u56e2\u961f\u6570\u636e'
+                    )}
               </AlertTitle>
               <AlertDescription className='flex flex-wrap items-center gap-3'>
                 <span>
-                  {teamAnalyticsRequestErrorMessage(
-                    rankingsQuery.error,
-                    localize(
-                      'Please try again.',
-                      '\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002'
-                    )
-                  )}
+                  {assignmentRequired
+                    ? localize(
+                        'Add this account to a training team before viewing team rankings.',
+                        '\u8bf7\u5148\u5c06\u5f53\u524d\u8d26\u53f7\u52a0\u5165\u8bad\u7ec3\u56e2\u961f\uff0c\u518d\u67e5\u770b\u56e2\u961f\u6392\u884c\u3002'
+                      )
+                    : teamAnalyticsRequestErrorMessage(
+                        rankingsQuery.error,
+                        localize(
+                          'Please try again.',
+                          '\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002'
+                        )
+                      )}
                 </span>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  onClick={() => rankingsQuery.refetch()}
-                >
-                  <RefreshCw />
-                  {localize('Retry', '\u91cd\u8bd5')}
-                </Button>
+                {assignmentRequired ? (
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    render={<Link to='/training/team/members' />}
+                  >
+                    <UsersRound />
+                    {localize(
+                      'Manage team members',
+                      '\u7ba1\u7406\u56e2\u961f\u6210\u5458'
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    onClick={() => rankingsQuery.refetch()}
+                  >
+                    <RefreshCw />
+                    {localize('Retry', '\u91cd\u8bd5')}
+                  </Button>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -258,7 +296,11 @@ function TeamScenariosContent() {
           <DataTablePage
             table={table}
             columns={columns}
-            isLoading={rankingsQuery.isPending}
+            isLoading={isTrainingTeamQueryLoading(
+              host.authStatus === 'authenticated',
+              rankingsQuery.isPending,
+              rankingsQuery.isError
+            )}
             isFetching={rankingsQuery.isFetching}
             emptyIcon={<Trophy />}
             emptyTitle={localize(
@@ -297,7 +339,7 @@ function TeamScenariosContent() {
                     {row.original.completedSessions}
                   </span>
                   <span className='text-right'>
-                    {localize('Score', '\u5f97\u5206')}:{' '}
+                    {localize('Task outcome', '\u4efb\u52a1\u8868\u73b0')}:{' '}
                     {row.original.averageScore ?? '-'}
                   </span>
                   <span className='col-span-2'>
