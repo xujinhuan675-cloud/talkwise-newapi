@@ -45,10 +45,16 @@ import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 
+function isValidLogoUrl(value: string): boolean {
+  if (value === '') return true
+  if (value.startsWith('/') && !value.startsWith('//')) return true
+  return z.string().url().safeParse(value).success
+}
+
 const _systemInfoSchema = z.object({
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
-  Logo: z.string().url().optional().or(z.literal('')),
+  Logo: z.string().refine(isValidLogoUrl),
   Footer: z.string().optional(),
   About: z.string().optional(),
   HomePageContent: z.string().optional(),
@@ -91,7 +97,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       error: () => t('System name is required'),
     }),
     ServerAddress: z.string().optional(),
-    Logo: z.string().url().optional().or(z.literal('')),
+    Logo: z.string().refine(isValidLogoUrl),
     Footer: z.string().optional(),
     About: z.string().optional(),
     HomePageContent: z.string().optional(),

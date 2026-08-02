@@ -45,6 +45,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 import { TrainingHostProvider, useTrainingHost } from '../host'
+import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
 import {
   launchTrainingSession,
   trainingStudioErrorMessage,
@@ -96,6 +97,9 @@ function TrainingStudioContent() {
     useState<RealtimeProfile>('cascade')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
+  const [pressure, setPressure] = useState<TrainingPressure>('medium')
+  const [lengthProfile, setLengthProfile] =
+    useState<TrainingLengthProfile>('standard')
   const [launchedFeedbackMode, setLaunchedFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
   const [session, setSession] = useState<TrainingSession | null>(null)
@@ -116,6 +120,8 @@ function TrainingStudioContent() {
         goal,
         mode,
         feedbackMode,
+        pressure,
+        lengthProfile,
         realtimeProfile,
       })
       setSession(nextSession)
@@ -289,6 +295,59 @@ function TrainingStudioContent() {
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
+              </div>
+
+              <div className='grid gap-4 sm:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label>{localize('Counterpart pressure', '对手压力')}</Label>
+                  <ToggleGroup
+                    aria-label={localize('Counterpart pressure', '对手压力')}
+                    className='grid w-full grid-cols-3'
+                    disabled={isLaunching}
+                    onValueChange={(values) => {
+                      const next = values.find((value) => value !== pressure)
+                      if (next) setPressure(next as TrainingPressure)
+                    }}
+                    value={[pressure]}
+                    variant='outline'
+                  >
+                    <ToggleGroupItem value='easy'>
+                      {localize('Supportive', '温和')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='medium'>
+                      {localize('Realistic', '真实')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='hard'>
+                      {localize('Pressured', '高压')}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
+                <div className='space-y-2'>
+                  <Label>{localize('Practice length', '练习长度')}</Label>
+                  <ToggleGroup
+                    aria-label={localize('Practice length', '练习长度')}
+                    className='grid w-full grid-cols-3'
+                    disabled={isLaunching}
+                    onValueChange={(values) => {
+                      const next = values.find(
+                        (value) => value !== lengthProfile
+                      )
+                      if (next) setLengthProfile(next as TrainingLengthProfile)
+                    }}
+                    value={[lengthProfile]}
+                    variant='outline'
+                  >
+                    <ToggleGroupItem value='quick'>
+                      {localize('Quick', '快速')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='standard'>
+                      {localize('Standard', '标准')}
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='complete'>
+                      {localize('Complete', '完整')}
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </div>
               </div>
 
               {error && (

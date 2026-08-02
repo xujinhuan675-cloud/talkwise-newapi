@@ -44,4 +44,5 @@ func TestGetStatusAdvertisesDefaultDashboard(t *testing.T) {
 	require.NoError(t, common.Unmarshal(response.Body.Bytes(), &payload))
 	assert.True(t, payload.Success)
 	assert.Equal(t, "default", payload.Data["theme"])
+	assert.Equal(t, "/brand-icons/talkwise-speech-wave-standard-1024.png", payload.Data["logo"])
 }

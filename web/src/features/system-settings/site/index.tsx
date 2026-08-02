@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { DEFAULT_LOGO } from '@/lib/constants'
+
 import { SettingsPage } from '../components/settings-page'
 import type { SiteSettings } from '../types'
 import {
@@ -27,7 +29,7 @@ import {
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
   SystemName: 'New API',
-  Logo: '',
+  Logo: DEFAULT_LOGO,
   Footer: '',
   About: '',
   HomePageContent: '',

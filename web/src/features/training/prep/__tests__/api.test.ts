@@ -24,6 +24,7 @@ import {
   TALKWISE_DEFENSE_PREP_API,
   TALKWISE_SCOPED_PERSONAS_API,
   battlePrepStartPayload,
+  recommendedDefenseQuestionIndexes,
 } from '../api'
 
 describe('training preparation API contract', () => {
@@ -48,6 +49,8 @@ describe('training preparation API contract', () => {
         },
         selectedTrainingPoints: ['Clarify value', 'Clarify value', ' '],
         difficulty: 'hard',
+        focusScope: 'custom',
+        lengthProfile: 'quick',
         replyLanguage: ' zh-CN ',
       }),
       {
@@ -57,8 +60,39 @@ describe('training preparation API contract', () => {
         scenario_context: 'Renewal negotiation.',
         selected_training_points: ['Clarify value'],
         difficulty: 'hard',
+        focus_scope: 'custom',
+        length_profile: 'quick',
         reply_language: 'zh-CN',
       }
+    )
+  })
+
+  test('recommends a balanced defense set before filling by pressure', () => {
+    const questions = [
+      ['A1 easy', 'strategy', 'easy', 'a'],
+      ['A2 hard', 'risk', 'hard', 'a'],
+      ['B1 medium', 'strategy', 'medium', 'b'],
+      ['B2 hard', 'delivery', 'hard', 'b'],
+      ['C1 easy', 'value', 'easy', 'c'],
+      ['C2 hard', 'evidence', 'hard', 'c'],
+      ['A3 hard', 'finance', 'hard', 'a'],
+    ].map(([question, dimension, difficulty, askedBy]) => ({
+      question,
+      dimension,
+      difficulty,
+      askedBy,
+    }))
+
+    const selected = recommendedDefenseQuestionIndexes(questions, 6)
+
+    assert.equal(selected.length, 6)
+    assert.deepEqual(
+      new Set(selected.map((index) => questions[index].askedBy)),
+      new Set(['a', 'b', 'c'])
+    )
+    assert.deepEqual(
+      new Set(selected.map((index) => questions[index].dimension)),
+      new Set(['strategy', 'risk', 'delivery', 'value', 'evidence'])
     )
   })
 })

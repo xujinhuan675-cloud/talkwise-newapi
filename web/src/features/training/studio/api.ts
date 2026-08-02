@@ -21,6 +21,12 @@ import axios from 'axios'
 import { api } from '@/lib/http-client'
 
 import { trainingApiUrl } from '../scenarios/api'
+import {
+  trainingPlanMetadata,
+  trainingTurnBudget,
+  type TrainingLengthProfile,
+  type TrainingPressure,
+} from '../training-plan'
 import type { RealtimeProfile } from './realtime-client'
 
 export type TrainingStudioMode = 'realtime' | 'text' | 'voice' | 'video'
@@ -61,6 +67,8 @@ export interface StudioLaunchInput {
   goal: string
   mode: TrainingStudioMode
   feedbackMode: TrainingFeedbackMode
+  pressure?: TrainingPressure
+  lengthProfile?: TrainingLengthProfile
   realtimeProfile?: RealtimeProfile
   liveCoach?: {
     sourceLanguage: string
@@ -135,6 +143,9 @@ function normalizeGuidance(snapshot: GuidanceSnapshotDTO): GuidanceSnapshot {
 function studioPersona(input: StudioLaunchInput) {
   const role = input.role.trim() || 'Learner'
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
+  let difficulty: 'easy' | 'normal' | 'hard' = 'normal'
+  if (input.pressure === 'easy') difficulty = 'easy'
+  if (input.pressure === 'hard') difficulty = 'hard'
 
   return {
     name:
@@ -150,13 +161,15 @@ function studioPersona(input: StudioLaunchInput) {
       'Ask useful follow-up questions',
       'Close with a concrete next step',
     ],
-    difficulty: 'normal' as const,
+    difficulty,
   }
 }
 
 export function buildStudioSessionRequest(input: StudioLaunchInput) {
   const role = input.role.trim() || 'Learner'
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
+  const pressure = input.pressure ?? 'medium'
+  const lengthProfile = input.lengthProfile ?? 'standard'
 
   return {
     mode: input.mode,
@@ -169,9 +182,9 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
         structure: 33,
         delivery: 33,
       },
-      question_count: 6,
+      question_count: trainingTurnBudget(lengthProfile),
       framework: 'talkwise',
-      difficulty: 'normal',
+      difficulty: pressure,
       category: 'workplace',
       metadata: {
         source: 'newapi_training_studio',
@@ -179,6 +192,12 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
         interactionMode: input.mode === 'realtime' ? 'realtime' : 'turn_based',
         feedbackMode: input.feedbackMode,
         trainingGoal: goal,
+        trainingPlan: trainingPlanMetadata({
+          focusScope: 'custom',
+          selectedFocus: [goal],
+          pressure,
+          lengthProfile,
+        }),
         ...(input.mode === 'realtime'
           ? {
               realtimeProfile: input.realtimeProfile || 'cascade',

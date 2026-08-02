@@ -30,10 +30,12 @@ import { toast } from 'sonner'
 
 import { getStatus } from '@/lib/api'
 import { installBuildMetadata } from '@/lib/build-metadata'
+import { resolveSystemName } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+import { isNonRetryableServerError } from '@/lib/server-error-message'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
@@ -59,6 +61,7 @@ const queryClient = new QueryClient({
 
         if (failureCount >= 0 && import.meta.env.DEV) return false
         if (failureCount > 3 && import.meta.env.PROD) return false
+        if (isNonRetryableServerError(error)) return false
 
         return !(
           error instanceof AxiosError &&
@@ -129,7 +132,7 @@ if (!rootElement) {
       const saved = localStorage.getItem('status')
       if (saved) {
         const s = JSON.parse(saved)
-        if (s?.system_name) apply(s.system_name)
+        if (s?.system_name) apply(resolveSystemName(s.system_name))
         if (s?.logo) applyFaviconToDom(s.logo)
       }
     } catch {
@@ -139,7 +142,7 @@ if (!rootElement) {
     getStatus()
       .then((s) => {
         if (s?.system_name) {
-          apply(s.system_name as string)
+          apply(resolveSystemName(s.system_name))
           try {
             localStorage.setItem('status', JSON.stringify(s))
           } catch {

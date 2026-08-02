@@ -18,7 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
-import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
+import {
+  DEFAULT_LOGO,
+  resolveFaviconUrl,
+  resolveSystemName,
+} from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import {
   useSystemConfigStore,
@@ -93,7 +97,7 @@ export function mapStatusDataToConfig(
   }
 
   return {
-    systemName: data.system_name || DEFAULT_SYSTEM_NAME,
+    systemName: resolveSystemName(data.system_name),
     logo: data.logo || DEFAULT_LOGO,
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
@@ -173,16 +177,18 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   // Preload logo image when URL changes
   useEffect(() => {
     const { logo } = config
+    if (!logo) return
+
+    applyFaviconToDom(resolveFaviconUrl(logo))
 
     // Skip if logo is already loaded
-    if (!logo || logo === loadedLogoUrl) return
+    if (logo === loadedLogoUrl) return
 
     // Preload new logo
     return preloadImage(
       logo,
       () => {
         setLoadedLogoUrl(logo)
-        applyFaviconToDom(logo)
       },
       () => {
         if (logo !== DEFAULT_LOGO) {

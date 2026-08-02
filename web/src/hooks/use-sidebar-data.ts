@@ -75,6 +75,14 @@ export function useSidebarData(): SidebarData {
                 url: '/training/scenarios',
               },
               {
+                title: localize('Battle preparation', '备战准备'),
+                url: '/training/prep/battle',
+              },
+              {
+                title: localize('Defense preparation', '答辩准备'),
+                url: '/training/prep/defense',
+              },
+              {
                 title: localize('Training studio', '训练工作台'),
                 url: '/training/studio',
               },

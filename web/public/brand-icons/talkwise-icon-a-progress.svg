@@ -1,0 +1,19 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">TalkWise conversation progress icon</title>
+  <desc id="desc">
+    A speech bubble containing three rising conversation bars.
+  </desc>
+  <rect width="1024" height="1024" rx="224" fill="#101827" />
+  <path
+    d="M248 238h528c72 0 130 58 130 130v252c0 72-58 130-130 130H518L344 868v-118h-96c-72 0-130-58-130-130V368c0-72 58-130 130-130Z"
+    fill="#F8FAFC"
+  />
+  <rect x="282" y="486" width="92" height="126" rx="46" fill="#12B8C8" />
+  <rect x="466" y="408" width="92" height="204" rx="46" fill="#277CE6" />
+  <rect x="650" y="326" width="92" height="286" rx="46" fill="#7657D6" />
+</svg>

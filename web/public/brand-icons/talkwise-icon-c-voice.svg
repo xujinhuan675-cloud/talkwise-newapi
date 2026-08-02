@@ -1,0 +1,25 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 1024 1024"
+  role="img"
+  aria-labelledby="title desc"
+>
+  <title id="title">TalkWise voice practice icon</title>
+  <desc id="desc">
+    A speech bubble containing a crisp communication waveform.
+  </desc>
+  <rect width="1024" height="1024" rx="224" fill="#123D46" />
+  <path
+    d="M214 218h596c64 0 116 52 116 116v340c0 64-52 116-116 116H548L374 900V790H214c-64 0-116-52-116-116V334c0-64 52-116 116-116Z"
+    fill="#ECFEF8"
+  />
+  <path
+    d="M218 512h102l54-114 91 240 86-308 93 252 59-142 41 72h62"
+    fill="none"
+    stroke="#0E7C86"
+    stroke-width="72"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="806" cy="512" r="36" fill="#E0A629" />
+</svg>

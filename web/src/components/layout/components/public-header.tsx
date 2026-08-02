@@ -178,11 +178,11 @@ export function PublicHeader(props: PublicHeaderProps) {
       src={systemLogo}
       loading={loading}
       logoLoaded={logoLoaded}
-      className='size-full rounded-lg object-contain'
+      className='size-full object-contain'
     />
   )
   if (loading) {
-    logoContent = <Skeleton className='size-full rounded-lg' />
+    logoContent = <Skeleton className='size-full rounded-md' />
   } else if (customLogo) {
     logoContent = customLogo
   }
@@ -224,7 +224,7 @@ export function PublicHeader(props: PublicHeaderProps) {
               to={homeUrl}
               className='group flex shrink-0 items-center gap-2.5'
             >
-              <div className='flex size-7 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
+              <div className='flex h-8 w-10 shrink-0 items-center justify-center transition-all duration-300 group-hover:scale-105'>
                 {logoContent}
               </div>
               <span className='text-sm font-semibold tracking-tight'>

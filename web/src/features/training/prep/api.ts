@@ -20,6 +20,16 @@ import axios from 'axios'
 
 import { api } from '@/lib/http-client'
 
+import type {
+  TrainingFocusScope,
+  TrainingLengthProfile,
+} from '../training-plan'
+
+export type {
+  TrainingFocusScope,
+  TrainingLengthProfile,
+} from '../training-plan'
+
 export const TALKWISE_BATTLE_PREP_API = '/api/talkwise/battle-prep'
 export const TALKWISE_DEFENSE_PREP_API = '/api/talkwise/defense-prep'
 export const TALKWISE_SCOPED_PERSONAS_API =
@@ -59,6 +69,8 @@ export interface StartBattlePrepInput {
   readonly preparation: BattlePrepResult
   readonly selectedTrainingPoints: string[]
   readonly difficulty: 'easy' | 'normal' | 'hard'
+  readonly focusScope: TrainingFocusScope
+  readonly lengthProfile: TrainingLengthProfile
   readonly replyLanguage: string
 }
 
@@ -69,6 +81,59 @@ export interface DefenseQuestion {
   readonly askedBy: string
 }
 
+export function recommendedDefenseQuestionIndexes(
+  questions: readonly DefenseQuestion[],
+  limit = 6
+): number[] {
+  const selected: number[] = []
+  const usedReviewers = new Set<string>()
+  const usedDimensions = new Set<string>()
+
+  const takeFirst = (predicate: (question: DefenseQuestion) => boolean) => {
+    if (selected.length >= limit) return
+    const index = questions.findIndex(
+      (question, candidateIndex) =>
+        !selected.includes(candidateIndex) && predicate(question)
+    )
+    const selectedQuestion = questions[index]
+    if (!selectedQuestion) return
+    selected.push(index)
+    if (selectedQuestion.askedBy) usedReviewers.add(selectedQuestion.askedBy)
+    if (selectedQuestion.dimension) {
+      usedDimensions.add(selectedQuestion.dimension)
+    }
+  }
+
+  questions.forEach((question) => {
+    if (question.askedBy && !usedReviewers.has(question.askedBy)) {
+      takeFirst((candidate) => candidate.askedBy === question.askedBy)
+    }
+  })
+  questions.forEach((question) => {
+    if (question.dimension && !usedDimensions.has(question.dimension)) {
+      takeFirst((candidate) => candidate.dimension === question.dimension)
+    }
+  })
+  for (const difficulty of ['hard', 'medium', 'easy']) {
+    while (
+      selected.length < limit &&
+      questions.some(
+        (question, index) =>
+          !selected.includes(index) &&
+          question.difficulty.toLowerCase() === difficulty
+      )
+    ) {
+      takeFirst((question) => question.difficulty.toLowerCase() === difficulty)
+    }
+  }
+  questions.forEach((_question, index) => {
+    if (selected.length < limit && !selected.includes(index)) {
+      selected.push(index)
+    }
+  })
+  return selected
+}
+
 export interface DefensePrepStartResult {
   readonly defenseSessionId: string
   readonly documentTitle: string | null
@@ -77,10 +142,22 @@ export interface DefensePrepStartResult {
   readonly questionStrategy: readonly DefenseQuestion[]
 }
 
+export interface DefensePrepPreparedResult {
+  readonly defenseSessionId: string
+  readonly documentTitle: string | null
+  readonly questionStrategy: readonly DefenseQuestion[]
+}
+
 export interface StartDefensePrepInput {
   readonly file: File
   readonly personaIds: readonly string[]
   readonly scenarioType: DefenseScenarioType
+}
+
+export interface ConfirmDefensePrepInput {
+  readonly defenseSessionId: string
+  readonly selectedQuestionIndexes: readonly number[]
+  readonly focusScope: TrainingFocusScope
 }
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -164,29 +241,39 @@ function normalizeDefenseQuestion(value: unknown): DefenseQuestion | null {
   }
 }
 
-function normalizeDefenseStart(
-  created: unknown,
-  started: unknown
-): DefensePrepStartResult {
-  const createdData = asRecord(created)
-  const startedData = asRecord(started)
-  if (!createdData || !startedData) {
-    throw new Error('TalkWise returned an invalid defense preparation')
-  }
-  const questionStrategy = asRecord(startedData.question_strategy)
-  const questions = Array.isArray(questionStrategy?.questions)
+function normalizeDefenseQuestions(value: unknown): DefenseQuestion[] {
+  const data = asRecord(value)
+  const questionStrategy = asRecord(data?.question_strategy)
+  return Array.isArray(questionStrategy?.questions)
     ? questionStrategy.questions.flatMap((item) => {
         const question = normalizeDefenseQuestion(item)
         return question ? [question] : []
       })
     : []
+}
+
+function normalizePreparedDefense(value: unknown): DefensePrepPreparedResult {
+  const data = asRecord(value)
+  if (!data) throw new Error('TalkWise returned an invalid defense preparation')
+  return {
+    defenseSessionId: requiredText(data.id, 'defense session id'),
+    documentTitle: optionalText(data.document_title),
+    questionStrategy: normalizeDefenseQuestions(data),
+  }
+}
+
+function normalizeDefenseStart(started: unknown): DefensePrepStartResult {
+  const startedData = asRecord(started)
+  if (!startedData) {
+    throw new Error('TalkWise returned an invalid defense preparation')
+  }
 
   return {
-    defenseSessionId: requiredText(createdData.id, 'defense session id'),
-    documentTitle: optionalText(createdData.document_title),
+    defenseSessionId: requiredText(startedData.id, 'defense session id'),
+    documentTitle: optionalText(startedData.document_title),
     training_session_id: asText(startedData.training_session_id) || undefined,
     conversation_id: asText(startedData.conversation_id) || undefined,
-    questionStrategy: questions,
+    questionStrategy: normalizeDefenseQuestions(startedData),
   }
 }
 
@@ -249,9 +336,9 @@ export async function startBattlePrep(
   return requireData(response.data)
 }
 
-export async function createAndStartDefensePrep(
+export async function prepareDefensePrep(
   input: StartDefensePrepInput
-): Promise<DefensePrepStartResult> {
+): Promise<DefensePrepPreparedResult> {
   const personaIds = uniqueText(input.personaIds)
   if (!input.file || input.file.size === 0) {
     throw new Error('Choose a non-empty practice document')
@@ -275,12 +362,36 @@ export async function createAndStartDefensePrep(
   const created = requireData(createdResponse.data)
   const createdRecord = asRecord(created)
   const defenseSessionId = requiredText(createdRecord?.id, 'defense session id')
-  const startedResponse = await api.post<TalkWiseResponse<unknown>>(
-    `${TALKWISE_DEFENSE_PREP_API}/sessions/${encodeURIComponent(defenseSessionId)}/start`,
+  const questionsResponse = await api.post<TalkWiseResponse<unknown>>(
+    `${TALKWISE_DEFENSE_PREP_API}/sessions/${encodeURIComponent(defenseSessionId)}/questions`,
     undefined,
     { skipBusinessError: true, skipErrorHandler: true }
   )
-  return normalizeDefenseStart(created, requireData(startedResponse.data))
+  return normalizePreparedDefense(requireData(questionsResponse.data))
+}
+
+export async function startDefensePrep(
+  input: ConfirmDefensePrepInput
+): Promise<DefensePrepStartResult> {
+  const selectedQuestionIndexes = [
+    ...new Set(
+      input.selectedQuestionIndexes.filter(
+        (index) => Number.isInteger(index) && index >= 0
+      )
+    ),
+  ]
+  if (selectedQuestionIndexes.length === 0) {
+    throw new Error('Select at least one prepared question')
+  }
+  const response = await api.post<TalkWiseResponse<unknown>>(
+    `${TALKWISE_DEFENSE_PREP_API}/sessions/${encodeURIComponent(input.defenseSessionId)}/start`,
+    {
+      selected_question_indexes: selectedQuestionIndexes,
+      focus_scope: input.focusScope,
+    },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  return normalizeDefenseStart(requireData(response.data))
 }
 
 export function battlePrepStartPayload(input: StartBattlePrepInput) {
@@ -291,6 +402,8 @@ export function battlePrepStartPayload(input: StartBattlePrepInput) {
     scenario_context: input.preparation.scenarioContext,
     selected_training_points: uniqueText(input.selectedTrainingPoints),
     difficulty: input.difficulty,
+    focus_scope: input.focusScope,
+    length_profile: input.lengthProfile,
     reply_language: input.replyLanguage.trim() || 'en-US',
   }
 }

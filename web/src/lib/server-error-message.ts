@@ -48,6 +48,17 @@ function serverErrorPayload(value: unknown): Record<string, unknown> | null {
   return value
 }
 
+export function isNonRetryableServerError(value: unknown): boolean {
+  const payload = serverErrorPayload(value)
+  if (!payload || typeof payload.code !== 'string') return false
+
+  return (
+    payload.code.startsWith('TALKWISE_') &&
+    (payload.code.endsWith('_PROXY_UNAVAILABLE') ||
+      payload.code.endsWith('_UPSTREAM_UNAVAILABLE'))
+  )
+}
+
 export function getServerErrorMessageKey(value: unknown): string | null {
   const payload = serverErrorPayload(value)
   if (!payload || typeof payload.code !== 'string') return null

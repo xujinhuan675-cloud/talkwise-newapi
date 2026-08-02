@@ -20,6 +20,12 @@ import axios from 'axios'
 
 import { api } from '@/lib/http-client'
 
+import {
+  scenarioPressure,
+  trainingPlanMetadata,
+  trainingTurnBudget,
+  type TrainingPlanInput,
+} from '../training-plan'
 import type {
   CreateTrainingSessionRequest,
   TrainingScenario,
@@ -189,7 +195,13 @@ export function filterTrainingScenarios(
 
 export function buildTrainingSessionRequest(
   scenario: TrainingScenario,
-  mode: TrainingSessionMode
+  mode: TrainingSessionMode,
+  plan: TrainingPlanInput = {
+    focusScope: 'all',
+    selectedFocus: scenario.trainingPoints,
+    pressure: scenarioPressure(scenario.difficulty),
+    lengthProfile: 'standard',
+  }
 ): CreateTrainingSessionRequest {
   const rubricWeights = Object.fromEntries(
     scenario.dimensionWeights.map((item) => [
@@ -197,8 +209,6 @@ export function buildTrainingSessionRequest(
       item.weight > 1 ? item.weight / 100 : item.weight,
     ])
   )
-  const difficulty =
-    scenario.difficulty === 'expert' ? 'hard' : scenario.difficulty
   const category =
     scenario.category === 'customer_service' ? 'workplace' : scenario.category
 
@@ -219,9 +229,9 @@ export function buildTrainingSessionRequest(
         craft: scenario.category === 'negotiation' ? 35 : 45,
         pressure: scenario.difficulty === 'easy' ? 20 : 35,
       },
-      question_count: scenario.required ? 8 : 6,
+      question_count: trainingTurnBudget(plan.lengthProfile),
       framework: scenario.framework,
-      difficulty,
+      difficulty: plan.pressure,
       category,
       ...(scenario.dimensionWeights.length > 0
         ? { rubric_weights: rubricWeights }
@@ -232,13 +242,14 @@ export function buildTrainingSessionRequest(
         trainingFeedbackMode: 'simulation',
         trainingMode: mode,
         interactionMode: 'turn_based',
+        trainingPlan: trainingPlanMetadata(plan),
         scenario_training: {
           id: scenario.id,
           title: scenario.title,
           required: scenario.required,
           category: scenario.category,
           difficulty: scenario.difficulty,
-          training_points: [...scenario.trainingPoints],
+          training_points: [...plan.selectedFocus],
           dimension_weights: scenario.dimensionWeights,
           feedbackMode: 'simulation',
           trainingMode: mode,
