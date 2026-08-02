@@ -229,7 +229,7 @@ export function Footer(props: FooterProps) {
               <img
                 src={displayLogo}
                 alt={displayName}
-                className='size-7 rounded-lg object-contain'
+                className='h-8 w-10 object-contain'
               />
               <span className='text-sm font-semibold tracking-tight'>
                 {displayName}

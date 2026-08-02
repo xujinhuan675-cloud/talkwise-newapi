@@ -21,8 +21,20 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'New API'
-export const DEFAULT_LOGO = '/logo.png'
+export const DEFAULT_SYSTEM_NAME = 'TalkWise'
+export const DEFAULT_LOGO =
+  '/brand-icons/talkwise-speech-wave-standard-1024.png'
+export const DEFAULT_FAVICON =
+  '/brand-icons/talkwise-speech-wave-tab-48.png?v=2'
+
+export function resolveFaviconUrl(logo: string): string {
+  return logo === DEFAULT_LOGO || logo === '/logo.png' ? DEFAULT_FAVICON : logo
+}
+
+export function resolveSystemName(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : ''
+  return !name || name.toLowerCase() === 'new api' ? DEFAULT_SYSTEM_NAME : name
+}
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

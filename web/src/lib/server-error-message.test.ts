@@ -18,7 +18,10 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { describe, expect, test } from 'vitest'
 
-import { getServerErrorMessageKey } from './server-error-message'
+import {
+  getServerErrorMessageKey,
+  isNonRetryableServerError,
+} from './server-error-message'
 
 describe('server error message mapping', () => {
   test('maps the active-session limit to recovery instructions', () => {
@@ -64,5 +67,28 @@ describe('server error message mapping', () => {
         },
       })
     ).toBe(expected.TELEGRAM_BIND_INTERNAL_ERROR)
+  })
+
+  test('fails fast for deterministic TalkWise proxy availability errors', () => {
+    assert.equal(
+      isNonRetryableServerError({
+        response: {
+          data: { code: 'TALKWISE_TRAINING_PROXY_UNAVAILABLE' },
+        },
+      }),
+      true
+    )
+    assert.equal(
+      isNonRetryableServerError({
+        code: 'TALKWISE_DEFENSE_PREP_UPSTREAM_UNAVAILABLE',
+      }),
+      true
+    )
+    assert.equal(
+      isNonRetryableServerError({
+        response: { data: { code: 'AUTH_SESSION_LIMIT' } },
+      }),
+      false
+    )
   })
 })

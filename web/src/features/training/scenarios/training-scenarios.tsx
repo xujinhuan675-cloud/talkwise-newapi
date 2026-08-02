@@ -84,6 +84,12 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 import { useTrainingHost } from '../host'
 import {
+  scenarioPressure,
+  type TrainingFocusScope,
+  type TrainingLengthProfile,
+  type TrainingPressure,
+} from '../training-plan'
+import {
   buildTrainingSessionRequest,
   createTrainingSession,
   filterTrainingScenarios,
@@ -403,6 +409,12 @@ export function TrainingScenarios() {
   const [selectedScenario, setSelectedScenario] =
     useState<TrainingScenario | null>(null)
   const [mode, setMode] = useState<TrainingSessionMode>('text')
+  const [focusScope, setFocusScope] =
+    useState<TrainingFocusScope>('recommended')
+  const [selectedFocus, setSelectedFocus] = useState<readonly string[]>([])
+  const [pressure, setPressure] = useState<TrainingPressure>('medium')
+  const [lengthProfile, setLengthProfile] =
+    useState<TrainingLengthProfile>('standard')
   const [createdSession, setCreatedSession] = useState<TrainingSession | null>(
     null
   )
@@ -489,6 +501,10 @@ export function TrainingScenarios() {
     createSessionMutation.reset()
     setCreatedSession(null)
     setMode('text')
+    setFocusScope('recommended')
+    setSelectedFocus(scenario.trainingPoints.slice(0, 3))
+    setPressure(scenarioPressure(scenario.difficulty))
+    setLengthProfile('standard')
     setSelectedScenario(scenario)
   }
   const closeScenario = () => {
@@ -500,7 +516,12 @@ export function TrainingScenarios() {
   const createSelectedSession = () => {
     if (!selectedScenario) return
     createSessionMutation.mutate(
-      buildTrainingSessionRequest(selectedScenario, mode)
+      buildTrainingSessionRequest(selectedScenario, mode, {
+        focusScope,
+        selectedFocus,
+        pressure,
+        lengthProfile,
+      })
     )
   }
   if (host.authStatus === 'anonymous') {
@@ -701,15 +722,136 @@ export function TrainingScenarios() {
                 {selectedScenario.trainingPoints.length > 0 && (
                   <div className='space-y-2'>
                     <Label>{localize('Training focus', '训练重点')}</Label>
+                    <ToggleGroup
+                      aria-label={localize(
+                        'Training focus scope',
+                        '训练重点范围'
+                      )}
+                      className='grid w-full grid-cols-3'
+                      disabled={
+                        createSessionMutation.isPending ||
+                        createdSession !== null
+                      }
+                      onValueChange={(values) => {
+                        const next = values.find(
+                          (value) => value !== focusScope
+                        )
+                        if (!next) return
+                        const scope = next as TrainingFocusScope
+                        setFocusScope(scope)
+                        if (scope === 'recommended') {
+                          setSelectedFocus(
+                            selectedScenario.trainingPoints.slice(0, 3)
+                          )
+                        } else if (scope === 'all') {
+                          setSelectedFocus(selectedScenario.trainingPoints)
+                        }
+                      }}
+                      value={[focusScope]}
+                      variant='outline'
+                    >
+                      <ToggleGroupItem value='recommended'>
+                        {localize('Recommended', '推荐')}
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value='all'>
+                        {localize('All', '全部')}
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value='custom'>
+                        {localize('Custom', '自选')}
+                      </ToggleGroupItem>
+                    </ToggleGroup>
                     <div className='flex flex-wrap gap-1.5'>
                       {selectedScenario.trainingPoints.map((point) => (
-                        <Badge key={point} variant='secondary'>
+                        <Button
+                          className='h-auto px-2 py-1 text-xs whitespace-normal'
+                          disabled={
+                            createSessionMutation.isPending ||
+                            createdSession !== null
+                          }
+                          key={point}
+                          onClick={() => {
+                            setFocusScope('custom')
+                            setSelectedFocus((current) =>
+                              current.includes(point)
+                                ? current.filter((item) => item !== point)
+                                : [...current, point]
+                            )
+                          }}
+                          size='sm'
+                          variant={
+                            selectedFocus.includes(point)
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
                           {point}
-                        </Badge>
+                        </Button>
                       ))}
                     </div>
                   </div>
                 )}
+
+                <div className='grid gap-4 sm:grid-cols-2'>
+                  <div className='space-y-2'>
+                    <Label>
+                      {localize('Counterpart pressure', '对手压力')}
+                    </Label>
+                    <Select
+                      disabled={
+                        createSessionMutation.isPending ||
+                        createdSession !== null
+                      }
+                      value={pressure}
+                      onValueChange={(value) =>
+                        value && setPressure(value as TrainingPressure)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='easy'>
+                          {localize('Supportive', '温和')}
+                        </SelectItem>
+                        <SelectItem value='medium'>
+                          {localize('Realistic', '真实')}
+                        </SelectItem>
+                        <SelectItem value='hard'>
+                          {localize('Pressured', '高压')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className='space-y-2'>
+                    <Label>{localize('Practice length', '练习长度')}</Label>
+                    <Select
+                      disabled={
+                        createSessionMutation.isPending ||
+                        createdSession !== null
+                      }
+                      value={lengthProfile}
+                      onValueChange={(value) =>
+                        value &&
+                        setLengthProfile(value as TrainingLengthProfile)
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='quick'>
+                          {localize('Quick · 6 turns', '快速 · 6 轮')}
+                        </SelectItem>
+                        <SelectItem value='standard'>
+                          {localize('Standard · 9 turns', '标准 · 9 轮')}
+                        </SelectItem>
+                        <SelectItem value='complete'>
+                          {localize('Complete · 12 turns', '完整 · 12 轮')}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
                 <div className='space-y-2'>
                   <Label>{localize('Training mode', '训练模式')}</Label>
@@ -778,7 +920,10 @@ export function TrainingScenarios() {
                 {!createdSession && (
                   <Button
                     onClick={createSelectedSession}
-                    disabled={createSessionMutation.isPending}
+                    disabled={
+                      createSessionMutation.isPending ||
+                      selectedFocus.length === 0
+                    }
                   >
                     {createSessionMutation.isPending ? (
                       <LoaderCircle className='animate-spin' />

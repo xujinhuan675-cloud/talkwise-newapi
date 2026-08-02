@@ -33,11 +33,23 @@ describe('training studio adapter', () => {
       goal: 'Handle a pricing objection.',
       mode: 'voice',
       feedbackMode: 'assisted',
+      pressure: 'hard',
+      lengthProfile: 'complete',
     })
 
     assert.equal(request.mode, 'voice')
     assert.equal(request.task_config.metadata.source, 'newapi_training_studio')
     assert.equal(request.task_config.metadata.feedbackMode, 'assisted')
+    assert.equal(request.task_config.question_count, 12)
+    assert.equal(request.task_config.difficulty, 'hard')
+    assert.deepEqual(request.task_config.metadata.trainingPlan, {
+      version: 1,
+      kind: 'conversation',
+      focus: { scope: 'custom', selected: ['Handle a pricing objection.'] },
+      pressure: 'hard',
+      length: { profile: 'complete', turnBudget: 12 },
+      completion: { strategy: 'adaptive', explicitFinish: true },
+    })
     assert.equal('user_id' in request, false)
     assert.equal('team_id' in request, false)
   })
@@ -61,10 +73,12 @@ describe('training studio adapter', () => {
       goal: 'Handle a pricing objection.',
       mode: 'voice',
       feedbackMode: 'simulation',
+      pressure: 'hard',
     })
 
     assert.equal(request.room_type, 'battle_prep')
     assert.equal(request.runtime_persona.role, 'Training counterpart')
+    assert.equal(request.runtime_persona.difficulty, 'hard')
     assert.equal(
       request.opening_message.metadata.source,
       'newapi_training_studio'

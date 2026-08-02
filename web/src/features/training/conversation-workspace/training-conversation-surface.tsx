@@ -28,7 +28,7 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import { nanoid } from 'nanoid'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -41,6 +41,7 @@ import {
   BranchSelector,
 } from '@/components/ai-elements/branch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -73,16 +74,19 @@ import {
 } from '@/features/playground/lib'
 import type { Message } from '@/features/playground/types'
 
+import { resolveBattlePrepPlan } from '../training-plan'
 import {
   completeTrainingConversationSession,
   editTrainingConversationMessage,
   forkTrainingSessionConversation,
   loadTrainingConversationMessages,
+  loadTrainingConversationReportSummary,
   selectTrainingConversationBranch as authorizeTrainingConversationBranch,
   sendTrainingConversationMessage,
   TrainingConversationApiError,
   type TrainingConversationCompletionResult,
   type TrainingConversationMessage,
+  type TrainingConversationReportSummary,
   type TrainingConversationForkOption,
   type TrainingConversationSessionContext,
   type TrainingSessionConversationForkResult,
@@ -328,6 +332,9 @@ export function TrainingConversationSurface({
   const [completionError, setCompletionError] = useState<unknown>(null)
   const [completionResult, setCompletionResult] =
     useState<TrainingConversationCompletionResult | null>(null)
+  const [battleSheet, setBattleSheet] =
+    useState<TrainingConversationReportSummary | null>(null)
+  const [battleSheetError, setBattleSheetError] = useState<unknown>(null)
   const [pendingBranchMessageId, setPendingBranchMessageId] = useState<
     string | null
   >(null)
@@ -340,6 +347,19 @@ export function TrainingConversationSurface({
   const streamAbortRef = useRef<AbortController | null>(null)
   const initialSelectedTailId =
     selectedTailId?.trim() || selectedTailFromSession(trainingSession)
+  const battlePlan = useMemo(
+    () => resolveBattlePrepPlan(trainingSession.metadata),
+    [trainingSession.metadata]
+  )
+  const completedBattleTurns = battlePlan
+    ? treeProjection.path.filter((message) => message.role === 'user').length
+    : 0
+  const remainingBattleTurns = battlePlan
+    ? Math.max(0, battlePlan.turnBudget - completedBattleTurns)
+    : 0
+  const battleTurnLimitReached = Boolean(
+    battlePlan && completedBattleTurns >= battlePlan.turnBudget
+  )
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -356,6 +376,8 @@ export function TrainingConversationSurface({
     setIsCompletionDialogOpen(false)
     setCompletionError(null)
     setCompletionResult(null)
+    setBattleSheet(null)
+    setBattleSheetError(null)
   }, [trainingSession.sessionId])
 
   const replaceMessages = useCallback(
@@ -640,6 +662,7 @@ export function TrainingConversationSurface({
 
   const handleSendMessage = useCallback(
     (text: string) => {
+      if (battleTurnLimitReached) return
       const tail = lastPersistedMessage(
         messagesRef.current,
         messageRecordsRef.current
@@ -649,7 +672,7 @@ export function TrainingConversationSurface({
         branchId: tail?.branchId,
       })
     },
-    [startStream]
+    [battleTurnLimitReached, startStream]
   )
 
   const handleRegenerateMessage = useCallback(
@@ -812,7 +835,23 @@ export function TrainingConversationSurface({
           )
         }
 
-        if (result.reportStatus === 'ready') {
+        if (result.reportStatus === 'ready' && battlePlan) {
+          try {
+            const report = await loadTrainingConversationReportSummary(
+              trainingApiBase,
+              trainingSession.sessionId
+            )
+            setBattleSheet(report)
+            toast.success(
+              localize(
+                'Battle preparation finished. Your briefing card is ready.',
+                '备战已结束，速记卡已生成。'
+              )
+            )
+          } catch (error: unknown) {
+            setBattleSheetError(error)
+          }
+        } else if (result.reportStatus === 'ready') {
           toast.success(
             localize(
               'Training finished. Opening the review.',
@@ -826,6 +865,7 @@ export function TrainingConversationSurface({
       .finally(() => setIsCompleting(false))
   }, [
     conversationId,
+    battlePlan,
     isCompleting,
     localize,
     onCompletionConfirmed,
@@ -887,6 +927,7 @@ export function TrainingConversationSurface({
 
   const isBusy = isGenerating || isSavingEdit || isForking || isCompleting
   const isSessionReadOnly = trainingSession.status !== 'active'
+  const isInputLocked = isSessionReadOnly || battleTurnLimitReached
   const canComplete =
     !isBusy &&
     !isLoadingConversation &&
@@ -922,18 +963,50 @@ export function TrainingConversationSurface({
     completionAlertTitle = localize('Report unavailable', '报告暂不可用')
     completionReviewLabel = localize('Open session', '打开会话')
   } else if (completionResult?.reportStatus === 'ready') {
-    completionDialogTitle = localize('Training finished', '训练已结束')
-    completionDialogDescription = localize(
-      'The report is ready for review.',
-      '复盘报告已就绪。'
-    )
-    completionAlertTitle = localize('Report ready', '报告已就绪')
-    completionReviewLabel = localize('Open session', '打开会话')
+    completionDialogTitle = battlePlan
+      ? localize('Battle briefing card', '备战速记卡')
+      : localize('Training finished', '训练已结束')
+    completionDialogDescription = battlePlan
+      ? localize(
+          'The selected path has been distilled into a concise briefing for the real conversation.',
+          '当前选中路径已收口为一份可直接带走的沟通速记。'
+        )
+      : localize('The report is ready for review.', '复盘报告已就绪。')
+    completionAlertTitle = battlePlan
+      ? localize('Briefing ready', '速记卡已就绪')
+      : localize('Report ready', '报告已就绪')
+    completionReviewLabel = localize('Open full review', '打开完整复盘')
   }
 
   return (
     <div className='relative flex size-full min-h-0 flex-col overflow-hidden'>
-      <div className='flex min-h-10 shrink-0 items-center justify-end gap-2 border-b px-3 py-1.5'>
+      <div className='flex min-h-10 shrink-0 flex-wrap items-center justify-end gap-2 border-b px-3 py-1.5'>
+        {battlePlan && (
+          <div className='mr-auto flex min-w-0 flex-wrap items-center gap-1.5'>
+            <Badge variant={battleTurnLimitReached ? 'default' : 'secondary'}>
+              {battleTurnLimitReached
+                ? localize('Planned rounds complete', '计划轮次已完成')
+                : localize(
+                    `${remainingBattleTurns} rounds remaining`,
+                    `剩余 ${remainingBattleTurns} 轮`
+                  )}
+            </Badge>
+            {battlePlan.selectedFocus.slice(0, 2).map((focus) => (
+              <Badge
+                className='max-w-48 truncate'
+                key={focus}
+                variant='outline'
+              >
+                {focus}
+              </Badge>
+            ))}
+            {battlePlan.selectedFocus.length > 2 && (
+              <Badge variant='outline'>
+                +{battlePlan.selectedFocus.length - 2}
+              </Badge>
+            )}
+          </div>
+        )}
         {isSessionReadOnly ? (
           <Button size='sm' variant='outline' onClick={openSessionReview}>
             <ClipboardCheck />
@@ -951,7 +1024,9 @@ export function TrainingConversationSurface({
             }}
           >
             <Flag />
-            {localize('Finish training', '结束训练')}
+            {battlePlan
+              ? localize('Finish battle prep', '结束备战')
+              : localize('Finish training', '结束训练')}
           </Button>
         )}
         <Button
@@ -964,6 +1039,20 @@ export function TrainingConversationSurface({
         </Button>
       </div>
       <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+        {battleTurnLimitReached && !isSessionReadOnly && (
+          <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
+            <Flag />
+            <AlertTitle>
+              {localize('Planned rounds complete', '计划轮次已完成')}
+            </AlertTitle>
+            <AlertDescription>
+              {localize(
+                'Finish battle preparation to generate the briefing card, or switch branches before finishing.',
+                '现在可以结束备战生成速记卡，也可以先切换分支再结束。'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
         {treeProjection.excludedMessageIds.length > 0 && (
           <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
             <TriangleAlert />
@@ -985,13 +1074,13 @@ export function TrainingConversationSurface({
             if (!open) setEditingMessageKey(null)
           }}
           onEditMessage={
-            isSessionReadOnly
+            isInputLocked
               ? undefined
               : (message) => setEditingMessageKey(message.key)
           }
           onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
           onRegenerateMessage={
-            isSessionReadOnly ? undefined : handleRegenerateMessage
+            isInputLocked ? undefined : handleRegenerateMessage
           }
           onSaveEdit={handleSaveEdit}
           onSaveEditAndSubmit={handleSaveEditAndSubmit}
@@ -1003,7 +1092,7 @@ export function TrainingConversationSurface({
       <div className='mx-auto w-full max-w-4xl'>
         <PlaygroundInput
           config={config}
-          disabled={isBusy || isSessionReadOnly}
+          disabled={isBusy || isInputLocked}
           groups={groups}
           groupValue={config.group}
           hasMessages={messages.length > 0}
@@ -1107,7 +1196,7 @@ export function TrainingConversationSurface({
           if (!isCompleting) setIsCompletionDialogOpen(open)
         }}
       >
-        <DialogContent>
+        <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-2xl'>
           {completionResult ? (
             <>
               <DialogHeader>
@@ -1132,6 +1221,48 @@ export function TrainingConversationSurface({
                     </AlertDescription>
                   )}
               </Alert>
+              {battlePlan && battleSheet && (
+                <div className='space-y-4 rounded-md border p-4'>
+                  <div>
+                    <div className='mb-1 text-sm font-medium'>
+                      {localize('Core takeaway', '核心结论')}
+                    </div>
+                    <p className='text-muted-foreground text-sm whitespace-pre-wrap'>
+                      {battleSheet.summary}
+                    </p>
+                  </div>
+                  {battleSheet.suggestions.length > 0 && (
+                    <div>
+                      <div className='mb-1 text-sm font-medium'>
+                        {localize('Before the conversation', '上场前提醒')}
+                      </div>
+                      <ul className='text-muted-foreground list-disc space-y-1.5 pl-5 text-sm'>
+                        {battleSheet.suggestions.map((suggestion) => (
+                          <li
+                            key={`${suggestion.counterpart ?? ''}:${suggestion.priority ?? ''}:${suggestion.suggestion}`}
+                          >
+                            {suggestion.suggestion}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+              {battlePlan && battleSheetError !== null && (
+                <Alert variant='destructive'>
+                  <TriangleAlert />
+                  <AlertTitle>
+                    {localize(
+                      'Briefing card could not be loaded',
+                      '速记卡暂时无法加载'
+                    )}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {trainingConversationErrorMessage(battleSheetError)}
+                  </AlertDescription>
+                </Alert>
+              )}
               <DialogFooter>
                 <Button
                   variant='outline'
@@ -1193,7 +1324,9 @@ export function TrainingConversationSurface({
                   ) : (
                     <Flag />
                   )}
-                  {localize('Finish training', '结束训练')}
+                  {battlePlan
+                    ? localize('Finish battle prep', '结束备战')
+                    : localize('Finish training', '结束训练')}
                 </Button>
               </DialogFooter>
             </>

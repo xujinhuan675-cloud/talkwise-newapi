@@ -22,10 +22,12 @@ import {
   ArrowLeft,
   CircleAlert,
   FileText,
+  ListChecks,
   LoaderCircle,
   Play,
   ShieldCheck,
   Sparkles,
+  Timer,
   Upload,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -66,13 +68,18 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
-  createAndStartDefensePrep,
   generateBattlePrep,
   listScopedTrainingPrepPersonas,
+  prepareDefensePrep,
+  recommendedDefenseQuestionIndexes,
   startBattlePrep,
+  startDefensePrep,
   trainingPrepRequestErrorMessage,
   type BattlePrepResult,
   type DefenseScenarioType,
+  type DefensePrepPreparedResult,
+  type TrainingFocusScope,
+  type TrainingLengthProfile,
   type TrainingPrepPersona,
 } from './api'
 import { trainingPrepWorkspaceHandoff } from './handoff'
@@ -196,6 +203,81 @@ function difficultyOptionLabel(
   return localize('Standard', '标准')
 }
 
+function focusScopeLabel(value: TrainingFocusScope, localize: Localize) {
+  if (value === 'all') return localize('All', '全部')
+  if (value === 'custom') return localize('Custom', '自选')
+  return localize('Recommended', '推荐')
+}
+
+function TrainingFocusScopeControl({
+  disabled,
+  localize,
+  onChange,
+  value,
+}: {
+  disabled: boolean
+  localize: Localize
+  onChange: (value: TrainingFocusScope) => void
+  value: TrainingFocusScope
+}) {
+  return (
+    <ToggleGroup
+      aria-label={localize('Practice scope', '练习范围')}
+      className='grid w-full grid-cols-3'
+      disabled={disabled}
+      onValueChange={(values) => {
+        const next = values.find((candidate) => candidate !== value)
+        if (next) onChange(next as TrainingFocusScope)
+      }}
+      value={[value]}
+      variant='outline'
+    >
+      {(['recommended', 'all', 'custom'] as const).map((option) => (
+        <ToggleGroupItem className='w-full' key={option} value={option}>
+          {focusScopeLabel(option, localize)}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
+function TrainingLengthControl({
+  disabled,
+  localize,
+  onChange,
+  value,
+}: {
+  disabled: boolean
+  localize: Localize
+  onChange: (value: TrainingLengthProfile) => void
+  value: TrainingLengthProfile
+}) {
+  const labels: Record<TrainingLengthProfile, string> = {
+    quick: localize('Quick · 6 turns', '快速 · 6 轮'),
+    standard: localize('Standard · 9 turns', '标准 · 9 轮'),
+    complete: localize('Complete · 12 turns', '完整 · 12 轮'),
+  }
+  return (
+    <ToggleGroup
+      aria-label={localize('Practice length', '练习长度')}
+      className='grid w-full grid-cols-3'
+      disabled={disabled}
+      onValueChange={(values) => {
+        const next = values.find((candidate) => candidate !== value)
+        if (next) onChange(next as TrainingLengthProfile)
+      }}
+      value={[value]}
+      variant='outline'
+    >
+      {(['quick', 'standard', 'complete'] as const).map((option) => (
+        <ToggleGroupItem className='w-full' key={option} value={option}>
+          {labels[option]}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
 function BattlePreparedOpponent({
   preparation,
   selectedTrainingPoints,
@@ -286,13 +368,18 @@ function TrainingBattlePrepContent() {
   const [difficulty, setDifficulty] = useState<'easy' | 'normal' | 'hard'>(
     'normal'
   )
+  const [focusScope, setFocusScope] =
+    useState<TrainingFocusScope>('recommended')
+  const [lengthProfile, setLengthProfile] =
+    useState<TrainingLengthProfile>('standard')
   const isAuthenticated = host.authStatus === 'authenticated'
 
   const generateMutation = useMutation({
     mutationFn: () => generateBattlePrep(brief),
     onSuccess: (nextPreparation) => {
       setPreparation(nextPreparation)
-      setSelectedTrainingPoints(nextPreparation.trainingPoints)
+      setFocusScope('recommended')
+      setSelectedTrainingPoints(nextPreparation.trainingPoints.slice(0, 3))
     },
   })
   const startMutation = useMutation({
@@ -304,6 +391,8 @@ function TrainingBattlePrepContent() {
         preparation,
         selectedTrainingPoints: [...selectedTrainingPoints],
         difficulty,
+        focusScope,
+        lengthProfile,
         replyLanguage: host.locale,
       })
       const handoff = trainingPrepWorkspaceHandoff(result)
@@ -365,6 +454,7 @@ function TrainingBattlePrepContent() {
                   setBrief(event.target.value)
                   setPreparation(null)
                   setSelectedTrainingPoints([])
+                  setFocusScope('recommended')
                   generateMutation.reset()
                   startMutation.reset()
                 }}
@@ -396,6 +486,18 @@ function TrainingBattlePrepContent() {
                 ))}
               </ToggleGroup>
             </div>
+            <div className='space-y-2'>
+              <Label className='inline-flex items-center gap-2'>
+                <Timer className='size-4' />
+                {localize('Practice length', '练习长度')}
+              </Label>
+              <TrainingLengthControl
+                disabled={!isAuthenticated || isBusy}
+                localize={localize}
+                onChange={setLengthProfile}
+                value={lengthProfile}
+              />
+            </div>
           </CardContent>
           <CardFooter className='justify-end'>
             <Button
@@ -425,14 +527,35 @@ function TrainingBattlePrepContent() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {preparation && (
+              <div className='mb-4 space-y-2'>
+                <Label>{localize('Practice scope', '练习范围')}</Label>
+                <TrainingFocusScopeControl
+                  disabled={isBusy}
+                  localize={localize}
+                  onChange={(nextScope) => {
+                    setFocusScope(nextScope)
+                    if (nextScope === 'recommended') {
+                      setSelectedTrainingPoints(
+                        preparation.trainingPoints.slice(0, 3)
+                      )
+                    } else if (nextScope === 'all') {
+                      setSelectedTrainingPoints(preparation.trainingPoints)
+                    }
+                  }}
+                  value={focusScope}
+                />
+              </div>
+            )}
             <BattlePreparedOpponent
               disabled={isBusy}
               localize={localize}
-              onToggleTrainingPoint={(point, checked) =>
+              onToggleTrainingPoint={(point, checked) => {
+                setFocusScope('custom')
                 setSelectedTrainingPoints((current) =>
                   toggleTextItem(current, point, checked)
                 )
-              }
+              }}
               preparation={preparation}
               selectedTrainingPoints={selectedTrainingPoints}
             />
@@ -478,6 +601,14 @@ function TrainingDefensePrepContent() {
   >([])
   const [scenarioType, setScenarioType] =
     useState<DefenseScenarioType>('general')
+  const [prepared, setPrepared] = useState<DefensePrepPreparedResult | null>(
+    null
+  )
+  const [focusScope, setFocusScope] =
+    useState<TrainingFocusScope>('recommended')
+  const [selectedQuestionIndexes, setSelectedQuestionIndexes] = useState<
+    readonly number[]
+  >([])
   const isAuthenticated = host.authStatus === 'authenticated'
   const personasQuery = useQuery({
     queryKey: ['training', 'prep', 'scoped-personas'],
@@ -485,13 +616,31 @@ function TrainingDefensePrepContent() {
     enabled: isAuthenticated,
   })
   const personas = personasQuery.data ?? []
-  const startMutation = useMutation({
+  const prepareMutation = useMutation({
     mutationFn: async () => {
       if (!file) throw new Error('Choose a practice document')
-      const result = await createAndStartDefensePrep({
+      return prepareDefensePrep({
         file,
         personaIds: selectedPersonaIds,
         scenarioType,
+      })
+    },
+    onSuccess: (result) => {
+      const recommended = recommendedDefenseQuestionIndexes(
+        result.questionStrategy
+      )
+      setPrepared(result)
+      setFocusScope('recommended')
+      setSelectedQuestionIndexes(recommended)
+    },
+  })
+  const startMutation = useMutation({
+    mutationFn: async () => {
+      if (!prepared) throw new Error('Prepare questions before starting')
+      const result = await startDefensePrep({
+        defenseSessionId: prepared.defenseSessionId,
+        selectedQuestionIndexes,
+        focusScope,
       })
       const handoff = trainingPrepWorkspaceHandoff(result)
       if (!handoff) {
@@ -499,9 +648,9 @@ function TrainingDefensePrepContent() {
           'TalkWise did not return the training session and conversation required to open practice'
         )
       }
-      return { handoff, result }
+      return handoff
     },
-    onSuccess: ({ handoff }) => {
+    onSuccess: (handoff) => {
       void navigate({ to: handoff.to, search: handoff.search })
     },
   })
@@ -518,8 +667,14 @@ function TrainingDefensePrepContent() {
     })
   }, [personasQuery.data])
 
-  const isBusy = startMutation.isPending
-  const started = startMutation.data?.result ?? null
+  const isBusy = prepareMutation.isPending || startMutation.isPending
+  const resetPreparation = () => {
+    setPrepared(null)
+    setSelectedQuestionIndexes([])
+    setFocusScope('recommended')
+    prepareMutation.reset()
+    startMutation.reset()
+  }
 
   return (
     <PrepPageFrame
@@ -540,6 +695,13 @@ function TrainingDefensePrepContent() {
           error={startMutation.error}
           localize={localize}
           title={localize('Defense not started', '答辩训练未启动')}
+        />
+      )}
+      {prepareMutation.isError && (
+        <MutationError
+          error={prepareMutation.error}
+          localize={localize}
+          title={localize('Questions not prepared', '未能生成问题')}
         />
       )}
 
@@ -564,7 +726,7 @@ function TrainingDefensePrepContent() {
               id='defense-prep-material'
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null)
-                startMutation.reset()
+                resetPreparation()
               }}
               type='file'
             />
@@ -627,11 +789,12 @@ function TrainingDefensePrepContent() {
                         (!selectedPersonaIds.includes(persona.id) &&
                           selectedPersonaIds.length >= 5)
                       }
-                      onCheckedChange={(checked) =>
+                      onCheckedChange={(checked) => {
+                        resetPreparation()
                         setSelectedPersonaIds((current) =>
                           toggleTextItem(current, persona.id, checked === true)
                         )
-                      }
+                      }}
                     />
                     <span className='min-w-0'>
                       <span className='block truncate font-medium'>
@@ -665,12 +828,24 @@ function TrainingDefensePrepContent() {
             <Select
               disabled={!isAuthenticated || isBusy}
               onValueChange={(value) => {
-                if (value) setScenarioType(value as DefenseScenarioType)
+                if (value) {
+                  setScenarioType(value as DefenseScenarioType)
+                  resetPreparation()
+                }
               }}
               value={scenarioType}
             >
               <SelectTrigger id='defense-prep-scenario'>
-                <SelectValue />
+                <SelectValue>
+                  {localize(
+                    DEFENSE_SCENARIOS.find(
+                      (scenario) => scenario.value === scenarioType
+                    )?.english ?? 'General defense',
+                    DEFENSE_SCENARIOS.find(
+                      (scenario) => scenario.value === scenarioType
+                    )?.chinese ?? '通用答辩'
+                  )}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent alignItemWithTrigger={false}>
                 <SelectGroup>
@@ -697,36 +872,74 @@ function TrainingDefensePrepContent() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {started ? (
+          {prepared ? (
             <div className='space-y-3'>
               <div className='flex flex-wrap items-center gap-2'>
-                {started.documentTitle && (
-                  <Badge variant='secondary'>{started.documentTitle}</Badge>
+                {prepared.documentTitle && (
+                  <Badge variant='secondary'>{prepared.documentTitle}</Badge>
                 )}
-                <Badge variant='outline'>{started.defenseSessionId}</Badge>
+                <Badge variant='outline'>{prepared.defenseSessionId}</Badge>
               </div>
-              {started.questionStrategy.length > 0 ? (
+              <div className='space-y-2'>
+                <Label>{localize('Question scope', '问题范围')}</Label>
+                <TrainingFocusScopeControl
+                  disabled={isBusy}
+                  localize={localize}
+                  onChange={(nextScope) => {
+                    setFocusScope(nextScope)
+                    const allIndexes = prepared.questionStrategy.map(
+                      (_question, index) => index
+                    )
+                    if (nextScope === 'recommended') {
+                      setSelectedQuestionIndexes(
+                        recommendedDefenseQuestionIndexes(
+                          prepared.questionStrategy
+                        )
+                      )
+                    } else if (nextScope === 'all') {
+                      setSelectedQuestionIndexes(allIndexes)
+                    }
+                  }}
+                  value={focusScope}
+                />
+              </div>
+              {prepared.questionStrategy.length > 0 ? (
                 <ol className='space-y-2'>
-                  {started.questionStrategy.slice(0, 5).map((question) => (
+                  {prepared.questionStrategy.map((question, index) => (
                     <li
-                      className='rounded-md border p-3 text-sm'
+                      className='flex items-start gap-3 rounded-md border p-3 text-sm'
                       key={`${question.askedBy}-${question.dimension}-${question.question}`}
                     >
-                      <div className='font-medium'>{question.question}</div>
-                      {(question.dimension || question.difficulty) && (
-                        <div className='text-muted-foreground mt-1 flex flex-wrap gap-1.5 text-xs'>
-                          {question.dimension && (
-                            <Badge variant='outline'>
-                              {question.dimension}
-                            </Badge>
-                          )}
-                          {question.difficulty && (
-                            <Badge variant='outline'>
-                              {question.difficulty}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
+                      <Checkbox
+                        aria-label={question.question}
+                        checked={selectedQuestionIndexes.includes(index)}
+                        disabled={isBusy}
+                        onCheckedChange={(checked) => {
+                          setFocusScope('custom')
+                          setSelectedQuestionIndexes((current) =>
+                            checked === true
+                              ? [...new Set([...current, index])]
+                              : current.filter((item) => item !== index)
+                          )
+                        }}
+                      />
+                      <div className='min-w-0 flex-1'>
+                        <div className='font-medium'>{question.question}</div>
+                        {(question.dimension || question.difficulty) && (
+                          <div className='text-muted-foreground mt-1 flex flex-wrap gap-1.5 text-xs'>
+                            {question.dimension && (
+                              <Badge variant='outline'>
+                                {question.dimension}
+                              </Badge>
+                            )}
+                            {question.difficulty && (
+                              <Badge variant='outline'>
+                                {question.difficulty}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ol>
@@ -761,21 +974,44 @@ function TrainingDefensePrepContent() {
       </Card>
 
       <div className='flex flex-wrap justify-end gap-2'>
-        <Button
-          disabled={
-            !isAuthenticated ||
-            !file ||
-            selectedPersonaIds.length === 0 ||
-            personasQuery.isPending ||
-            isBusy
-          }
-          onClick={() => startMutation.mutate()}
-        >
-          {isBusy ? <LoaderCircle className='animate-spin' /> : <Play />}
-          {isBusy
-            ? localize('Preparing...', '正在准备...')
-            : localize('Prepare and start', '准备并开始')}
-        </Button>
+        {!prepared ? (
+          <Button
+            disabled={
+              !isAuthenticated ||
+              !file ||
+              selectedPersonaIds.length === 0 ||
+              personasQuery.isPending ||
+              isBusy
+            }
+            onClick={() => prepareMutation.mutate()}
+          >
+            {prepareMutation.isPending ? (
+              <LoaderCircle className='animate-spin' />
+            ) : (
+              <ListChecks />
+            )}
+            {prepareMutation.isPending
+              ? localize('Preparing questions...', '正在生成问题...')
+              : localize('Prepare questions', '生成问题')}
+          </Button>
+        ) : (
+          <Button
+            disabled={selectedQuestionIndexes.length === 0 || isBusy}
+            onClick={() => startMutation.mutate()}
+          >
+            {startMutation.isPending ? (
+              <LoaderCircle className='animate-spin' />
+            ) : (
+              <Play />
+            )}
+            {startMutation.isPending
+              ? localize('Opening practice...', '正在打开训练...')
+              : localize(
+                  `Start with ${selectedQuestionIndexes.length} questions`,
+                  `带 ${selectedQuestionIndexes.length} 个问题开始`
+                )}
+          </Button>
+        )}
       </div>
     </PrepPageFrame>
   )

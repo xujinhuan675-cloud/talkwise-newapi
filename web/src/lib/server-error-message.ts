@@ -108,6 +108,17 @@ export function getServerErrorSources(
   return sources
 }
 
+export function isNonRetryableServerError(value: unknown): boolean {
+  const payload = serverErrorPayload(value)
+  if (!payload || typeof payload.code !== 'string') return false
+
+  return (
+    payload.code.startsWith('TALKWISE_') &&
+    (payload.code.endsWith('_PROXY_UNAVAILABLE') ||
+      payload.code.endsWith('_UPSTREAM_UNAVAILABLE'))
+  )
+}
+
 export function getServerErrorMessageKey(value: unknown): string | null {
   for (const source of getServerErrorSources(value)) {
     if (typeof source.code === 'string') {

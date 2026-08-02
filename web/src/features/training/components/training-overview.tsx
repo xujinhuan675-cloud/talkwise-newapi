@@ -30,6 +30,7 @@ import {
   ListChecks,
   MessagesSquare,
   RefreshCw,
+  ShieldCheck,
   Target,
   type LucideIcon,
 } from 'lucide-react'
@@ -343,6 +344,8 @@ function RecentSessions({
 
 type TrainingSetupPath =
   | '/training/scenarios'
+  | '/training/prep/battle'
+  | '/training/prep/defense'
   | '/training/sessions'
   | '/training/growth'
 
@@ -518,6 +521,24 @@ function TrainingSetupGuide({
     },
   ]
   const quickActions: TrainingQuickAction[] = [
+    {
+      title: localize('Battle preparation', '备战准备'),
+      description: localize(
+        'Turn an upcoming meeting into focused practice.',
+        '把即将到来的会议转成聚焦练习。'
+      ),
+      to: '/training/prep/battle',
+      icon: ShieldCheck,
+    },
+    {
+      title: localize('Defense preparation', '答辩准备'),
+      description: localize(
+        'Prepare and choose review questions before practice.',
+        '先生成并确认评审问题，再开始答辩练习。'
+      ),
+      to: '/training/prep/defense',
+      icon: ListChecks,
+    },
     {
       title: localize('Scenarios', '场景训练'),
       description: localize(

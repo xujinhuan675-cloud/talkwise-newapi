@@ -78,7 +78,13 @@ describe('training scenario contract', () => {
   test('builds a scoped session request without client-supplied user or team ids', () => {
     const request = buildTrainingSessionRequest(
       toTrainingScenario(template),
-      'voice'
+      'voice',
+      {
+        focusScope: 'custom',
+        selectedFocus: ['Clarify decision criteria'],
+        pressure: 'hard',
+        lengthProfile: 'quick',
+      }
     )
 
     assert.equal(request.mode, 'voice')
@@ -91,13 +97,23 @@ describe('training scenario contract', () => {
     })
     assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.source, 'scenario_training')
+    assert.equal(request.task_config.question_count, 6)
+    assert.equal(request.task_config.difficulty, 'hard')
+    assert.deepEqual(request.task_config.metadata.trainingPlan, {
+      version: 1,
+      kind: 'conversation',
+      focus: { scope: 'custom', selected: ['Clarify decision criteria'] },
+      pressure: 'hard',
+      length: { profile: 'quick', turnBudget: 6 },
+      completion: { strategy: 'adaptive', explicitFinish: true },
+    })
     assert.deepEqual(
       (
         request.task_config.metadata.scenario_training as {
           training_points: string[]
         }
       ).training_points,
-      template.training_points
+      ['Clarify decision criteria']
     )
   })
 
