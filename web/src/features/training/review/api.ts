@@ -23,6 +23,7 @@ import { api } from '@/lib/http-client'
 import type {
   ReviewSession,
   ReviewBranchContext,
+  ReviewCompetencyObservation,
   ReviewEvaluationState,
   ReviewReportState,
   ScenarioProgress,
@@ -84,13 +85,66 @@ function normalizeScore(value: number | null | undefined): number | null {
 }
 
 function normalizeScoreStatus(value: string): ScenarioScoreStatus {
-  return value === 'ready' ? 'ready' : 'pending'
+  if (value === 'ready' || value === 'unavailable') return value
+  return 'pending'
 }
 
 function completionReportMetadata(
   metadata: Record<string, unknown> | null
 ): Record<string, unknown> | null {
   return asRecord(metadata?.completionReport ?? metadata?.completion_report)
+}
+
+function asCommunicationRating(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= 5
+    ? value
+    : null
+}
+
+function toCompetencyObservation(
+  value: unknown
+): ReviewCompetencyObservation | null {
+  const observation = asRecord(value)
+  if (!observation) return null
+  const rawEvidence = Array.isArray(observation.evidence)
+    ? observation.evidence
+    : []
+  const evidence = rawEvidence.flatMap((item) => {
+    const reference = asRecord(item)
+    const messageId = asText(reference?.messageId ?? reference?.message_id)
+    const quote = asText(reference?.quote)
+    return messageId && quote ? [{ messageId, quote }] : []
+  })
+  return {
+    opportunityPresent:
+      observation.opportunityPresent === true ||
+      observation.opportunity_present === true,
+    rating: asCommunicationRating(observation.rating),
+    evidence,
+    reason: asText(observation.reason) ?? '',
+    suggestion: asText(observation.suggestion) ?? '',
+  }
+}
+
+function toOutcomeObservation(value: unknown) {
+  const observation = asRecord(value)
+  if (!observation) return null
+  const rawEvidence = Array.isArray(observation.evidence)
+    ? observation.evidence
+    : []
+  return {
+    rating: asCommunicationRating(observation?.rating),
+    evidence: rawEvidence.flatMap((item) => {
+      const reference = asRecord(item)
+      const messageId = asText(reference?.messageId ?? reference?.message_id)
+      const quote = asText(reference?.quote)
+      return messageId && quote ? [{ messageId, quote }] : []
+    }),
+    reason: asText(observation?.reason) ?? '',
+  }
 }
 
 export function getReviewReportState(input: {
@@ -163,14 +217,42 @@ export function getReviewEvaluationState(
   if (status !== 'failed' && status !== 'ready' && status !== 'unavailable') {
     return null
   }
-  const rawOverallScore = evaluation?.overallScore ?? evaluation?.overall_score
+  const assessment = asRecord(evaluation?.assessment ?? evaluation?.scores)
+  const rawCompetencies = asRecord(
+    evaluation?.competencies ?? assessment?.competencies
+  )
+  const competencies = Object.fromEntries(
+    Object.entries(rawCompetencies ?? {}).flatMap(([dimensionId, value]) => {
+      const normalizedId = asText(dimensionId)
+      const observation = toCompetencyObservation(value)
+      return normalizedId && observation ? [[normalizedId, observation]] : []
+    })
+  )
   return {
     status,
     evaluationId: asText(evaluation?.evaluationId ?? evaluation?.evaluation_id),
-    overallScore:
-      typeof rawOverallScore === 'number' && Number.isFinite(rawOverallScore)
-        ? rawOverallScore
-        : null,
+    rubricVersion: asText(
+      evaluation?.rubricVersion ??
+        evaluation?.rubric_version ??
+        assessment?.rubric_version
+    ),
+    judgeVersion: asText(
+      evaluation?.judgeVersion ??
+        evaluation?.judge_version ??
+        assessment?.judge_version
+    ),
+    judgeModel: asText(
+      evaluation?.judgeModel ??
+        evaluation?.judge_model ??
+        assessment?.judge_model
+    ),
+    effectiveness: toOutcomeObservation(
+      evaluation?.effectiveness ?? assessment?.effectiveness
+    ),
+    appropriateness: toOutcomeObservation(
+      evaluation?.appropriateness ?? assessment?.appropriateness
+    ),
+    competencies,
     message: asText(
       evaluation?.message ?? evaluation?.error ?? evaluation?.error_message
     ),
@@ -545,10 +627,10 @@ export function toScenarioProgress(dto: ScenarioProgressDTO): ScenarioProgress {
     status: dto.status,
     score: normalizeScore(dto.score),
     scoreStatus: normalizeScoreStatus(dto.score_status),
-    overallScore:
-      typeof dto.overall_score === 'number' &&
-      Number.isFinite(dto.overall_score)
-        ? dto.overall_score
+    outcomeRating:
+      typeof dto.outcome_rating === 'number' &&
+      Number.isFinite(dto.outcome_rating)
+        ? dto.outcome_rating
         : null,
     lastPracticedAt: dto.last_practiced_at ?? null,
     reportId: dto.report_id ?? null,
@@ -586,8 +668,12 @@ export function toTrainingCompetencyRadar(
       const sampleCount = Number.isSafeInteger(dimension.sample_count)
         ? Math.max(0, dimension.sample_count)
         : 0
+      const scenarioCount = Number.isSafeInteger(dimension.scenario_count)
+        ? Math.max(0, dimension.scenario_count)
+        : 0
+      const state = dimension.state === 'stable' ? 'stable' : 'exploring'
       return dimensionId && score !== null && sampleCount > 0
-        ? [{ dimensionId, score, sampleCount }]
+        ? [{ dimensionId, score, sampleCount, scenarioCount, state }]
         : []
     }),
   }

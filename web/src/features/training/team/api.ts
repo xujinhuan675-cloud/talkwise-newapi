@@ -26,10 +26,21 @@ import type {
   TeamCompetencyRankingDTO,
   TeamScenarioRanking,
   TeamScenarioRankingDTO,
+  TrainingTeam,
+  TrainingTeamDTO,
+  TrainingTeamMember,
+  TrainingTeamMemberDTO,
+  TrainingTeamRole,
 } from './types'
 
 interface TalkWiseResponse<T> {
   code: number
+  message: string
+  data: T | null
+}
+
+interface NewAPIResponse<T> {
+  success: boolean
   message: string
   data: T | null
 }
@@ -45,6 +56,8 @@ export interface TeamAnalyticsPage<T> {
 }
 
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
+const TRAINING_TEAMS_ADMIN_BASE = '/api/talkwise/admin/teams'
+const TRAINING_TEAM_ASSIGNMENT_REQUIRED = 'TRAINING_TEAM_ASSIGNMENT_REQUIRED'
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -73,6 +86,156 @@ function requireTalkWiseData<T>(response: TalkWiseResponse<T>): T {
     throw new Error(response.message || 'TalkWise request failed')
   }
   return response.data
+}
+
+function requireNewAPIData<T>(response: NewAPIResponse<T>): T {
+  if (!response.success || response.data === null) {
+    throw new Error(response.message || 'Training team request failed')
+  }
+  return response.data
+}
+
+function asTrainingTeamRole(value: unknown): TrainingTeamRole | null {
+  return value === 'owner' || value === 'admin' || value === 'member'
+    ? value
+    : null
+}
+
+function adminTeamUrl(teamId: string, path = ''): string {
+  return `${TRAINING_TEAMS_ADMIN_BASE}/${encodeURIComponent(teamId)}${path}`
+}
+
+export function toTrainingTeam(dto: TrainingTeamDTO): TrainingTeam | null {
+  const id = asText(dto.id)
+  const name = asText(dto.name)
+  if (!id || !name) return null
+  return {
+    id,
+    name,
+    createdTime: asCount(dto.created_time),
+    updatedTime: asCount(dto.updated_time),
+  }
+}
+
+export function toTrainingTeamMember(
+  dto: TrainingTeamMemberDTO
+): TrainingTeamMember | null {
+  const username = asText(dto.username)
+  if (!Number.isSafeInteger(dto.user_id) || dto.user_id <= 0 || !username) {
+    return null
+  }
+  return {
+    userId: dto.user_id,
+    username,
+    displayName: asText(dto.display_name),
+    email: asText(dto.email),
+    platformRole: Number.isSafeInteger(dto.platform_role)
+      ? dto.platform_role
+      : 0,
+    status: Number.isSafeInteger(dto.status) ? dto.status : 0,
+    gatewayGroup: asText(dto.gateway_group),
+    teamRole: asTrainingTeamRole(dto.team_role),
+    membershipTeamId: asText(dto.membership_team_id),
+    membershipTeamName: asText(dto.membership_team_name),
+  }
+}
+
+export interface TrainingTeamPage<T> {
+  readonly items: T[]
+  readonly total: number
+}
+
+export async function listTrainingTeams(): Promise<
+  TrainingTeamPage<TrainingTeam>
+> {
+  const response = await api.get<
+    NewAPIResponse<{ teams: TrainingTeamDTO[]; total: number }>
+  >(TRAINING_TEAMS_ADMIN_BASE, {
+    params: { start_index: 0, limit: 200 },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  const data = requireNewAPIData(response.data)
+  const items = data.teams.flatMap((team) => {
+    const normalized = toTrainingTeam(team)
+    return normalized ? [normalized] : []
+  })
+  return { items, total: asCount(data.total) }
+}
+
+export async function createTrainingTeam(name: string): Promise<TrainingTeam> {
+  const response = await api.post<NewAPIResponse<TrainingTeamDTO>>(
+    TRAINING_TEAMS_ADMIN_BASE,
+    { name: name.trim() },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  const team = toTrainingTeam(requireNewAPIData(response.data))
+  if (!team) throw new Error('Training team response is invalid')
+  return team
+}
+
+export async function listTrainingTeamMembers(
+  teamId: string
+): Promise<TrainingTeamPage<TrainingTeamMember>> {
+  const response = await api.get<
+    NewAPIResponse<{ members: TrainingTeamMemberDTO[]; total: number }>
+  >(adminTeamUrl(teamId, '/members'), {
+    params: { start_index: 0, limit: 200 },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  const data = requireNewAPIData(response.data)
+  const items = data.members.flatMap((member) => {
+    const normalized = toTrainingTeamMember(member)
+    return normalized ? [normalized] : []
+  })
+  return { items, total: asCount(data.total) }
+}
+
+export async function searchTrainingTeamUsers(
+  teamId: string,
+  keyword: string
+): Promise<TrainingTeamPage<TrainingTeamMember>> {
+  const response = await api.get<
+    NewAPIResponse<{ users: TrainingTeamMemberDTO[]; total: number }>
+  >(adminTeamUrl(teamId, '/users/search'), {
+    params: { keyword: keyword.trim(), start_index: 0, limit: 50 },
+    skipBusinessError: true,
+    skipErrorHandler: true,
+    disableDuplicate: true,
+  })
+  const data = requireNewAPIData(response.data)
+  const items = data.users.flatMap((member) => {
+    const normalized = toTrainingTeamMember(member)
+    return normalized ? [normalized] : []
+  })
+  return { items, total: asCount(data.total) }
+}
+
+export async function addTrainingTeamMember(
+  teamId: string,
+  userId: number,
+  role: TrainingTeamRole
+): Promise<TrainingTeamMember> {
+  const response = await api.post<NewAPIResponse<TrainingTeamMemberDTO>>(
+    adminTeamUrl(teamId, '/members'),
+    { user_id: userId, role },
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  const member = toTrainingTeamMember(requireNewAPIData(response.data))
+  if (!member) throw new Error('Training team member response is invalid')
+  return member
+}
+
+export async function removeTrainingTeamMember(
+  teamId: string,
+  userId: number
+): Promise<void> {
+  const response = await api.delete<NewAPIResponse<{ user_id: number }>>(
+    adminTeamUrl(teamId, `/members/${userId}`),
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  requireNewAPIData(response.data)
 }
 
 function teamAnalyticsApiUrl(
@@ -105,6 +268,8 @@ function toDimension(value: unknown): TeamCompetencyDimension | null {
     dimensionId,
     score: normalizeScore(record?.score),
     sampleCount: asCount(record?.sample_count),
+    scenarioCount: asCount(record?.scenario_count),
+    state: record?.state === 'stable' ? 'stable' : 'exploring',
   }
 }
 
@@ -122,8 +287,6 @@ export function toTeamCompetencyRanking(
   return {
     memberId,
     memberName: asText(dto.member_name),
-    rank: Math.max(1, asCount(dto.rank)),
-    averageScore: normalizeScore(dto.average_score),
     sampleCount: asCount(dto.sample_count),
     dimensions: dto.dimensions.flatMap((dimension) => {
       const normalized = toDimension(dimension)
@@ -165,6 +328,44 @@ export function teamAnalyticsRequestErrorMessage(
     return detail || payload?.message || error.message || fallback
   }
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+export function isTrainingTeamAssignmentRequired(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false
+  const payload = error.response?.data as
+    | {
+        detail?: string | { code?: string; message?: string }
+        error?: {
+          details?: {
+            detail?: { code?: string; message?: string }
+          }
+        }
+      }
+    | undefined
+  const detail =
+    payload?.detail != null && typeof payload.detail !== 'string'
+      ? payload.detail
+      : payload?.error?.details?.detail
+  return detail?.code === TRAINING_TEAM_ASSIGNMENT_REQUIRED
+}
+
+export function retryTrainingTeamQuery(
+  failureCount: number,
+  error: unknown
+): boolean {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status ?? 0
+    if (status >= 400 && status < 500) return false
+  }
+  return failureCount < 2
+}
+
+export function isTrainingTeamQueryLoading(
+  enabled: boolean,
+  isPending: boolean,
+  isError: boolean
+): boolean {
+  return enabled && isPending && !isError
 }
 
 export async function listTeamCompetencyRankings(

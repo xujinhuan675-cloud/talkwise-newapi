@@ -91,6 +91,14 @@ describe('training scenario contract', () => {
     })
     assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.source, 'scenario_training')
+    assert.deepEqual(
+      (
+        request.task_config.metadata.scenario_training as {
+          training_points: string[]
+        }
+      ).training_points,
+      template.training_points
+    )
   })
 
   test('filters across category, difficulty, persona, and training points', () => {

@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 
-import { TrainingGrowthPage } from '@/features/training/growth/training-growth'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute('/_authenticated/training/growth')({
@@ -27,9 +26,5 @@ export const Route = createFileRoute('/_authenticated/training/growth')({
       throw redirect({ to: '/dashboard' })
     }
   },
-  component: TrainingGrowthRoute,
+  component: Outlet,
 })
-
-function TrainingGrowthRoute() {
-  return <TrainingGrowthPage />
-}

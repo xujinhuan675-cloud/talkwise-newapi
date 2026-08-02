@@ -115,6 +115,11 @@ export function useSidebarData(): SidebarData {
                 url: '/training/team/competencies',
                 requiredRole: ROLE.ADMIN,
               },
+              {
+                title: localize('Training teams', '\u8bad\u7ec3\u56e2\u961f'),
+                url: '/training/team/members',
+                requiredRole: ROLE.ADMIN,
+              },
             ],
           },
           {

@@ -214,7 +214,6 @@ describe('training review contract', () => {
           evaluation: {
             status: 'ready',
             evaluationId: 'evaluation-1',
-            overallScore: 4.25,
             retryable: false,
           },
         },
@@ -222,7 +221,12 @@ describe('training review contract', () => {
       {
         status: 'ready',
         evaluationId: 'evaluation-1',
-        overallScore: 4.25,
+        rubricVersion: null,
+        judgeVersion: null,
+        judgeModel: null,
+        effectiveness: null,
+        appropriateness: null,
+        competencies: {},
         message: null,
         retryable: false,
       }
@@ -241,9 +245,101 @@ describe('training review contract', () => {
       {
         status: 'failed',
         evaluationId: null,
-        overallScore: null,
+        rubricVersion: null,
+        judgeVersion: null,
+        judgeModel: null,
+        effectiveness: null,
+        appropriateness: null,
+        competencies: {},
         message: 'Evaluation provider unavailable',
         retryable: true,
+      }
+    )
+  })
+
+  test('keeps structured competency evidence and leaves unobserved ratings empty', () => {
+    assert.deepEqual(
+      getReviewEvaluationState({
+        completionReport: {
+          evaluation: {
+            status: 'ready',
+            rubric_version: 'communication-core-v1',
+            judge_version: 'evidence-anchored-v1',
+            judge_model: 'openai:gpt-test',
+            effectiveness: {
+              rating: 4,
+              evidence: [
+                { message_id: 'message-12', quote: 'What matters most?' },
+              ],
+              reason: 'Advanced the task goal.',
+            },
+            appropriateness: {
+              rating: 3,
+              evidence: [
+                { message_id: 'message-12', quote: 'What matters most?' },
+              ],
+              reason: 'Stayed respectful.',
+            },
+            competencies: {
+              attentiveness: {
+                opportunity_present: true,
+                rating: 4,
+                evidence: [
+                  { message_id: 'message-12', quote: 'What matters most?' },
+                  { message_id: '', quote: 'Missing source' },
+                ],
+                reason: 'Asked a relevant follow-up question.',
+                suggestion: 'Reflect the answer before moving on.',
+              },
+              composure: {
+                opportunity_present: false,
+                rating: null,
+                evidence: [],
+              },
+            },
+          },
+        },
+      }),
+      {
+        status: 'ready',
+        evaluationId: null,
+        rubricVersion: 'communication-core-v1',
+        judgeVersion: 'evidence-anchored-v1',
+        judgeModel: 'openai:gpt-test',
+        effectiveness: {
+          rating: 4,
+          evidence: [
+            { messageId: 'message-12', quote: 'What matters most?' },
+          ],
+          reason: 'Advanced the task goal.',
+        },
+        appropriateness: {
+          rating: 3,
+          evidence: [
+            { messageId: 'message-12', quote: 'What matters most?' },
+          ],
+          reason: 'Stayed respectful.',
+        },
+        competencies: {
+          attentiveness: {
+            opportunityPresent: true,
+            rating: 4,
+            evidence: [
+              { messageId: 'message-12', quote: 'What matters most?' },
+            ],
+            reason: 'Asked a relevant follow-up question.',
+            suggestion: 'Reflect the answer before moving on.',
+          },
+          composure: {
+            opportunityPresent: false,
+            rating: null,
+            evidence: [],
+            reason: '',
+            suggestion: '',
+          },
+        },
+        message: null,
+        retryable: false,
       }
     )
   })
@@ -333,7 +429,7 @@ describe('training review contract', () => {
         status: 'completed' as const,
         score: null,
         scoreStatus: 'pending' as const,
-        overallScore: null,
+        outcomeRating: null,
         lastPracticedAt: '2026-07-01T00:00:00Z',
         reportId: null,
         failureReason: null,
@@ -344,7 +440,7 @@ describe('training review contract', () => {
         status: 'completed' as const,
         score: null,
         scoreStatus: 'pending' as const,
-        overallScore: null,
+        outcomeRating: null,
         lastPracticedAt: '2026-07-02T00:00:00Z',
         reportId: null,
         failureReason: null,
@@ -382,14 +478,18 @@ describe('training review contract', () => {
         sample_size: 4,
         dimensions: [
           {
-            dimension_id: 'active_listening',
+            dimension_id: 'attentiveness',
             score: 84.2,
             sample_count: 4,
+            scenario_count: 3,
+            state: 'stable',
           },
           {
             dimension_id: 'invalid',
             score: Number.NaN,
             sample_count: 4,
+            scenario_count: 1,
+            state: 'exploring',
           },
         ],
       }),
@@ -397,9 +497,11 @@ describe('training review contract', () => {
         sampleSize: 4,
         dimensions: [
           {
-            dimensionId: 'active_listening',
+            dimensionId: 'attentiveness',
             score: 84,
             sampleCount: 4,
+            scenarioCount: 3,
+            state: 'stable',
           },
         ],
       }

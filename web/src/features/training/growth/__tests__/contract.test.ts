@@ -35,7 +35,7 @@ describe('training growth contract', () => {
         status: 'completed',
         score: 80,
         scoreStatus: 'ready',
-        overallScore: 4,
+        outcomeRating: 4,
         lastPracticedAt: '2026-07-30T09:00:00Z',
         reportId: 'report-1',
         failureReason: null,
@@ -46,7 +46,7 @@ describe('training growth contract', () => {
         status: 'in_progress',
         score: null,
         scoreStatus: 'pending',
-        overallScore: null,
+        outcomeRating: null,
         lastPracticedAt: '2026-07-29T09:00:00Z',
         reportId: null,
         failureReason: null,
@@ -66,7 +66,7 @@ describe('training growth contract', () => {
     const baseProgress = {
       scenarioId: 'renewal',
       sessionId: 'session-1',
-      overallScore: null,
+      outcomeRating: null,
       lastPracticedAt: '2026-07-30T09:00:00Z',
       reportId: null,
     }
@@ -101,6 +101,16 @@ describe('training growth contract', () => {
       }),
       'not_available'
     )
+    assert.equal(
+      getTrainingGrowthScoreState({
+        ...baseProgress,
+        status: 'completed',
+        score: null,
+        scoreStatus: 'unavailable',
+        failureReason: null,
+      }),
+      'not_available'
+    )
   })
 
   test('builds a profile only from real server competency samples', () => {
@@ -109,19 +119,49 @@ describe('training growth contract', () => {
       getTrainingGrowthProfileState({
         sampleSize: 1,
         dimensions: [
-          { dimensionId: 'persuasion', score: 80, sampleCount: 1 },
-          { dimensionId: 'listening', score: 75, sampleCount: 1 },
+          {
+            dimensionId: 'attentiveness',
+            score: 80,
+            sampleCount: 1,
+            scenarioCount: 1,
+            state: 'exploring',
+          },
+          {
+            dimensionId: 'expression',
+            score: 75,
+            sampleCount: 1,
+            scenarioCount: 1,
+            state: 'exploring',
+          },
         ],
       }),
-      'empty'
+      'ready'
     )
     assert.equal(
       getTrainingGrowthProfileState({
         sampleSize: 2,
         dimensions: [
-          { dimensionId: 'persuasion', score: 80, sampleCount: 2 },
-          { dimensionId: 'listening', score: 75, sampleCount: 2 },
-          { dimensionId: 'alignment', score: 70, sampleCount: 2 },
+          {
+            dimensionId: 'attentiveness',
+            score: 80,
+            sampleCount: 2,
+            scenarioCount: 2,
+            state: 'stable',
+          },
+          {
+            dimensionId: 'expression',
+            score: 75,
+            sampleCount: 2,
+            scenarioCount: 2,
+            state: 'stable',
+          },
+          {
+            dimensionId: 'coordination',
+            score: 70,
+            sampleCount: 2,
+            scenarioCount: 2,
+            state: 'stable',
+          },
         ],
       }),
       'ready'
