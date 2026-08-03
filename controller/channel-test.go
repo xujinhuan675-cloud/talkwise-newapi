@@ -3,36 +3,41 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+	volcenginechannel "github.com/QuantumNous/new-api/relay/channel/volcengine"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
-	"github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
-	hosttypes "github.com/QuantumNous/new-api/types"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
 
 	"github.com/samber/lo"
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type testResult struct {
@@ -41,10 +46,13 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
-func normalizeChannelTestEndpoint(channel *model.Channel, endpointType string) string {
+func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
 		return normalized
+	}
+	if strings.HasSuffix(modelName, ratio_setting.CompactModelSuffix) {
+		return string(constant.EndpointTypeOpenAIResponseCompact)
 	}
 	if channel != nil && channel.Type == constant.ChannelTypeCodex {
 		return string(constant.EndpointTypeOpenAIResponse)
@@ -82,13 +90,15 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		constant.ChannelTypeJimeng,
 		constant.ChannelTypeDoubaoVideo,
 		constant.ChannelTypeVidu,
-		constant.ChannelTypeTaskPlugin,
 	}
 	if lo.Contains(unsupportedTestChannelTypes, channel.Type) {
 		channelTypeName := constant.GetChannelTypeName(channel.Type)
 		return testResult{
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
 		}
+	}
+	if isVolcengineSpeechChannel(channel) {
+		return testVolcengineSpeechChannel(ctx, channel, testUserID, testModel)
 	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -108,7 +118,12 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		}
 	}
 
-	endpointType = normalizeChannelTestEndpoint(channel, endpointType)
+	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+
+	if endpointType == string(constant.EndpointTypeOpenAIVoice) &&
+		isOpenAIVoiceRealtimeModel(testModel) {
+		return testOpenAIVoiceRealtimeChannel(ctx, channel, testUserID, testModel)
+	}
 
 	requestPath := "/v1/chat/completions"
 
@@ -116,6 +131,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	if endpointType != "" {
 		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
 			requestPath = endpointInfo.Path
+		}
+		if endpointType == string(constant.EndpointTypeOpenAIVoice) {
+			requestPath = resolveOpenAIVoiceTestPath(testModel)
 		}
 	} else {
 		// 如果没有指定端点类型，使用原有的自动检测逻辑
@@ -143,12 +161,15 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			requestPath = "/v1/responses"
 		}
 
+		// responses compaction models (must use /v1/responses/compact)
+		if strings.HasSuffix(testModel, ratio_setting.CompactModelSuffix) {
+			requestPath = "/v1/responses/compact"
+		}
 	}
-	// Gemini 原生流式通过 URL action（:streamGenerateContent）表达而非请求体字段，
-	// GeminiChatRequest.IsStream 依据请求 URL 判定，合成请求路径需与生产入口保持一致
-	if isStream && constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
-		requestPath = strings.Replace(requestPath, ":generateContent", ":streamGenerateContent", 1)
+	if strings.HasPrefix(requestPath, "/v1/responses/compact") {
+		testModel = ratio_setting.WithCompactModelSuffix(testModel)
 	}
+
 	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, requestPath, nil)
 
 	cache, err := model.GetUserCache(testUserID)
@@ -163,6 +184,16 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	//c.Request.Header.Set("Authorization", "Bearer "+channel.Key)
 	c.Request.Header.Set("Content-Type", "application/json")
+	if err := prepareOpenAIVoiceTestRequest(c, endpointType, testModel); err != nil {
+		return testResult{
+			context:  c,
+			localErr: err,
+			newAPIError: types.NewError(
+				err,
+				types.ErrorCodeConvertRequestFailed,
+			),
+		}
+	}
 	c.Set("channel", channel.Type)
 	c.Set("base_url", channel.GetBaseURL())
 	group, _ := model.GetUserGroup(testUserID, false)
@@ -198,6 +229,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeOpenAIVoice:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -259,13 +292,6 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewError(err, types.ErrorCodeChannelModelMappedError),
 		}
 	}
-	if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewErrorWithStatusCode(err, types.ErrorCodeConvertRequestFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry()),
-		}
-	}
 
 	testModel = info.UpstreamModelName
 	// 更新请求中的模型名称
@@ -273,10 +299,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	apiType, _ := common.ChannelType2APIType(channel.Type)
 	if info.RelayMode == relayconstant.RelayModeResponsesCompact &&
-		!common.SupportsResponsesCompact(channel.Type, apiType) {
+		apiType != constant.APITypeOpenAI &&
+		apiType != constant.APITypeCodex {
 		return testResult{
 			context:     c,
-			localErr:    fmt.Errorf("responses compaction test is not supported for api type %d", apiType),
+			localErr:    fmt.Errorf("responses compaction test only supports openai/codex channels, got api type %d", apiType),
 			newAPIError: types.NewError(fmt.Errorf("unsupported api type: %d", apiType), types.ErrorCodeInvalidApiType),
 		}
 	}
@@ -371,19 +398,27 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
-	default:
-		switch req := request.(type) {
-		case *dto.GeneralOpenAIRequest:
-			convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, req)
-		case *dto.ClaudeRequest:
-			convertedRequest, err = adaptor.ConvertClaudeRequest(c, info, req)
-		case *dto.GeminiChatRequest:
-			convertedRequest, err = adaptor.ConvertGeminiRequest(c, info, req)
-		default:
+	case relayconstant.RelayModeAudioSpeech,
+		relayconstant.RelayModeAudioTranscription,
+		relayconstant.RelayModeAudioTranslation:
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			convertedRequest, err = adaptor.ConvertAudioRequest(c, info, *audioReq)
+		} else {
 			return testResult{
 				context:     c,
-				localErr:    errors.New("invalid chat request type"),
-				newAPIError: types.NewError(errors.New("invalid chat request type"), types.ErrorCodeConvertRequestFailed),
+				localErr:    errors.New("invalid audio request type"),
+				newAPIError: types.NewError(errors.New("invalid audio request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
+	default:
+		// Chat/Completion 等其他请求类型
+		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
+			convertedRequest, err = adaptor.ConvertOpenAIRequest(c, info, generalReq)
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid general request type"),
+				newAPIError: types.NewError(errors.New("invalid general request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
 	}
@@ -395,44 +430,62 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 		}
 	}
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
-		}
-	}
 
-	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
-	//if err != nil {
-	//	return testResult{
-	//		context:     c,
-	//		localErr:    err,
-	//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-	//	}
-	//}
-
-	if len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
-		if err != nil {
-			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
-				return testResult{
-					context:     c,
-					localErr:    fixedErr,
-					newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
-				}
-			}
+	var requestBody io.Reader
+	isAudioRequest := info.RelayMode == relayconstant.RelayModeAudioSpeech ||
+		info.RelayMode == relayconstant.RelayModeAudioTranscription ||
+		info.RelayMode == relayconstant.RelayModeAudioTranslation
+	if isAudioRequest {
+		var ok bool
+		requestBody, ok = convertedRequest.(io.Reader)
+		if !ok {
+			err := fmt.Errorf("invalid converted audio request type: %T", convertedRequest)
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 			}
 		}
-	}
+	} else {
+		jsonData, marshalErr := common.Marshal(convertedRequest)
+		if marshalErr != nil {
+			return testResult{
+				context:     c,
+				localErr:    marshalErr,
+				newAPIError: types.NewError(marshalErr, types.ErrorCodeJsonMarshalFailed),
+			}
+		}
 
-	requestBody := bytes.NewBuffer(jsonData)
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
+		//if err != nil {
+		//	return testResult{
+		//		context:     c,
+		//		localErr:    err,
+		//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+		//	}
+		//}
+
+		if len(info.ParamOverride) > 0 {
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			if err != nil {
+				if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
+					return testResult{
+						context:     c,
+						localErr:    fixedErr,
+						newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
+					}
+				}
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				}
+			}
+		}
+
+		requestBody = bytes.NewBuffer(jsonData)
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -523,6 +576,243 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 }
 
+func isVolcengineSpeechChannel(channel *model.Channel) bool {
+	if channel == nil || channel.Type != constant.ChannelTypeVolcEngine {
+		return false
+	}
+	switch channel.GetOtherSettings().VolcengineServiceMode {
+	case volcenginechannel.ServiceModeVoiceV3:
+		return true
+	default:
+		return false
+	}
+}
+
+func isOpenAIVoiceRealtimeModel(modelName string) bool {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(modelName, "realtime") ||
+		strings.Contains(modelName, "live-transcribe")
+}
+
+func isOpenAIVoiceTranscriptionModel(modelName string) bool {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(modelName, "whisper") ||
+		strings.Contains(modelName, "transcrib") ||
+		strings.Contains(modelName, "speech-to-text") ||
+		strings.Contains(modelName, "asr")
+}
+
+func resolveOpenAIVoiceTestPath(modelName string) string {
+	if isOpenAIVoiceTranscriptionModel(modelName) {
+		return "/v1/audio/transcriptions"
+	}
+	return "/v1/audio/speech"
+}
+
+func prepareOpenAIVoiceTestRequest(c *gin.Context, endpointType, modelName string) error {
+	if c == nil || c.Request == nil ||
+		endpointType != string(constant.EndpointTypeOpenAIVoice) ||
+		resolveOpenAIVoiceTestPath(modelName) != "/v1/audio/transcriptions" {
+		return nil
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", modelName); err != nil {
+		return fmt.Errorf("write audio test model: %w", err)
+	}
+	if err := writer.WriteField("response_format", "json"); err != nil {
+		return fmt.Errorf("write audio test response format: %w", err)
+	}
+	part, err := writer.CreateFormFile("file", "channel-test.wav")
+	if err != nil {
+		return fmt.Errorf("create audio test file: %w", err)
+	}
+	if _, err := part.Write(buildChannelTestWAV()); err != nil {
+		return fmt.Errorf("write audio test file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close audio test form: %w", err)
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewReader(body.Bytes()))
+	c.Request.ContentLength = int64(body.Len())
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	return nil
+}
+
+func buildChannelTestWAV() []byte {
+	const (
+		sampleRate     = uint32(16000)
+		sampleCount    = uint32(16000 / 4)
+		bytesPerSample = uint32(2)
+	)
+	dataSize := sampleCount * bytesPerSample
+	buffer := bytes.NewBuffer(make([]byte, 0, 44+int(dataSize)))
+
+	buffer.WriteString("RIFF")
+	_ = binary.Write(buffer, binary.LittleEndian, uint32(36)+dataSize)
+	buffer.WriteString("WAVE")
+	buffer.WriteString("fmt ")
+	_ = binary.Write(buffer, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buffer, binary.LittleEndian, sampleRate)
+	_ = binary.Write(buffer, binary.LittleEndian, sampleRate*bytesPerSample)
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(bytesPerSample))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(16))
+	buffer.WriteString("data")
+	_ = binary.Write(buffer, binary.LittleEndian, dataSize)
+	_, _ = buffer.Write(make([]byte, dataSize))
+	return buffer.Bytes()
+}
+
+func testOpenAIVoiceRealtimeChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string) testResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	requestPath := "/v1/realtime?model=" + url.QueryEscape(testModel)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, requestPath, nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Sec-WebSocket-Protocol", "realtime")
+
+	cache, err := model.GetUserCache(testUserID)
+	if err != nil {
+		return testResult{context: c, localErr: err}
+	}
+	cache.WriteContext(c)
+	c.Set("id", testUserID)
+	c.Set("channel", channel.Type)
+	c.Set("base_url", channel.GetBaseURL())
+	group, _ := model.GetUserGroup(testUserID, false)
+	c.Set("group", group)
+
+	if newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel); newAPIError != nil {
+		return testResult{
+			context:     c,
+			localErr:    newAPIError,
+			newAPIError: newAPIError,
+		}
+	}
+
+	info := relaycommon.GenRelayInfoWs(c, nil)
+	info.IsChannelTest = true
+	info.InitChannelMeta(c)
+
+	apiType, _ := common.ChannelType2APIType(channel.Type)
+	adaptor := relay.GetAdaptor(apiType)
+	if adaptor == nil {
+		err := fmt.Errorf("invalid api type: %d, adaptor is nil", apiType)
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeInvalidApiType),
+		}
+	}
+	adaptor.Init(info)
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+		}
+	}
+	headers := http.Header{}
+	if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeDoRequestFailed),
+		}
+	}
+
+	conn, _, err := websocket.DefaultDialer.Dial(requestURL, headers)
+	if err != nil {
+		return testResult{
+			context:     c,
+			localErr:    fmt.Errorf("realtime probe failed: %w", err),
+			newAPIError: types.NewError(err, types.ErrorCodeDoRequestFailed),
+		}
+	}
+	_ = conn.Close()
+	return testResult{context: c}
+}
+
+func testVolcengineSpeechChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string) testResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	settings := channel.GetOtherSettings()
+	testModel = strings.TrimSpace(testModel)
+	if testModel == "" && channel.TestModel != nil {
+		testModel = strings.TrimSpace(*channel.TestModel)
+	}
+	if testModel == "" {
+		models := channel.GetModels()
+		if len(models) > 0 {
+			testModel = strings.TrimSpace(models[0])
+		}
+	}
+	if testModel == "" {
+		testModel = "1.2.1.1"
+	}
+
+	probeMode := volcenginechannel.ResolveServiceModeForModel(
+		settings.VolcengineServiceMode,
+		testModel,
+	)
+	requestPath := "/v1/audio/speech"
+	requestMethod := http.MethodPost
+	var relayFormat types.RelayFormat = types.RelayFormatOpenAIAudio
+	request := dto.Request(&dto.AudioRequest{Model: testModel})
+	if probeMode == volcenginechannel.RouteASRV3 {
+		requestPath = "/v1/audio/transcriptions"
+	}
+	if probeMode == volcenginechannel.RouteRealtimeV3 {
+		requestPath = "/v1/realtime?model=" + url.QueryEscape(testModel)
+		requestMethod = http.MethodGet
+		relayFormat = types.RelayFormatOpenAIRealtime
+		request = &dto.BaseRequest{}
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(ctx, requestMethod, requestPath, nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	cache, err := model.GetUserCache(testUserID)
+	if err != nil {
+		return testResult{context: c, localErr: err}
+	}
+	cache.WriteContext(c)
+	c.Set("id", testUserID)
+	group, _ := model.GetUserGroup(testUserID, false)
+	c.Set("group", group)
+	if relayErr := middleware.SetupContextForSelectedChannel(c, channel, testModel); relayErr != nil {
+		return testResult{context: c, localErr: relayErr, newAPIError: relayErr}
+	}
+
+	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
+	if err != nil {
+		relayErr := types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	info.IsChannelTest = true
+	info.InitChannelMeta(c)
+	if err := helper.ModelMappedHelper(c, info, request); err != nil {
+		relayErr := types.NewError(err, types.ErrorCodeChannelModelMappedError)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	if err := volcenginechannel.ProbeSpeechChannel(c, info); err != nil {
+		relayErr := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	return testResult{context: c}
+}
+
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
 	if info == nil {
 		return nil
@@ -536,7 +826,7 @@ func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Requ
 	return nil
 }
 
-func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
+func settleTestQuota(info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage) (int, *billingexpr.TieredResult) {
 	if usage != nil && info != nil && info.TieredBillingSnapshot != nil {
 		isClaudeUsageSemantic := usage.UsageSemantic == "anthropic" || info.GetFinalRequestRelayFormat() == types.RelayFormatClaude
 		usedVars := billingexpr.UsedVars(info.TieredBillingSnapshot.ExprString)
@@ -547,19 +837,18 @@ func settleTestQuota(info *relaycommon.RelayInfo, priceData hosttypes.PriceData,
 
 	quota := 0
 	if !priceData.UsePrice {
-		completionQuota := common.QuotaRound(float64(usage.CompletionTokens) * priceData.CompletionRatio)
-		quota = common.QuotaRound(float64(usage.PromptTokens) + float64(completionQuota))
-		quota = common.QuotaRound(float64(quota) * priceData.ModelRatio)
+		quota = usage.PromptTokens + int(math.Round(float64(usage.CompletionTokens)*priceData.CompletionRatio))
+		quota = int(math.Round(float64(quota) * priceData.ModelRatio))
 		if priceData.ModelRatio != 0 && quota <= 0 {
 			quota = 1
 		}
 		return quota, nil
 	}
 
-	return common.QuotaFromFloat(priceData.ModelPrice * common.QuotaPerUnit), nil
+	return int(priceData.ModelPrice * common.QuotaPerUnit), nil
 }
 
-func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData hosttypes.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) *model.LogOther {
+func buildTestLogOther(c *gin.Context, info *relaycommon.RelayInfo, priceData types.PriceData, usage *dto.Usage, tieredResult *billingexpr.TieredResult) map[string]interface{} {
 	other := service.GenerateTextOtherInfo(c, info, priceData.ModelRatio, priceData.GroupRatioInfo.GroupRatio, priceData.CompletionRatio,
 		usage.PromptTokensDetails.CachedTokens, priceData.CacheRatio, priceData.ModelPrice, priceData.GroupRatioInfo.GroupSpecialRatio)
 	if tieredResult != nil {
@@ -613,7 +902,7 @@ func detectErrorFromTestResponseBody(respBody []byte) error {
 		return fmt.Errorf("upstream error: %s", message)
 	}
 
-	for line := range bytes.SplitSeq(b, []byte{'\n'}) {
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
@@ -639,7 +928,7 @@ func validateStreamTestResponseBody(respBody []byte) error {
 		return errors.New("stream response body is empty")
 	}
 
-	for line := range bytes.SplitSeq(b, []byte{'\n'}) {
+	for _, line := range bytes.Split(b, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 || !bytes.HasPrefix(line, []byte("data:")) {
 			continue
@@ -739,31 +1028,25 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 				Model: model,
 				Input: testResponsesInput,
 			}
-		case constant.EndpointTypeAnthropic:
-			return &dto.ClaudeRequest{
-				Model:     model,
-				Stream:    lo.ToPtr(isStream),
-				MaxTokens: lo.ToPtr(uint(16)),
-				Messages: []dto.ClaudeMessage{
-					{
-						Role:    "user",
-						Content: "hi",
-					},
-				},
+		case constant.EndpointTypeOpenAIVoice:
+			if isOpenAIVoiceTranscriptionModel(model) {
+				return &dto.AudioRequest{
+					Model:          model,
+					ResponseFormat: "json",
+				}
 			}
-		case constant.EndpointTypeGemini:
-			return &dto.GeminiChatRequest{
-				Contents: []dto.GeminiChatContent{
-					{
-						Role:  "user",
-						Parts: []dto.GeminiPart{{Text: "hi"}},
-					},
-				},
-				GenerationConfig: dto.GeminiChatGenerationConfig{
-					MaxOutputTokens: lo.ToPtr(uint(3000)),
-				},
+			return &dto.AudioRequest{
+				Model:          model,
+				Input:          "This is a channel connectivity test.",
+				Voice:          "alloy",
+				ResponseFormat: "mp3",
 			}
-		case constant.EndpointTypeOpenAI:
+		case constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
+			// 返回 GeneralOpenAIRequest
+			maxTokens := uint(16)
+			if constant.EndpointType(endpointType) == constant.EndpointTypeGemini {
+				maxTokens = 3000
+			}
 			req := &dto.GeneralOpenAIRequest{
 				Model:  model,
 				Stream: lo.ToPtr(isStream),
@@ -773,7 +1056,7 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 						Content: "hi",
 					},
 				},
-				MaxTokens: lo.ToPtr(uint(16)),
+				MaxTokens: lo.ToPtr(maxTokens),
 			}
 			if isStream {
 				req.StreamOptions = &dto.StreamOptions{IncludeUsage: true}
@@ -800,6 +1083,14 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 		return &dto.EmbeddingRequest{
 			Model: model,
 			Input: []any{"hello world"},
+		}
+	}
+
+	// Responses compaction models (must use /v1/responses/compact)
+	if strings.HasSuffix(model, ratio_setting.CompactModelSuffix) {
+		return &dto.OpenAIResponsesCompactionRequest{
+			Model: model,
+			Input: testResponsesInput,
 		}
 	}
 
@@ -917,165 +1208,90 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
-func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, testUserID int, allowDisable bool, disableThreshold int64) channelTestSummary {
+// performChannelTests runs the channel test loop synchronously, honoring ctx
+// cancellation so a system-task runner that loses its lease stops promptly. When
+// report is non-nil it is called after each channel with (processed, total) so
+// the system task can surface progress.
+func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, report func(processed, total int)) channelTestSummary {
 	summary := channelTestSummary{}
-	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
-	tik := time.Now()
-	result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
-	milliseconds := time.Since(tik).Milliseconds()
-	if ctx.Err() != nil {
-		return summary
+	var disableThreshold = int64(common.ChannelDisableThreshold * 1000)
+	if disableThreshold == 0 {
+		disableThreshold = 10000000 // a impossible value
 	}
 
-	summary.Tested++
-
-	shouldBanChannel := false
-	newAPIError := result.newAPIError
-	if newAPIError != nil {
-		shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
-	}
-
-	if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
-		if milliseconds > disableThreshold {
-			err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
-			newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
-			shouldBanChannel = true
-		}
-	}
-
-	if newAPIError == nil {
-		summary.Succeeded++
-	} else {
-		summary.Failed++
-	}
-
-	if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-		processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, nil)
-		summary.Disabled++
-	}
-
-	if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
-		service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
-		summary.Enabled++
-	}
-
-	channel.UpdateResponseTime(milliseconds)
-	return summary
-}
-
-// runChannelTestWorkers executes independent channel tests with bounded
-// concurrency. Results and progress are reduced by the caller goroutine, so
-// summary counts and the progress reporter remain serialized.
-func runChannelTestWorkers(
-	ctx context.Context,
-	channels []*model.Channel,
-	concurrency int,
-	run func(context.Context, *model.Channel) channelTestSummary,
-	report func(processed, total int),
-) channelTestSummary {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	total := len(channels)
-	if report != nil {
-		report(0, total)
-	}
-	if total == 0 {
-		return channelTestSummary{}
-	}
+	for index, channel := range channels {
+		if ctx != nil && ctx.Err() != nil {
+			break
+		}
+		if report != nil {
+			report(index, total) // channels completed before this one
+		}
+		if channel.Status == common.ChannelStatusManuallyDisabled {
+			continue
+		}
+		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
+		tik := time.Now()
+		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		tok := time.Now()
+		milliseconds := tok.Sub(tik).Milliseconds()
+		if ctx != nil && ctx.Err() != nil {
+			break
+		}
 
-	workerCount := min(operation_setting.NormalizeChannelTestConcurrency(concurrency), total)
-	jobs := make(chan *model.Channel)
-	results := make(chan channelTestSummary)
+		summary.Tested++
 
-	var workers sync.WaitGroup
-	workers.Add(workerCount)
-	for range workerCount {
-		go func() {
-			defer workers.Done()
-			for {
+		shouldBanChannel := false
+		newAPIError := result.newAPIError
+		// request error disables the channel
+		if newAPIError != nil {
+			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+		}
+
+		// 当错误检查通过，才检查响应时间
+		if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
+			if milliseconds > disableThreshold {
+				err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
+				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
+				shouldBanChannel = true
+			}
+		}
+
+		if newAPIError == nil {
+			summary.Succeeded++
+		} else {
+			summary.Failed++
+		}
+
+		// disable channel
+		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
+			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+			summary.Disabled++
+		}
+
+		// enable channel
+		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
+			summary.Enabled++
+		}
+
+		channel.UpdateResponseTime(milliseconds)
+		if common.RequestInterval > 0 {
+			if ctx == nil {
+				time.Sleep(common.RequestInterval)
+			} else {
 				select {
 				case <-ctx.Done():
-					return
-				case channel, ok := <-jobs:
-					if !ok {
-						return
-					}
-					if ctx.Err() != nil {
-						return
-					}
-
-					result := channelTestSummary{}
-					if channel != nil && channel.Status != common.ChannelStatusManuallyDisabled {
-						result = run(ctx, channel)
-					}
-
-					results <- result
-
-					if common.RequestInterval > 0 {
-						select {
-						case <-ctx.Done():
-							return
-						case <-time.After(common.RequestInterval):
-						}
-					}
+					return summary
+				case <-time.After(common.RequestInterval):
 				}
 			}
-		}()
+		}
 	}
-
-	go func() {
-		defer close(jobs)
-		for _, channel := range channels {
-			select {
-			case <-ctx.Done():
-				return
-			case jobs <- channel:
-			}
-		}
-	}()
-
-	go func() {
-		workers.Wait()
-		close(results)
-	}()
-
-	summary := channelTestSummary{}
-	processed := 0
-	for result := range results {
-		summary.Tested += result.Tested
-		summary.Succeeded += result.Succeeded
-		summary.Failed += result.Failed
-		summary.Disabled += result.Disabled
-		summary.Enabled += result.Enabled
-		processed++
-		if report != nil && ctx.Err() == nil {
-			report(processed, total)
-		}
+	if report != nil && (ctx == nil || ctx.Err() == nil) {
+		report(total, total) // mark complete only when the full set was tested
 	}
 	return summary
-}
-
-// performChannelTests runs channel health checks with the configured bounded
-// concurrency and honors cancellation when a system-task runner loses its
-// lease.
-func performChannelTests(ctx context.Context, channels []*model.Channel, testUserID int, allowDisable bool, concurrency int, report func(processed, total int)) channelTestSummary {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	disableThreshold := int64(common.ChannelDisableThreshold * 1000)
-	if disableThreshold == 0 {
-		disableThreshold = 10000000 // an impossible value
-	}
-	return runChannelTestWorkers(
-		ctx,
-		channels,
-		concurrency,
-		func(ctx context.Context, channel *model.Channel) channelTestSummary {
-			return testChannelForHealthCheck(ctx, channel, testUserID, allowDisable, disableThreshold)
-		},
-		report,
-	)
 }
 
 // runChannelTestTask runs one synchronous channel test cycle for the system task
@@ -1100,8 +1316,7 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	}
 	selected := selectChannelsForAutomaticTest(channels, mode)
 	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
-	concurrency := operation_setting.GetMonitorSetting().ChannelTestConcurrency
-	summary := performChannelTests(ctx, selected, testUserID, allowDisable, concurrency, report)
+	summary := performChannelTests(ctx, selected, testUserID, allowDisable, report)
 	if notify && (ctx == nil || ctx.Err() == nil) {
 		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 	}
@@ -1112,9 +1327,6 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 	selected := make([]*model.Channel, 0, len(channels))
 	for _, channel := range channels {
 		if channel.Status == common.ChannelStatusManuallyDisabled {
-			continue
-		}
-		if mode == operation_setting.ChannelTestModeAutoBanOnly && !channel.GetAutoBan() {
 			continue
 		}
 		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {
