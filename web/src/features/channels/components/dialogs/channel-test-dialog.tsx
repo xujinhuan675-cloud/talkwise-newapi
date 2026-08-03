@@ -181,6 +181,10 @@ function getLatestChannelTestCachePatch(
 const endpointTypeOptions: Array<{ value: string; label: string }> = [
   { value: 'auto', label: 'Auto detect (default)' },
   { value: 'openai', label: 'OpenAI (/v1/chat/completions)' },
+  {
+    value: 'openai-voice',
+    label: 'OpenAI Voice & Realtime (auto: /v1/audio/*, /v1/realtime)',
+  },
   { value: 'openai-response', label: 'OpenAI Responses (/v1/responses)' },
   {
     value: 'openai-response-compact',
@@ -208,12 +212,13 @@ const STREAM_INCOMPATIBLE_ENDPOINTS = new Set([
   'image-generation',
   'jina-rerank',
   'openai-response-compact',
+  'openai-voice',
 ])
 
 const MODEL_PRICE_ERROR_CODE = 'model_price_error'
 const FAILURE_SUMMARY_MAX_LENGTH = 96
-const BATCH_TEST_CONCURRENCY = 5
-const BATCH_TEST_DELAY_MS = 100
+const BATCH_TEST_CONCURRENCY = 20
+const BATCH_TEST_DELAY_MS = 0
 
 type FailureStatusDisplay = {
   summary: string

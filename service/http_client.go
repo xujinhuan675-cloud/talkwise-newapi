@@ -88,6 +88,7 @@ func newRelayHTTPTransport() *http.Transport {
 	}
 	transport.MaxIdleConns = common.RelayMaxIdleConns
 	transport.MaxIdleConnsPerHost = common.RelayMaxIdleConnsPerHost
+	transport.MaxConnsPerHost = common.RelayMaxConnsPerHost
 	transport.IdleConnTimeout = time.Duration(common.RelayIdleConnTimeout) * time.Second
 	transport.ForceAttemptHTTP2 = true
 	if common.TLSInsecureSkipVerify {
