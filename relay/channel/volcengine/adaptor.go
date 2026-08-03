@@ -47,6 +47,17 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 }
 
 func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInfo, request dto.AudioRequest) (io.Reader, error) {
+	switch resolvedServiceMode(info) {
+	case RouteTTSV3:
+		return convertTTSV3Request(c, info, request)
+	case RouteASRV3:
+		return convertASRV3Request(c, info, request)
+	case RouteRealtimeV3:
+		return nil, errors.New("volcengine realtime uses the websocket relay")
+	case ServiceModeVoiceV3:
+		return nil, errors.New("volcengine voice channel requires an audio or realtime endpoint")
+	}
+
 	if info.RelayMode != constant.RelayModeAudioSpeech {
 		return nil, errors.New("unsupported audio relay mode")
 	}
@@ -253,6 +264,25 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 		}
 		return fmt.Sprintf("%s/api/v3/chat/completions", baseUrl), nil
 	default:
+		switch resolvedServiceMode(info) {
+		case RouteTTSV3:
+			if info.RelayMode != constant.RelayModeAudioSpeech {
+				return "", fmt.Errorf("volcengine TTS channel only supports /v1/audio/speech")
+			}
+			return speechEndpoint(baseUrl, defaultTTSV3Path, "https")
+		case RouteASRV3:
+			if info.RelayMode != constant.RelayModeAudioTranscription && info.RelayMode != constant.RelayModeAudioTranslation {
+				return "", fmt.Errorf("volcengine ASR channel only supports audio transcription or translation")
+			}
+			return speechEndpoint(baseUrl, defaultASRV3Path, "wss")
+		case RouteRealtimeV3:
+			if info.RelayMode != constant.RelayModeRealtime {
+				return "", fmt.Errorf("volcengine realtime channel only supports /v1/realtime")
+			}
+			return speechEndpoint(baseUrl, defaultRealtimeV3Path, "wss")
+		case ServiceModeVoiceV3:
+			return "", fmt.Errorf("volcengine voice channel only supports audio or realtime endpoints")
+		}
 		switch info.RelayMode {
 		case constant.RelayModeChatCompletions:
 			if hasSpecialPlan && specialPlan.OpenAIBaseURL != "" {
@@ -286,6 +316,35 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
+	mode := resolvedServiceMode(info)
+	if mode == RouteTTSV3 || mode == RouteASRV3 || mode == RouteRealtimeV3 {
+		fallbackResourceID := defaultTTSResourceID
+		if mode == RouteASRV3 {
+			fallbackResourceID = defaultASRResourceID
+		} else if mode == RouteRealtimeV3 {
+			fallbackResourceID = defaultRealtimeResourceID
+		}
+		var auth speechAuth
+		var err error
+		if mode == RouteRealtimeV3 {
+			auth, err = resolveRealtimeAuth(info)
+		} else {
+			auth, err = resolveSpeechAuth(info, fallbackResourceID)
+		}
+		if err != nil {
+			return err
+		}
+		connectID := ""
+		if mode == RouteRealtimeV3 {
+			connectID = newConnectID()
+		}
+		applySpeechAuthHeaders(*req, auth, connectID)
+		req.Set("Content-Type", "application/json")
+		return nil
+	}
+	if mode == ServiceModeVoiceV3 {
+		return errors.New("volcengine voice channel requires an audio or realtime endpoint")
+	}
 
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		parts := strings.Split(info.ApiKey, "|")
@@ -330,6 +389,14 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 }
 
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
+	switch resolvedServiceMode(info) {
+	case RouteASRV3:
+		return doASRV3Request(c, info)
+	case RouteRealtimeV3:
+		return channel.DoWssRequest(a, c, info, requestBody)
+	case ServiceModeVoiceV3:
+		return nil, errors.New("volcengine voice channel requires an audio or realtime endpoint")
+	}
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		baseUrl := info.ChannelBaseUrl
 		if baseUrl == "" {
@@ -346,6 +413,20 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
+	switch resolvedServiceMode(info) {
+	case RouteTTSV3:
+		return handleTTSV3Response(c, resp, info)
+	case RouteASRV3:
+		return handleASRV3Response(c, resp)
+	case RouteRealtimeV3:
+		return handleRealtimeV3(c, info)
+	case ServiceModeVoiceV3:
+		return nil, types.NewErrorWithStatusCode(
+			errors.New("volcengine voice channel requires an audio or realtime endpoint"),
+			types.ErrorCodeBadRequestBody,
+			http.StatusBadRequest,
+		)
+	}
 	if info.RelayFormat == types.RelayFormatClaude {
 		if _, ok := channelconstant.ChannelSpecialBases[info.ChannelBaseUrl]; ok {
 			adaptor := claude.Adaptor{}

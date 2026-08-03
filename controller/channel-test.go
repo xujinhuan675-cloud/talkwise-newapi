@@ -3,13 +3,16 @@ package controller
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/relay"
+	volcenginechannel "github.com/QuantumNous/new-api/relay/channel/volcengine"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -33,6 +37,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
 )
 
 type testResult struct {
@@ -92,6 +97,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			localErr: fmt.Errorf("%s channel test is not supported", channelTypeName),
 		}
 	}
+	if isVolcengineSpeechChannel(channel) {
+		return testVolcengineSpeechChannel(ctx, channel, testUserID, testModel)
+	}
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
@@ -112,12 +120,20 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
 
+	if endpointType == string(constant.EndpointTypeOpenAIVoice) &&
+		isOpenAIVoiceRealtimeModel(testModel) {
+		return testOpenAIVoiceRealtimeChannel(ctx, channel, testUserID, testModel)
+	}
+
 	requestPath := "/v1/chat/completions"
 
 	// 如果指定了端点类型，使用指定的端点类型
 	if endpointType != "" {
 		if endpointInfo, ok := common.GetDefaultEndpointInfo(constant.EndpointType(endpointType)); ok {
 			requestPath = endpointInfo.Path
+		}
+		if endpointType == string(constant.EndpointTypeOpenAIVoice) {
+			requestPath = resolveOpenAIVoiceTestPath(testModel)
 		}
 	} else {
 		// 如果没有指定端点类型，使用原有的自动检测逻辑
@@ -168,6 +184,16 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 
 	//c.Request.Header.Set("Authorization", "Bearer "+channel.Key)
 	c.Request.Header.Set("Content-Type", "application/json")
+	if err := prepareOpenAIVoiceTestRequest(c, endpointType, testModel); err != nil {
+		return testResult{
+			context:  c,
+			localErr: err,
+			newAPIError: types.NewError(
+				err,
+				types.ErrorCodeConvertRequestFailed,
+			),
+		}
+	}
 	c.Set("channel", channel.Type)
 	c.Set("base_url", channel.GetBaseURL())
 	group, _ := model.GetUserGroup(testUserID, false)
@@ -203,6 +229,8 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			relayFormat = types.RelayFormatOpenAIImage
 		case constant.EndpointTypeEmbeddings:
 			relayFormat = types.RelayFormatEmbedding
+		case constant.EndpointTypeOpenAIVoice:
+			relayFormat = types.RelayFormatOpenAIAudio
 		default:
 			relayFormat = types.RelayFormatOpenAI
 		}
@@ -370,6 +398,18 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 				newAPIError: types.NewError(errors.New("invalid response compaction request type"), types.ErrorCodeConvertRequestFailed),
 			}
 		}
+	case relayconstant.RelayModeAudioSpeech,
+		relayconstant.RelayModeAudioTranscription,
+		relayconstant.RelayModeAudioTranslation:
+		if audioReq, ok := request.(*dto.AudioRequest); ok {
+			convertedRequest, err = adaptor.ConvertAudioRequest(c, info, *audioReq)
+		} else {
+			return testResult{
+				context:     c,
+				localErr:    errors.New("invalid audio request type"),
+				newAPIError: types.NewError(errors.New("invalid audio request type"), types.ErrorCodeConvertRequestFailed),
+			}
+		}
 	default:
 		// Chat/Completion 等其他请求类型
 		if generalReq, ok := request.(*dto.GeneralOpenAIRequest); ok {
@@ -390,44 +430,62 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 			newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 		}
 	}
-	jsonData, err := common.Marshal(convertedRequest)
-	if err != nil {
-		return testResult{
-			context:     c,
-			localErr:    err,
-			newAPIError: types.NewError(err, types.ErrorCodeJsonMarshalFailed),
-		}
-	}
 
-	//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
-	//if err != nil {
-	//	return testResult{
-	//		context:     c,
-	//		localErr:    err,
-	//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
-	//	}
-	//}
-
-	if len(info.ParamOverride) > 0 {
-		jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
-		if err != nil {
-			if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
-				return testResult{
-					context:     c,
-					localErr:    fixedErr,
-					newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
-				}
-			}
+	var requestBody io.Reader
+	isAudioRequest := info.RelayMode == relayconstant.RelayModeAudioSpeech ||
+		info.RelayMode == relayconstant.RelayModeAudioTranscription ||
+		info.RelayMode == relayconstant.RelayModeAudioTranslation
+	if isAudioRequest {
+		var ok bool
+		requestBody, ok = convertedRequest.(io.Reader)
+		if !ok {
+			err := fmt.Errorf("invalid converted audio request type: %T", convertedRequest)
 			return testResult{
 				context:     c,
 				localErr:    err,
-				newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
 			}
 		}
-	}
+	} else {
+		jsonData, marshalErr := common.Marshal(convertedRequest)
+		if marshalErr != nil {
+			return testResult{
+				context:     c,
+				localErr:    marshalErr,
+				newAPIError: types.NewError(marshalErr, types.ErrorCodeJsonMarshalFailed),
+			}
+		}
 
-	requestBody := bytes.NewBuffer(jsonData)
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+		//jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings)
+		//if err != nil {
+		//	return testResult{
+		//		context:     c,
+		//		localErr:    err,
+		//		newAPIError: types.NewError(err, types.ErrorCodeConvertRequestFailed),
+		//	}
+		//}
+
+		if len(info.ParamOverride) > 0 {
+			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+			if err != nil {
+				if fixedErr, ok := relaycommon.AsParamOverrideReturnError(err); ok {
+					return testResult{
+						context:     c,
+						localErr:    fixedErr,
+						newAPIError: relaycommon.NewAPIErrorFromParamOverride(fixedErr),
+					}
+				}
+				return testResult{
+					context:     c,
+					localErr:    err,
+					newAPIError: types.NewError(err, types.ErrorCodeChannelParamOverrideInvalid),
+				}
+			}
+		}
+
+		requestBody = bytes.NewBuffer(jsonData)
+		c.Request.Body = io.NopCloser(bytes.NewBuffer(jsonData))
+	}
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	if err != nil {
 		return testResult{
@@ -516,6 +574,243 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 		localErr:    nil,
 		newAPIError: nil,
 	}
+}
+
+func isVolcengineSpeechChannel(channel *model.Channel) bool {
+	if channel == nil || channel.Type != constant.ChannelTypeVolcEngine {
+		return false
+	}
+	switch channel.GetOtherSettings().VolcengineServiceMode {
+	case volcenginechannel.ServiceModeVoiceV3:
+		return true
+	default:
+		return false
+	}
+}
+
+func isOpenAIVoiceRealtimeModel(modelName string) bool {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(modelName, "realtime") ||
+		strings.Contains(modelName, "live-transcribe")
+}
+
+func isOpenAIVoiceTranscriptionModel(modelName string) bool {
+	modelName = strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(modelName, "whisper") ||
+		strings.Contains(modelName, "transcrib") ||
+		strings.Contains(modelName, "speech-to-text") ||
+		strings.Contains(modelName, "asr")
+}
+
+func resolveOpenAIVoiceTestPath(modelName string) string {
+	if isOpenAIVoiceTranscriptionModel(modelName) {
+		return "/v1/audio/transcriptions"
+	}
+	return "/v1/audio/speech"
+}
+
+func prepareOpenAIVoiceTestRequest(c *gin.Context, endpointType, modelName string) error {
+	if c == nil || c.Request == nil ||
+		endpointType != string(constant.EndpointTypeOpenAIVoice) ||
+		resolveOpenAIVoiceTestPath(modelName) != "/v1/audio/transcriptions" {
+		return nil
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("model", modelName); err != nil {
+		return fmt.Errorf("write audio test model: %w", err)
+	}
+	if err := writer.WriteField("response_format", "json"); err != nil {
+		return fmt.Errorf("write audio test response format: %w", err)
+	}
+	part, err := writer.CreateFormFile("file", "channel-test.wav")
+	if err != nil {
+		return fmt.Errorf("create audio test file: %w", err)
+	}
+	if _, err := part.Write(buildChannelTestWAV()); err != nil {
+		return fmt.Errorf("write audio test file: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return fmt.Errorf("close audio test form: %w", err)
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewReader(body.Bytes()))
+	c.Request.ContentLength = int64(body.Len())
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	return nil
+}
+
+func buildChannelTestWAV() []byte {
+	const (
+		sampleRate     = uint32(16000)
+		sampleCount    = uint32(16000 / 4)
+		bytesPerSample = uint32(2)
+	)
+	dataSize := sampleCount * bytesPerSample
+	buffer := bytes.NewBuffer(make([]byte, 0, 44+int(dataSize)))
+
+	buffer.WriteString("RIFF")
+	_ = binary.Write(buffer, binary.LittleEndian, uint32(36)+dataSize)
+	buffer.WriteString("WAVE")
+	buffer.WriteString("fmt ")
+	_ = binary.Write(buffer, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buffer, binary.LittleEndian, sampleRate)
+	_ = binary.Write(buffer, binary.LittleEndian, sampleRate*bytesPerSample)
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(bytesPerSample))
+	_ = binary.Write(buffer, binary.LittleEndian, uint16(16))
+	buffer.WriteString("data")
+	_ = binary.Write(buffer, binary.LittleEndian, dataSize)
+	_, _ = buffer.Write(make([]byte, dataSize))
+	return buffer.Bytes()
+}
+
+func testOpenAIVoiceRealtimeChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string) testResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	requestPath := "/v1/realtime?model=" + url.QueryEscape(testModel)
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodGet, requestPath, nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.Header.Set("Sec-WebSocket-Protocol", "realtime")
+
+	cache, err := model.GetUserCache(testUserID)
+	if err != nil {
+		return testResult{context: c, localErr: err}
+	}
+	cache.WriteContext(c)
+	c.Set("id", testUserID)
+	c.Set("channel", channel.Type)
+	c.Set("base_url", channel.GetBaseURL())
+	group, _ := model.GetUserGroup(testUserID, false)
+	c.Set("group", group)
+
+	if newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel); newAPIError != nil {
+		return testResult{
+			context:     c,
+			localErr:    newAPIError,
+			newAPIError: newAPIError,
+		}
+	}
+
+	info := relaycommon.GenRelayInfoWs(c, nil)
+	info.IsChannelTest = true
+	info.InitChannelMeta(c)
+
+	apiType, _ := common.ChannelType2APIType(channel.Type)
+	adaptor := relay.GetAdaptor(apiType)
+	if adaptor == nil {
+		err := fmt.Errorf("invalid api type: %d, adaptor is nil", apiType)
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeInvalidApiType),
+		}
+	}
+	adaptor.Init(info)
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	if err != nil {
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeGenRelayInfoFailed),
+		}
+	}
+	headers := http.Header{}
+	if err := adaptor.SetupRequestHeader(c, &headers, info); err != nil {
+		return testResult{
+			context:     c,
+			localErr:    err,
+			newAPIError: types.NewError(err, types.ErrorCodeDoRequestFailed),
+		}
+	}
+
+	conn, _, err := websocket.DefaultDialer.Dial(requestURL, headers)
+	if err != nil {
+		return testResult{
+			context:     c,
+			localErr:    fmt.Errorf("realtime probe failed: %w", err),
+			newAPIError: types.NewError(err, types.ErrorCodeDoRequestFailed),
+		}
+	}
+	_ = conn.Close()
+	return testResult{context: c}
+}
+
+func testVolcengineSpeechChannel(ctx context.Context, channel *model.Channel, testUserID int, testModel string) testResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	settings := channel.GetOtherSettings()
+	testModel = strings.TrimSpace(testModel)
+	if testModel == "" && channel.TestModel != nil {
+		testModel = strings.TrimSpace(*channel.TestModel)
+	}
+	if testModel == "" {
+		models := channel.GetModels()
+		if len(models) > 0 {
+			testModel = strings.TrimSpace(models[0])
+		}
+	}
+	if testModel == "" {
+		testModel = "1.2.1.1"
+	}
+
+	probeMode := volcenginechannel.ResolveServiceModeForModel(
+		settings.VolcengineServiceMode,
+		testModel,
+	)
+	requestPath := "/v1/audio/speech"
+	requestMethod := http.MethodPost
+	var relayFormat types.RelayFormat = types.RelayFormatOpenAIAudio
+	request := dto.Request(&dto.AudioRequest{Model: testModel})
+	if probeMode == volcenginechannel.RouteASRV3 {
+		requestPath = "/v1/audio/transcriptions"
+	}
+	if probeMode == volcenginechannel.RouteRealtimeV3 {
+		requestPath = "/v1/realtime?model=" + url.QueryEscape(testModel)
+		requestMethod = http.MethodGet
+		relayFormat = types.RelayFormatOpenAIRealtime
+		request = &dto.BaseRequest{}
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequestWithContext(ctx, requestMethod, requestPath, nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+	cache, err := model.GetUserCache(testUserID)
+	if err != nil {
+		return testResult{context: c, localErr: err}
+	}
+	cache.WriteContext(c)
+	c.Set("id", testUserID)
+	group, _ := model.GetUserGroup(testUserID, false)
+	c.Set("group", group)
+	if relayErr := middleware.SetupContextForSelectedChannel(c, channel, testModel); relayErr != nil {
+		return testResult{context: c, localErr: relayErr, newAPIError: relayErr}
+	}
+
+	info, err := relaycommon.GenRelayInfo(c, relayFormat, request, nil)
+	if err != nil {
+		relayErr := types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	info.IsChannelTest = true
+	info.InitChannelMeta(c)
+	if err := helper.ModelMappedHelper(c, info, request); err != nil {
+		relayErr := types.NewError(err, types.ErrorCodeChannelModelMappedError)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	if err := volcenginechannel.ProbeSpeechChannel(c, info); err != nil {
+		relayErr := types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusBadGateway)
+		return testResult{context: c, localErr: err, newAPIError: relayErr}
+	}
+	return testResult{context: c}
 }
 
 func attachTestBillingRequestInput(info *relaycommon.RelayInfo, request dto.Request) error {
@@ -732,6 +1027,19 @@ func buildTestRequest(model string, endpointType string, channel *model.Channel,
 			return &dto.OpenAIResponsesCompactionRequest{
 				Model: model,
 				Input: testResponsesInput,
+			}
+		case constant.EndpointTypeOpenAIVoice:
+			if isOpenAIVoiceTranscriptionModel(model) {
+				return &dto.AudioRequest{
+					Model:          model,
+					ResponseFormat: "json",
+				}
+			}
+			return &dto.AudioRequest{
+				Model:          model,
+				Input:          "This is a channel connectivity test.",
+				Voice:          "alloy",
+				ResponseFormat: "mp3",
 			}
 		case constant.EndpointTypeAnthropic, constant.EndpointTypeGemini, constant.EndpointTypeOpenAI:
 			// 返回 GeneralOpenAIRequest

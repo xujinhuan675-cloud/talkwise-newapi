@@ -168,7 +168,25 @@ func (c ChannelInfo) Value() (driver.Value, error) {
 
 // Scan implements sql.Scanner interface
 func (c *ChannelInfo) Scan(value interface{}) error {
-	bytesValue, _ := value.([]byte)
+	if value == nil {
+		*c = ChannelInfo{}
+		return nil
+	}
+
+	var bytesValue []byte
+	switch typedValue := value.(type) {
+	case []byte:
+		bytesValue = typedValue
+	case string:
+		bytesValue = []byte(typedValue)
+	default:
+		return fmt.Errorf("unsupported channel_info database value %T", value)
+	}
+
+	if strings.TrimSpace(string(bytesValue)) == "" {
+		*c = ChannelInfo{}
+		return nil
+	}
 	return common.Unmarshal(bytesValue, c)
 }
 
@@ -968,6 +986,11 @@ func (channel *Channel) ValidateSettings() error {
 	}
 	if channelOtherSettings.AdvancedCustom != nil {
 		if err := channelOtherSettings.AdvancedCustom.Validate(); err != nil {
+			return err
+		}
+	}
+	if channel.Type == constant.ChannelTypeVolcEngine {
+		if err := channelOtherSettings.ValidateVolcengine(); err != nil {
 			return err
 		}
 	}

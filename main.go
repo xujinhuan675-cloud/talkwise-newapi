@@ -314,6 +314,10 @@ func InitResources() error {
 		if err := model.MigrateRetiredFrontendOptions(); err != nil {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}
+		if err := model.MigrateVolcengineServiceModes(); err != nil {
+			common.FatalLog("failed to migrate Volcengine service modes: " + err.Error())
+			return err
+		}
 	}
 	model.InitOptionMap()
 

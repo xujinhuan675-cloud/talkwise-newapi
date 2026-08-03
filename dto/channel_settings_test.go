@@ -477,3 +477,23 @@ func TestAdvancedCustomSupportedEndpointTypesForModel(t *testing.T) {
 		constant.EndpointTypeAnthropic,
 	}, config.SupportedEndpointTypesForModel("other-model"))
 }
+
+func TestValidateVolcengineUnifiedVoiceRequiresLegacyAuth(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		VolcengineServiceMode: "speech_voice_v3",
+		VolcengineAuthMode:    "api_key",
+	}
+
+	err := settings.ValidateVolcengine()
+	require.ErrorContains(t, err, "requires legacy")
+}
+
+func TestValidateVolcengineUnifiedVoiceAcceptsLegacyAuth(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		VolcengineServiceMode: "speech_voice_v3",
+		VolcengineAuthMode:    "legacy",
+		VolcengineAppID:       "test-app-id",
+	}
+
+	require.NoError(t, settings.ValidateVolcengine())
+}

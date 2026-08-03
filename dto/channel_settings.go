@@ -53,6 +53,12 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	VolcengineServiceMode                 string                `json:"volcengine_service_mode,omitempty"`
+	VolcengineAuthMode                    string                `json:"volcengine_auth_mode,omitempty"`
+	VolcengineAppID                       string                `json:"volcengine_app_id,omitempty"`
+	VolcengineAppKey                      string                `json:"volcengine_app_key,omitempty"`
+	VolcengineResourceID                  string                `json:"volcengine_resource_id,omitempty"`
+	VolcengineVoice                       string                `json:"volcengine_voice,omitempty"`
 }
 
 func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
@@ -60,6 +66,31 @@ func (s *ChannelOtherSettings) IsOpenRouterEnterprise() bool {
 		return false
 	}
 	return *s.OpenRouterEnterprise
+}
+
+func (s *ChannelOtherSettings) ValidateVolcengine() error {
+	if s == nil || s.VolcengineServiceMode == "" || s.VolcengineServiceMode == "ark" {
+		return nil
+	}
+	switch s.VolcengineServiceMode {
+	case "speech_voice_v3":
+	default:
+		return fmt.Errorf("unsupported volcengine service mode: %s", s.VolcengineServiceMode)
+	}
+	authMode := s.VolcengineAuthMode
+	if authMode == "" {
+		authMode = "api_key"
+	}
+	if authMode != "api_key" && authMode != "legacy" {
+		return fmt.Errorf("unsupported volcengine authentication mode: %s", authMode)
+	}
+	if s.VolcengineServiceMode == "speech_voice_v3" && authMode != "legacy" {
+		return fmt.Errorf("volcengine unified voice mode requires legacy AppID and Access Key authentication")
+	}
+	if authMode == "legacy" && strings.TrimSpace(s.VolcengineAppID) == "" {
+		return fmt.Errorf("volcengine AppID is required for legacy authentication")
+	}
+	return nil
 }
 
 const (
