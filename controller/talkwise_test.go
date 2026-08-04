@@ -567,16 +567,29 @@ func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testin
 
 	adminToken := issueTalkWiseDashboardAccessToken(t, admin)
 	memberToken := issueTalkWiseDashboardAccessTokenWithSID(t, member, "talkwise-common-session")
+	teamAdmin := &model.User{
+		Username:    "team-admin",
+		Password:    "password",
+		DisplayName: "Team Admin",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Email:       "team-admin@example.com",
+		Group:       "free",
+		AffCode:     "aff-team-admin",
+	}
+	require.NoError(t, db.Create(teamAdmin).Error)
+	teamAdminToken := issueTalkWiseDashboardAccessTokenWithSID(t, teamAdmin, "talkwise-team-admin-session")
 	router := gin.New()
 	adminRoutes := router.Group("/api/talkwise/admin")
-	adminRoutes.Use(middleware.AdminAuth())
-	adminRoutes.GET("/teams", AdminListTalkWiseTrainingTeams)
-	adminRoutes.POST("/teams", AdminCreateTalkWiseTrainingTeam)
-	adminRoutes.PUT("/teams/:teamId", AdminUpdateTalkWiseTrainingTeam)
-	adminRoutes.DELETE("/teams/:teamId", AdminDeleteTalkWiseTrainingTeam)
-	adminRoutes.GET("/teams/:teamId/users/search", AdminSearchTalkWiseTrainingTeamUsers)
-	adminRoutes.POST("/teams/:teamId/members", AdminAddTalkWiseTrainingTeamMember)
-	adminRoutes.DELETE("/teams/:teamId/members/:userId", AdminRemoveTalkWiseTrainingTeamMember)
+	adminRoutes.GET("/users/:userId/training-team", middleware.AdminAuth(), AdminGetTalkWiseUserTrainingTeam)
+	adminRoutes.GET("/teams", middleware.UserAuth(), AdminListTalkWiseTrainingTeams)
+	adminRoutes.POST("/teams", middleware.AdminAuth(), AdminCreateTalkWiseTrainingTeam)
+	adminRoutes.PUT("/teams/:teamId", middleware.AdminAuth(), AdminUpdateTalkWiseTrainingTeam)
+	adminRoutes.DELETE("/teams/:teamId", middleware.AdminAuth(), AdminDeleteTalkWiseTrainingTeam)
+	adminRoutes.GET("/teams/:teamId/members", middleware.TrainingTeamManageAuth(), AdminListTalkWiseTrainingTeamMembers)
+	adminRoutes.GET("/teams/:teamId/users/search", middleware.TrainingTeamManageAuth(), AdminSearchTalkWiseTrainingTeamUsers)
+	adminRoutes.POST("/teams/:teamId/members", middleware.TrainingTeamManageAuth(), AdminAddTalkWiseTrainingTeamMember)
+	adminRoutes.DELETE("/teams/:teamId/members/:userId", middleware.TrainingTeamManageAuth(), AdminRemoveTalkWiseTrainingTeamMember)
 
 	forbiddenRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams", nil)
 	forbiddenRequest.Header.Set("Authorization", "Bearer "+memberToken)
@@ -606,6 +619,46 @@ func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testin
 	require.Len(t, listResponse.Data.Teams, 1)
 	assert.EqualValues(t, 1, listResponse.Data.Total)
 
+	secondTeam, err := model.CreateTrainingTeam("Second Team")
+	require.NoError(t, err)
+	_, err = model.AddTrainingTeamMember(teamID, teamAdmin.Id, model.TrainingTeamRoleAdmin)
+	require.NoError(t, err)
+
+	teamAdminListRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams", nil)
+	teamAdminListRequest.Header.Set("Authorization", "Bearer "+teamAdminToken)
+	teamAdminListRecorder := httptest.NewRecorder()
+	router.ServeHTTP(teamAdminListRecorder, teamAdminListRequest)
+	teamAdminListResponse := decodeTalkWiseResponse[struct {
+		Teams []model.TrainingTeam `json:"teams"`
+		Total int64                `json:"total"`
+	}](t, teamAdminListRecorder)
+	require.True(t, teamAdminListResponse.Success, teamAdminListResponse.Message)
+	require.Len(t, teamAdminListResponse.Data.Teams, 1)
+	assert.Equal(t, teamID, teamAdminListResponse.Data.Teams[0].Id)
+
+	teamAdminMembersRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams/"+teamID+"/members", nil)
+	teamAdminMembersRequest.Header.Set("Authorization", "Bearer "+teamAdminToken)
+	teamAdminMembersRecorder := httptest.NewRecorder()
+	router.ServeHTTP(teamAdminMembersRecorder, teamAdminMembersRequest)
+	teamAdminMembersResponse := decodeTalkWiseResponse[struct {
+		Members []model.TrainingTeamMemberView `json:"members"`
+	}](t, teamAdminMembersRecorder)
+	require.True(t, teamAdminMembersResponse.Success, teamAdminMembersResponse.Message)
+	assert.Len(t, teamAdminMembersResponse.Data.Members, 1)
+
+	teamAdminForbiddenRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/teams/"+secondTeam.Id+"/members", nil)
+	teamAdminForbiddenRequest.Header.Set("Authorization", "Bearer "+teamAdminToken)
+	teamAdminForbiddenRecorder := httptest.NewRecorder()
+	router.ServeHTTP(teamAdminForbiddenRecorder, teamAdminForbiddenRequest)
+	assert.Equal(t, http.StatusForbidden, teamAdminForbiddenRecorder.Code)
+
+	teamAdminCreateRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/admin/teams", strings.NewReader(`{"name":"Should Not Create"}`))
+	teamAdminCreateRequest.Header.Set("Authorization", "Bearer "+teamAdminToken)
+	teamAdminCreateRequest.Header.Set("Content-Type", "application/json")
+	teamAdminCreateRecorder := httptest.NewRecorder()
+	router.ServeHTTP(teamAdminCreateRecorder, teamAdminCreateRequest)
+	assert.Equal(t, http.StatusForbidden, teamAdminCreateRecorder.Code)
+
 	updateRequest := httptest.NewRequest(http.MethodPut, "/api/talkwise/admin/teams/"+teamID, strings.NewReader(`{"name":"Revenue Practice"}`))
 	updateRequest.Header.Set("Authorization", "Bearer "+adminToken)
 	updateRequest.Header.Set("Content-Type", "application/json")
@@ -627,6 +680,20 @@ func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testin
 	assert.Equal(t, member.Id, searchResponse.Data.Users[0].UserId)
 	assert.Empty(t, searchResponse.Data.Users[0].MembershipTeamId)
 
+	unassignedRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/users/"+strconv.Itoa(member.Id)+"/training-team", nil)
+	unassignedRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	unassignedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(unassignedRecorder, unassignedRequest)
+	unassignedResponse := decodeTalkWiseResponse[struct {
+		Membership *struct {
+			TeamId   string `json:"team_id"`
+			TeamName string `json:"team_name"`
+			TeamRole string `json:"team_role"`
+		} `json:"membership"`
+	}](t, unassignedRecorder)
+	require.True(t, unassignedResponse.Success, unassignedResponse.Message)
+	assert.Nil(t, unassignedResponse.Data.Membership)
+
 	addBody := `{"user_id":` + strconv.Itoa(member.Id) + `,"role":"member"}`
 	addRequest := httptest.NewRequest(http.MethodPost, "/api/talkwise/admin/teams/"+teamID+"/members", strings.NewReader(addBody))
 	addRequest.Header.Set("Authorization", "Bearer "+adminToken)
@@ -636,6 +703,23 @@ func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testin
 	addResponse := decodeTalkWiseResponse[model.TrainingTeamMemberView](t, addRecorder)
 	require.True(t, addResponse.Success, addResponse.Message)
 	assert.Equal(t, teamID, addResponse.Data.MembershipTeamId)
+
+	assignedRequest := httptest.NewRequest(http.MethodGet, "/api/talkwise/admin/users/"+strconv.Itoa(member.Id)+"/training-team", nil)
+	assignedRequest.Header.Set("Authorization", "Bearer "+adminToken)
+	assignedRecorder := httptest.NewRecorder()
+	router.ServeHTTP(assignedRecorder, assignedRequest)
+	assignedResponse := decodeTalkWiseResponse[struct {
+		Membership *struct {
+			TeamId   string `json:"team_id"`
+			TeamName string `json:"team_name"`
+			TeamRole string `json:"team_role"`
+		} `json:"membership"`
+	}](t, assignedRecorder)
+	require.True(t, assignedResponse.Success, assignedResponse.Message)
+	require.NotNil(t, assignedResponse.Data.Membership)
+	assert.Equal(t, teamID, assignedResponse.Data.Membership.TeamId)
+	assert.Equal(t, "Revenue Practice", assignedResponse.Data.Membership.TeamName)
+	assert.Equal(t, model.TrainingTeamRoleMember, assignedResponse.Data.Membership.TeamRole)
 
 	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/talkwise/admin/teams/"+teamID+"/members/"+strconv.Itoa(member.Id), nil)
 	removeRequest.Header.Set("Authorization", "Bearer "+adminToken)
@@ -657,7 +741,7 @@ func TestTalkWiseTrainingTeamAdminRoutesEnforceRoleAndManageMembership(t *testin
 	router.ServeHTTP(deleteRecorder, deleteRequest)
 	deleteResponse := decodeTalkWiseResponse[gin.H](t, deleteRecorder)
 	require.True(t, deleteResponse.Success, deleteResponse.Message)
-	_, err := model.GetTrainingTeamById(teamID)
+	_, err = model.GetTrainingTeamById(teamID)
 	assert.ErrorIs(t, err, model.ErrTrainingTeamNotFound)
 	var archivedTeam model.TrainingTeam
 	require.NoError(t, db.Where("id = ?", teamID).First(&archivedTeam).Error)

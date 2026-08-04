@@ -37,9 +37,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-
-import { handleServerError } from '@/lib/handle-server-error'
-import { requireServerSuccess } from '@/lib/server-error-message'
+import { toast } from 'sonner'
 
 import { getUserGroups, getUserModels } from '../api'
 import {
@@ -53,6 +51,8 @@ import type { GroupOption, ModelOption, PlaygroundConfig } from '../types'
 type UsePlaygroundOptionsParams = {
   currentGroup: string
   currentModel: string
+  modelEndpointType?: string
+  preferredModel?: string
   setGroups: (groups: GroupOption[]) => void
   setModels: (models: ModelOption[]) => void
   updateConfig: <K extends keyof PlaygroundConfig>(
@@ -64,6 +64,8 @@ type UsePlaygroundOptionsParams = {
 export function usePlaygroundOptions({
   currentGroup,
   currentModel,
+  modelEndpointType,
+  preferredModel,
   setGroups,
   setModels,
   updateConfig,
@@ -76,9 +78,8 @@ export function usePlaygroundOptions({
     isError: isModelsError,
     isLoading: isLoadingModels,
   } = useQuery({
-    queryKey: ['playground-models', currentGroup],
-    queryFn: async () =>
-      requireServerSuccess(await getUserModels(currentGroup)),
+    queryKey: ['playground-models', currentGroup, modelEndpointType ?? 'all'],
+    queryFn: () => getUserModels(currentGroup, modelEndpointType),
     enabled: currentGroup !== '',
   })
 
@@ -88,14 +89,13 @@ export function usePlaygroundOptions({
     isError: isGroupsError,
   } = useQuery({
     queryKey: ['playground-groups'],
-    queryFn: async () => requireServerSuccess(await getUserGroups()),
+    queryFn: getUserGroups,
   })
 
   useEffect(() => {
     if (!isModelsError) return
 
-    handleServerError(
-      modelsError,
+    toast.error(
       getOptionLoadErrorMessage(
         modelsError,
         t('Failed to load playground models')
@@ -106,8 +106,7 @@ export function usePlaygroundOptions({
   useEffect(() => {
     if (!isGroupsError) return
 
-    handleServerError(
-      groupsError,
+    toast.error(
       getOptionLoadErrorMessage(
         groupsError,
         t('Failed to load playground groups')
@@ -119,7 +118,7 @@ export function usePlaygroundOptions({
     if (!modelsData) return
 
     setModels(modelsData)
-    const fallback = getModelFallback(modelsData, currentModel)
+    const fallback = getModelFallback(modelsData, currentModel, preferredModel)
 
     if (fallback) {
       updateConfig('model', fallback)
@@ -129,7 +128,7 @@ export function usePlaygroundOptions({
     if (shouldClearModelForGroup(modelsData, currentModel)) {
       updateConfig('model', '')
     }
-  }, [modelsData, currentModel, setModels, updateConfig])
+  }, [modelsData, currentModel, preferredModel, setModels, updateConfig])
 
   useEffect(() => {
     if (!groupsData) return

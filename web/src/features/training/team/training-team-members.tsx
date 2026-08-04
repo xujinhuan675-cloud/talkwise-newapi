@@ -75,6 +75,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { canManageAllTrainingTeams } from '@/lib/training-team-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { TrainingHostProvider } from '../host'
 import {
@@ -98,6 +100,8 @@ function TrainingTeamMembersContent() {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
     })
   const queryClient = useQueryClient()
+  const user = useAuthStore((state) => state.auth.user)
+  const canManageAllTeams = canManageAllTrainingTeams(user)
   const [selectedTeamId, setSelectedTeamId] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
@@ -107,15 +111,29 @@ function TrainingTeamMembersContent() {
   const teamsQuery = useQuery({
     queryKey: ['training', 'teams'],
     queryFn: listTrainingTeams,
+    enabled: canManageAllTeams,
     retry: retryTrainingTeamQuery,
   })
-  const effectiveTeamId = teamsQuery.data?.items.some(
-    (team) => team.id === selectedTeamId
-  )
-    ? selectedTeamId
-    : (teamsQuery.data?.items[0]?.id ?? '')
-  const selectedTeam =
-    teamsQuery.data?.items.find((team) => team.id === effectiveTeamId) ?? null
+  let effectiveTeamId = user?.team_id ?? ''
+  let selectedTeam: TrainingTeam | null = effectiveTeamId
+    ? {
+        id: effectiveTeamId,
+        name: user?.team_name || effectiveTeamId,
+        createdTime: 0,
+        updatedTime: 0,
+      }
+    : null
+  if (canManageAllTeams) {
+    const teams = teamsQuery.data?.items ?? []
+    effectiveTeamId = teams.some((team) => team.id === selectedTeamId)
+      ? selectedTeamId
+      : (teams[0]?.id ?? '')
+    selectedTeam = teams.find((team) => team.id === effectiveTeamId) ?? null
+  }
+  let visibleTeams = teamsQuery.data?.items ?? []
+  if (!canManageAllTeams) {
+    visibleTeams = selectedTeam ? [selectedTeam] : []
+  }
   const membersQuery = useQuery({
     queryKey: ['training', 'team-members', effectiveTeamId],
     queryFn: () => listTrainingTeamMembers(effectiveTeamId),
@@ -139,7 +157,8 @@ function TrainingTeamMembersContent() {
     },
   })
 
-  const pageError = teamsQuery.error || membersQuery.error
+  const pageError =
+    (canManageAllTeams ? teamsQuery.error : null) || membersQuery.error
 
   return (
     <>
@@ -148,10 +167,12 @@ function TrainingTeamMembersContent() {
           {localize('Training teams', '\u8bad\u7ec3\u56e2\u961f')}
         </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <Button variant='outline' onClick={() => setCreateOpen(true)}>
-            <Plus />
-            {localize('Create team', '\u521b\u5efa\u56e2\u961f')}
-          </Button>
+          {canManageAllTeams && (
+            <Button variant='outline' onClick={() => setCreateOpen(true)}>
+              <Plus />
+              {localize('Create team', '\u521b\u5efa\u56e2\u961f')}
+            </Button>
+          )}
           <Button
             onClick={() => setAddMemberOpen(true)}
             disabled={!selectedTeam}
@@ -224,44 +245,46 @@ function TrainingTeamMembersContent() {
                         '\u521b\u5efa\u6216\u9009\u62e9\u4e00\u4e2a\u8bad\u7ec3\u56e2\u961f'
                       )}
                 </CardDescription>
-                <div className='mt-2'>
-                  <Select
-                    value={effectiveTeamId || null}
-                    onValueChange={(value) => setSelectedTeamId(value ?? '')}
-                    disabled={
-                      teamsQuery.isPending || !teamsQuery.data?.items.length
-                    }
-                  >
-                    <SelectTrigger className='w-full sm:w-72'>
-                      <SelectValue
-                        placeholder={localize(
-                          'Select team',
-                          '\u9009\u62e9\u56e2\u961f'
-                        )}
-                      >
-                        {selectedTeam?.name}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        {teamsQuery.data?.items.map((team) => (
-                          <SelectItem key={team.id} value={team.id}>
-                            {team.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {canManageAllTeams ? (
+                  <div className='mt-2'>
+                    <Select
+                      value={effectiveTeamId || null}
+                      onValueChange={(value) => setSelectedTeamId(value ?? '')}
+                      disabled={
+                        teamsQuery.isPending || !teamsQuery.data?.items.length
+                      }
+                    >
+                      <SelectTrigger className='w-full sm:w-72'>
+                        <SelectValue
+                          placeholder={localize(
+                            'Select team',
+                            '\u9009\u62e9\u56e2\u961f'
+                          )}
+                        >
+                          {selectedTeam?.name}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          {teamsQuery.data?.items.map((team) => (
+                            <SelectItem key={team.id} value={team.id}>
+                              {team.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
               </CardHeader>
               <CardContent>
                 <TrainingTeamMemberList
                   teamsPending={isTrainingTeamQueryLoading(
-                    true,
+                    canManageAllTeams,
                     teamsQuery.isPending,
                     teamsQuery.isError
                   )}
-                  teams={teamsQuery.data?.items ?? []}
+                  teams={visibleTeams}
                   selectedTeam={selectedTeam}
                   membersPending={isTrainingTeamQueryLoading(
                     Boolean(effectiveTeamId),
@@ -275,6 +298,7 @@ function TrainingTeamMembersContent() {
                     removeMutation.reset()
                     setRemoveMember(member)
                   }}
+                  canCreateTeams={canManageAllTeams}
                   localize={localize}
                 />
               </CardContent>
@@ -282,11 +306,13 @@ function TrainingTeamMembersContent() {
           </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
-      <CreateTrainingTeamDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={(team) => setSelectedTeamId(team.id)}
-      />
+      {canManageAllTeams && (
+        <CreateTrainingTeamDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onCreated={(team) => setSelectedTeamId(team.id)}
+        />
+      )}
       <AddTrainingTeamMemberDialog
         team={selectedTeam}
         open={addMemberOpen}
@@ -315,6 +341,7 @@ function TrainingTeamMemberList(props: {
   readonly onCreate: () => void
   readonly onAdd: () => void
   readonly onRemove: (member: TrainingTeamMember) => void
+  readonly canCreateTeams: boolean
   readonly localize: Localize
 }) {
   if (props.teamsPending || props.membersPending) {
@@ -342,6 +369,7 @@ function TrainingTeamMemberList(props: {
         )}
         actionLabel={props.localize('Create team', '\u521b\u5efa\u56e2\u961f')}
         onAction={props.onCreate}
+        showAction={props.canCreateTeams}
       />
     )
   }
@@ -437,6 +465,7 @@ function MemberEmptyState(props: {
   description: string
   actionLabel: string
   onAction: () => void
+  showAction?: boolean
 }) {
   return (
     <Empty>
@@ -447,10 +476,12 @@ function MemberEmptyState(props: {
         <EmptyTitle>{props.title}</EmptyTitle>
         <EmptyDescription>{props.description}</EmptyDescription>
       </EmptyHeader>
-      <Button onClick={props.onAction}>
-        <Plus />
-        {props.actionLabel}
-      </Button>
+      {props.showAction !== false && (
+        <Button onClick={props.onAction}>
+          <Plus />
+          {props.actionLabel}
+        </Button>
+      )}
     </Empty>
   )
 }

@@ -27,6 +27,8 @@ import type {
   TeamScenarioRanking,
   TeamScenarioRankingDTO,
   TrainingTeam,
+  TrainingTeamAssignment,
+  TrainingTeamAssignmentDTO,
   TrainingTeamDTO,
   TrainingTeamMember,
   TrainingTeamMemberDTO,
@@ -161,6 +163,27 @@ export async function listTrainingTeams(): Promise<
     return normalized ? [normalized] : []
   })
   return { items, total: asCount(data.total) }
+}
+
+export async function getUserTrainingTeamAssignment(
+  userId: number
+): Promise<TrainingTeamAssignment | null> {
+  const response = await api.get<
+    NewAPIResponse<{ membership: TrainingTeamAssignmentDTO | null }>
+  >(`/api/talkwise/admin/users/${userId}/training-team`, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
+  const membership = requireNewAPIData(response.data).membership
+  if (!membership) return null
+
+  const teamId = asText(membership.team_id)
+  const teamName = asText(membership.team_name)
+  const teamRole = asTrainingTeamRole(membership.team_role)
+  if (!teamId || !teamName || !teamRole) {
+    throw new Error('Training team assignment response is invalid')
+  }
+  return { teamId, teamName, teamRole }
 }
 
 export async function createTrainingTeam(name: string): Promise<TrainingTeam> {

@@ -20,7 +20,8 @@ import type { GroupOption, ModelOption } from '../../types'
 
 export function getModelFallback(
   models: ModelOption[],
-  currentModel: string
+  currentModel: string,
+  preferredModel?: string
 ): string | null {
   const hasCurrentModel = models.some((model) => model.value === currentModel)
 
@@ -28,7 +29,10 @@ export function getModelFallback(
     return null
   }
 
-  return models[0].value
+  return (
+    models.find((model) => model.value === preferredModel)?.value ??
+    models[0].value
+  )
 }
 
 export function shouldClearModelForGroup(

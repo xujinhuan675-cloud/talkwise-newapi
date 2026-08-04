@@ -127,6 +127,8 @@ const EMPTY_TREE_PROJECTION: TrainingConversationTreeProjection = {
   excludedMessageIds: [],
 }
 
+const DEFAULT_TRAINING_TEXT_MODEL = 'doubao-seed-2-0-pro-260215'
+
 function metadataRecord(
   value: unknown
 ): Readonly<Record<string, unknown>> | null {
@@ -473,6 +475,8 @@ export function TrainingConversationSurface({
   const { isLoadingModels } = usePlaygroundOptions({
     currentGroup: config.group,
     currentModel: config.model,
+    modelEndpointType: 'openai',
+    preferredModel: DEFAULT_TRAINING_TEXT_MODEL,
     setGroups,
     setModels,
     updateConfig,
@@ -497,6 +501,7 @@ export function TrainingConversationSurface({
       const createdAt = Date.now()
       const controller = new AbortController()
       let didComplete = false
+      let streamError: string | null = null
 
       streamAbortRef.current = controller
       setIsGenerating(true)
@@ -603,6 +608,7 @@ export function TrainingConversationSurface({
               }
 
               if (event.type === 'error') {
+                streamError = event.message
                 mutateMessages((current) =>
                   current.map((item) =>
                     item.key === assistantKey
@@ -620,6 +626,9 @@ export function TrainingConversationSurface({
           }
         )
 
+        if (streamError && !controller.signal.aborted) {
+          throw new Error(streamError)
+        }
         if (!didComplete && !controller.signal.aborted) {
           throw new Error('Training response ended before completion.')
         }

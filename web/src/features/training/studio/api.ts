@@ -329,19 +329,28 @@ export function normalizeRealtimeReadiness(
   payload: unknown
 ): RealtimeReadiness {
   const data = payload as {
+    active?: { readyForCall?: boolean; error?: string; provider?: string }
+    activeProvider?: string
     pipecat?: { readyForCall?: boolean; error?: string; provider?: string }
     providers?: {
-      pipecat?: { readyForCall?: boolean; error?: string; provider?: string }
+      [provider: string]:
+        | { readyForCall?: boolean; error?: string; provider?: string }
+        | undefined
     }
   }
-  const pipecat = data.pipecat ?? data.providers?.pipecat
-  const ready = pipecat?.readyForCall === true
+  const provider = data.activeProvider || data.active?.provider || 'pipecat'
+  const active =
+    data.active ??
+    data.providers?.[provider] ??
+    data.pipecat ??
+    data.providers?.pipecat
+  const ready = active?.readyForCall === true
 
   return {
     ready,
-    provider: pipecat?.provider || 'pipecat',
+    provider: active?.provider || provider,
     message:
-      pipecat?.error ||
+      active?.error ||
       (ready
         ? 'The realtime provider reports that it is ready for a call.'
         : 'The realtime provider is not ready for a call.'),
@@ -361,7 +370,7 @@ export async function getRealtimeReadiness(
     if (axios.isAxiosError(error) && error.response?.status === 403) {
       return {
         ready: false,
-        provider: 'pipecat',
+        provider: 'configured',
         message: 'Realtime readiness is available to training operators only.',
       }
     }

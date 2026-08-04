@@ -6,6 +6,7 @@
 upload
 *.exe
 new-api-talkwise.exe.previous-*
+*.backup*
 *.db
 build
 *.db-journal

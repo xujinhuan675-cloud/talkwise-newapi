@@ -141,5 +141,19 @@ describe('training studio adapter', () => {
       }).message,
       'Missing capability'
     )
+    assert.deepEqual(
+      normalizeRealtimeReadiness({
+        active: {
+          provider: 'volcengine.doubao_realtime',
+          readyForCall: true,
+        },
+        activeProvider: 'volcengine.doubao_realtime',
+      }),
+      {
+        ready: true,
+        provider: 'volcengine.doubao_realtime',
+        message: 'The realtime provider reports that it is ready for a call.',
+      }
+    )
   })
 })

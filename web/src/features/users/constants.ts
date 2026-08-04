@@ -74,21 +74,34 @@ export const USER_ROLE = {
 
 export const USER_ROLES = {
   [USER_ROLE.USER]: {
-    labelKey: 'User',
+    labelKey: 'Regular user',
+    chineseLabel: '普通用户',
     value: USER_ROLE.USER,
     icon: User,
   },
   [USER_ROLE.ADMIN]: {
-    labelKey: 'Admin',
+    labelKey: 'Platform admin',
+    chineseLabel: '平台管理员',
     value: USER_ROLE.ADMIN,
     icon: Users,
   },
   [USER_ROLE.ROOT]: {
-    labelKey: 'Root',
+    labelKey: 'Platform owner',
+    chineseLabel: '平台负责人',
     value: USER_ROLE.ROOT,
     icon: Shield,
   },
 } as const
+
+export function getPlatformRole(
+  role: number
+): (typeof USER_ROLES)[keyof typeof USER_ROLES] | undefined {
+  return USER_ROLES[role as keyof typeof USER_ROLES]
+}
+
+export function canManagePlatformRoles(currentUserRole?: number): boolean {
+  return currentUserRole === USER_ROLE.ROOT
+}
 
 export const getUserRoleOptions = (t: (key: string) => string) => [
   { label: t('User'), value: String(USER_ROLE.USER), icon: User },

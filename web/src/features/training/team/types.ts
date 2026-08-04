@@ -109,3 +109,15 @@ export interface TrainingTeamMember {
   readonly membershipTeamId: string | null
   readonly membershipTeamName: string | null
 }
+
+export interface TrainingTeamAssignmentDTO {
+  team_id: string
+  team_name: string
+  team_role: string
+}
+
+export interface TrainingTeamAssignment {
+  readonly teamId: string
+  readonly teamName: string
+  readonly teamRole: TrainingTeamRole
+}

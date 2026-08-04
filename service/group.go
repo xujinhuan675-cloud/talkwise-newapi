@@ -1,6 +1,7 @@
 package service
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -119,6 +120,28 @@ func GetGroupsEnabledModels(groups []string) []string {
 		}
 	}
 	return models
+}
+
+func GetGroupsEnabledModelsForEndpoint(groups []string, endpointType constant.EndpointType) ([]string, error) {
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	for _, group := range groups {
+		abilities, err := model.GetGroupEnabledAbilityWithChannels(group)
+		if err != nil {
+			return nil, err
+		}
+		for _, ability := range abilities {
+			if _, ok := seen[ability.Model]; ok {
+				continue
+			}
+			if !slices.Contains(common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model), endpointType) {
+				continue
+			}
+			seen[ability.Model] = struct{}{}
+			models = append(models, ability.Model)
+		}
+	}
+	return models, nil
 }
 
 // GetUserGroupRatio 获取用户使用某个分组的倍率

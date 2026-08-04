@@ -27,7 +27,8 @@ import type {
   ResolvedSidebarView,
 } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
-import { useAuthStore } from '@/stores/auth-store'
+import { isTrainingTeamManager } from '@/lib/training-team-permissions'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { useSidebarConfig } from './use-sidebar-config'
 import { useSidebarData } from './use-sidebar-data'
@@ -37,14 +38,26 @@ const ROOT_VIEW_KEY = '__root'
 
 export function filterSidebarGroupsByRole(
   groups: NavGroup[],
-  role: number
+  role: number,
+  user?: AuthUser | null
 ): NavGroup[] {
   return groups
-    .filter((group) => (group.id === 'admin' ? role >= ROLE.ADMIN : true))
+    .filter((group) => {
+      if (group.requiredRole !== undefined && role < group.requiredRole) {
+        return false
+      }
+      if (group.requiredTeamManagement && !isTrainingTeamManager(user)) {
+        return false
+      }
+      return true
+    })
     .flatMap((group) => {
       const items: NavItem[] = []
       for (const item of group.items) {
-        if (item.requiredRole !== undefined && role < item.requiredRole) {
+        if (
+          (item.requiredRole !== undefined && role < item.requiredRole) ||
+          (item.requiredTeamManagement && !isTrainingTeamManager(user))
+        ) {
           continue
         }
         if (!('items' in item) || !item.items) {
@@ -53,7 +66,8 @@ export function filterSidebarGroupsByRole(
         }
         const allowedChildren = item.items.filter(
           (child) =>
-            child.requiredRole === undefined || role >= child.requiredRole
+            (child.requiredRole === undefined || role >= child.requiredRole) &&
+            (!child.requiredTeamManagement || isTrainingTeamManager(user))
         )
         if (allowedChildren.length) {
           items.push({ ...item, items: allowedChildren })
@@ -68,39 +82,27 @@ export function filterSidebarGroupsByRole(
  *
  * - Returns the matching nested {@link SidebarView} (with its nav
  *   groups) when the URL belongs to a registered drill-in workspace.
- * - Otherwise returns the root navigation, narrowed by:
- *     · admin-only group visibility (role-based);
- *     · `useSidebarConfig` (admin × user `sidebar_modules` overlay).
- *
- * Nested views are intentionally NOT passed through `useSidebarConfig`
- * — those filters target known dashboard URLs only, and gating is
- * already enforced at the route level (`beforeLoad` redirects).
+ * Root and contextual views share platform-role, training-team and
+ * sidebar-module filtering. Route guards remain authoritative for direct URL
+ * access.
  */
 export function useSidebarView(): ResolvedSidebarView {
   const { t } = useTranslation()
   const pathname = useLocation({ select: (l) => l.pathname })
-  const userRole = useAuthStore((s) => s.auth.user?.role)
+  const user = useAuthStore((s) => s.auth.user)
   const rootSidebarData = useSidebarData()
-  const configFilteredRoot = useSidebarConfig(rootSidebarData.navGroups)
-
-  const rootNavGroups = useMemo<NavGroup[]>(() => {
-    const role = userRole ?? ROLE.GUEST
-    return filterSidebarGroupsByRole(configFilteredRoot, role)
-  }, [configFilteredRoot, userRole])
-
   const view = resolveSidebarView(pathname)
+  const rawNavGroups = view ? view.getNavGroups(t) : rootSidebarData.navGroups
+  const configFilteredGroups = useSidebarConfig(rawNavGroups)
 
-  if (view) {
-    return {
-      key: view.id,
-      view,
-      navGroups: view.getNavGroups(t),
-    }
-  }
+  const navGroups = useMemo<NavGroup[]>(() => {
+    const role = user?.role ?? ROLE.GUEST
+    return filterSidebarGroupsByRole(configFilteredGroups, role, user)
+  }, [configFilteredGroups, user])
 
   return {
-    key: ROOT_VIEW_KEY,
-    view: null,
-    navGroups: rootNavGroups,
+    key: view?.id ?? ROOT_VIEW_KEY,
+    view,
+    navGroups,
   }
 }

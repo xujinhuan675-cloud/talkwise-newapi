@@ -412,6 +412,19 @@ func RemoveTalkWiseTeamMember(c *gin.Context) {
 }
 
 func AdminListTalkWiseTrainingTeams(c *gin.Context) {
+	if c.GetInt("role") < common.RoleAdminUser {
+		team, membership, err := model.GetTrainingTeamForUser(c.GetInt("id"))
+		if err != nil || (membership.Role != model.TrainingTeamRoleOwner && membership.Role != model.TrainingTeamRoleAdmin) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+				"success": false,
+				"code":    "TRAINING_TEAM_MANAGEMENT_FORBIDDEN",
+				"message": "Training team management requires a team owner or administrator role",
+			})
+			return
+		}
+		common.ApiSuccess(c, gin.H{"teams": []model.TrainingTeam{*team}, "total": 1})
+		return
+	}
 	startIdx, _ := strconv.Atoi(c.DefaultQuery("start_index", "0"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
 	teams, total, err := model.ListTrainingTeams(startIdx, limit)
@@ -420,6 +433,36 @@ func AdminListTalkWiseTrainingTeams(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"teams": teams, "total": total})
+}
+
+func AdminGetTalkWiseUserTrainingTeam(c *gin.Context) {
+	userID, err := strconv.Atoi(c.Param("userId"))
+	if err != nil || userID <= 0 {
+		common.ApiErrorMsg(c, "invalid training team user id")
+		return
+	}
+	if _, err := model.GetUserById(userID, false); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	team, membership, err := model.GetTrainingTeamForUser(userID)
+	if errors.Is(err, model.ErrTrainingTeamMemberNotFound) {
+		common.ApiSuccess(c, gin.H{"membership": nil})
+		return
+	}
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"membership": gin.H{
+			"team_id":   team.Id,
+			"team_name": team.Name,
+			"team_role": membership.Role,
+		},
+	})
 }
 
 func AdminCreateTalkWiseTrainingTeam(c *gin.Context) {

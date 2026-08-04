@@ -34,6 +34,8 @@ type BaseNavItem = {
    * `useSidebarView`). Route-level guards still enforce access independently.
    */
   requiredRole?: number
+  /** Restricts an item to a user who can manage a TalkWise training team. */
+  requiredTeamManagement?: boolean
 }
 
 /**
@@ -75,6 +77,10 @@ export type NavGroup = {
   id?: string
   title: string
   items: NavItem[]
+  /** Minimum platform role required to see the entire group. */
+  requiredRole?: number
+  /** Restricts an entire group to a user who can manage a training team. */
+  requiredTeamManagement?: boolean
 }
 
 /**

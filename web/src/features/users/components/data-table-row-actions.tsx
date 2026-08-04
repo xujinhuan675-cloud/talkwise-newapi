@@ -18,16 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { Row } from '@tanstack/react-table'
 import {
+  CreditCard,
+  KeyRound,
+  Link2,
   Pencil,
-  Trash2,
   Power,
   PowerOff,
-  ArrowUp,
-  ArrowDown,
-  KeyRound,
   ShieldAlert,
-  Link2,
-  CreditCard,
+  Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -37,19 +35,22 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import type { AdminUserManageAction } from '@/features/auth/secure-verification'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
-import { handleServerError } from '@/lib/handle-server-error'
-import { AuthOperationError } from '@/lib/secure-verification'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -58,36 +59,27 @@ import {
   ERROR_MESSAGES,
   isUserDeleted,
 } from '../constants'
-import { getUserActionMessage } from '../lib'
-import type { User } from '../types'
+import { getAssignableManagementPermissions } from '../lib/management-permissions'
+import { getUserActionMessageDetails } from '../lib/user-actions'
+import type { User, ManageUserAction } from '../types'
+import { TeamAdminPermissionDialog } from './dialogs/team-admin-permission-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
-
-const MANAGE_ACTION_TITLES: Record<AdminUserManageAction, string> = {
-  disable: 'Verify to disable user',
-  enable: 'Verify to enable user',
-  promote: 'Verify to promote user',
-  demote: 'Verify to demote user',
-}
 
 interface DataTableRowActionsProps {
   row: Row<User>
 }
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const user = row.original
-  const {
-    setOpen,
-    setCurrentRow,
-    triggerRefresh,
-    requestVerification,
-    verificationActive,
-  } = useUsers()
+  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const currentUser = useAuthStore((state) => state.auth.user)
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [teamAdminDialogOpen, setTeamAdminDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -99,57 +91,40 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('delete')
   }
 
-  const handleManage = async (action: AdminUserManageAction) => {
+  const handleManage = async (action: Exclude<ManageUserAction, 'delete'>) => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.manage',
-        context: { user_id: user.id, action },
-        title: t(MANAGE_ACTION_TITLES[action]),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await manageUser(user.id, action, proof.proof_token)
+      const result = await manageUser(user.id, action)
       if (result.success) {
-        toast.success(t(getUserActionMessage(action)))
+        const message = getUserActionMessageDetails(action)
+        toast.success(
+          t(message.english, {
+            defaultValue: i18n.language.startsWith('zh')
+              ? message.chinese
+              : message.english,
+          })
+        )
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to {{action}} user', { action }))
+        toast.error(
+          result.message || t('Failed to {{action}} user', { action })
+        )
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     }
   }
 
   const handleResetPasskey = async () => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.passkey.reset',
-        context: { user_id: user.id },
-        title: t('Verify to reset Passkey'),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await resetUserPasskey(user.id, proof.proof_token)
+      const result = await resetUserPasskey(user.id)
       if (result.success) {
         toast.success(t('Passkey reset successfully'))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to reset Passkey'))
+        toast.error(result.message || t('Failed to reset Passkey'))
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetPasskeyOpen(false)
     }
@@ -157,28 +132,15 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const handleResetTwoFA = async () => {
     try {
-      const proof = await requestVerification({
-        scope: 'admin.user.2fa.disable',
-        context: { user_id: user.id },
-        title: t('Verify to reset 2FA'),
-        description: t(
-          'Confirm your identity before changing the account {{username}}.',
-          { username: user.username }
-        ),
-      })
-      if (!proof) return
-      const result = await resetUserTwoFA(user.id, proof.proof_token)
+      const result = await resetUserTwoFA(user.id)
       if (result.success) {
         toast.success(t('Two-factor authentication reset'))
         triggerRefresh()
       } else {
-        handleServerError(result, t('Failed to reset 2FA'))
+        toast.error(result.message || t('Failed to reset 2FA'))
       }
-    } catch (error) {
-      handleServerError(
-        AuthOperationError.from(error),
-        t(ERROR_MESSAGES.UNEXPECTED)
-      )
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setResetTwoFAOpen(false)
     }
@@ -187,6 +149,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  const managementPermissions = getAssignableManagementPermissions(
+    currentUser?.role ?? ROLE.GUEST,
+    user.role
+  )
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
 
   if (isUserDeleted(user)) {
     return null
@@ -233,23 +203,42 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {isAdmin && !isRoot && (
-          <DropdownMenuItem onClick={() => handleManage('demote')}>
-            {t('Demote')}
-            <DropdownMenuShortcut>
-              <ArrowDown size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        )}
-
-        {!isAdmin && (
-          <DropdownMenuItem onClick={() => handleManage('promote')}>
-            {t('Promote')}
-            <DropdownMenuShortcut>
-              <ArrowUp size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        )}
+        {managementPermissions.length ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              {localize('Manage permissions', '\u7ba1\u7406\u6743\u9650')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className='w-48'>
+              {managementPermissions.map((permission) => {
+                const label = localize(
+                  permission.englishLabel,
+                  permission.chineseLabel
+                )
+                if (permission.id === 'platform-admin') {
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={permission.id}
+                      checked={isAdmin}
+                      onCheckedChange={() => {
+                        void handleManage(isAdmin ? 'demote' : 'promote')
+                      }}
+                    >
+                      {label}
+                    </DropdownMenuCheckboxItem>
+                  )
+                }
+                return (
+                  <DropdownMenuItem
+                    key={permission.id}
+                    onClick={() => setTeamAdminDialogOpen(true)}
+                  >
+                    {label}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
 
         <DropdownMenuItem
           onSelect={(event) => {
@@ -318,7 +307,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       </DataTableRowActionMenu>
 
       <ConfirmDialog
-        open={resetPasskeyOpen && !verificationActive}
+        open={resetPasskeyOpen}
         onOpenChange={setResetPasskeyOpen}
         title={t('Reset Passkey')}
         desc={t(
@@ -330,7 +319,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       />
 
       <ConfirmDialog
-        open={resetTwoFAOpen && !verificationActive}
+        open={resetTwoFAOpen}
         onOpenChange={setResetTwoFAOpen}
         title={t('Reset Two-Factor Authentication')}
         desc={t(
@@ -353,6 +342,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <TeamAdminPermissionDialog
+        user={user}
+        open={teamAdminDialogOpen}
+        onOpenChange={setTeamAdminDialogOpen}
       />
     </div>
   )

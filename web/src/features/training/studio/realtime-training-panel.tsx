@@ -44,6 +44,7 @@ import {
 interface RealtimeTrainingPanelProps {
   apiBase: string
   profile: RealtimeProfile
+  provider: string
   roomId: string
   sessionId: string
 }
@@ -89,6 +90,7 @@ function int16Samples(bytes: Uint8Array): Int16Array {
 export function RealtimeTrainingPanel({
   apiBase,
   profile,
+  provider,
   roomId,
   sessionId,
 }: RealtimeTrainingPanelProps) {
@@ -118,7 +120,7 @@ export function RealtimeTrainingPanel({
       }),
     [i18n.language, t]
   )
-  const contract = realtimeAudioContract(profile)
+  const contract = realtimeAudioContract(profile, provider)
 
   const releaseCapture = useCallback(() => {
     inputProcessorRef.current?.disconnect()
@@ -310,6 +312,7 @@ export function RealtimeTrainingPanel({
     try {
       const socketUrl = trainingRealtimeWebSocketUrl(apiBase, {
         profile,
+        provider,
         roomId,
         sessionId,
       })
@@ -428,6 +431,7 @@ export function RealtimeTrainingPanel({
     closeRealtime,
     localize,
     profile,
+    provider,
     releaseRuntime,
     roomId,
     sessionId,
