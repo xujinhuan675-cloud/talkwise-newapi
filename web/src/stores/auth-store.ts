@@ -1,24 +1,5 @@
-/*
-Copyright (C) 2023-2026 QuantumNous
-
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
-*/
 import { create } from 'zustand'
 
-import type { LoginChallenge } from '@/features/auth/secure-verification/types'
 import type { AdminCapabilities } from '@/lib/admin-permissions'
 
 export type UserPermissions = {
@@ -28,7 +9,8 @@ export type UserPermissions = {
 }
 
 export interface AuthUser {
-  has_password?: boolean
+  avatar?: string
+  avatar_url?: string
   id: number
   username: string
   display_name?: string
@@ -82,24 +64,17 @@ export interface AuthBundle {
 
 export type AuthBootstrapState = 'idle' | 'checking' | 'complete'
 
-export interface PendingLoginVerification {
-  challenge: LoginChallenge
-  redirectTo?: string
-}
-
 interface AuthState {
   auth: {
     user: AuthUser | null
     accessToken: string | null
     accessExpiresAt: number | null
     session: LoginSession | null
-    pendingLoginVerification: PendingLoginVerification | null
+    pending2FAFlowToken: string | null
     bootstrapState: AuthBootstrapState
     setBundle: (bundle: AuthBundle) => void
     setUser: (user: AuthUser | null) => void
-    setPendingLoginVerification: (
-      pending: PendingLoginVerification | null
-    ) => void
+    setPending2FAFlowToken: (flowToken: string | null) => void
     setBootstrapState: (bootstrapState: AuthBootstrapState) => void
     reset: (bootstrapState?: AuthBootstrapState) => void
   }
@@ -111,7 +86,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     accessToken: null,
     accessExpiresAt: null,
     session: null,
-    pendingLoginVerification: null,
+    pending2FAFlowToken: null,
     bootstrapState: 'idle',
     setBundle: (bundle) =>
       set((state) => ({
@@ -122,26 +97,19 @@ export const useAuthStore = create<AuthState>()((set) => ({
           accessToken: bundle.access_token,
           accessExpiresAt: bundle.access_expires_at,
           session: bundle.session,
-          pendingLoginVerification: null,
+          pending2FAFlowToken: null,
           bootstrapState: 'complete',
         },
       })),
     setUser: (user) =>
       set((state) => ({
         ...state,
-        auth: {
-          ...state.auth,
-          user,
-          pendingLoginVerification:
-            state.auth.user?.id === user?.id
-              ? state.auth.pendingLoginVerification
-              : null,
-        },
+        auth: { ...state.auth, user },
       })),
-    setPendingLoginVerification: (pendingLoginVerification) =>
+    setPending2FAFlowToken: (pending2FAFlowToken) =>
       set((state) => ({
         ...state,
-        auth: { ...state.auth, pendingLoginVerification },
+        auth: { ...state.auth, pending2FAFlowToken },
       })),
     setBootstrapState: (bootstrapState) =>
       set((state) => ({
@@ -157,7 +125,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
           accessToken: null,
           accessExpiresAt: null,
           session: null,
-          pendingLoginVerification: null,
+          pending2FAFlowToken: null,
           bootstrapState,
         },
       })),

@@ -1437,6 +1437,7 @@
     "Done": "Xong",
     "Doubao custom API address editing unlocked": "Đã mở khóa chỉnh sửa địa chỉ API tùy chỉnh Doubao",
     "DoubaoVideo": "DoubaoVideo",
+    "DoubaoVoice": "DoubaoVoice",
     "Double check the configuration below. Your system will be locked until initialization is complete.": "Kiểm tra kỹ lại cấu hình bên dưới. Hệ thống của bạn sẽ bị khóa cho đến khi quá trình khởi tạo hoàn tất.",
     "Downgrade Group": "Nhóm hạ cấp",
     "Downgrade to pre-purchase group": "Hạ xuống nhóm trước khi mua",
@@ -5213,6 +5214,7 @@
     "Your Turnstile site key": "Khóa site Turnstile của bạn",
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
+    "Zhipu V4": "Zhipu V4",
     "Scoring dimensions": "Tiêu chí chấm điểm",
     "Substance": "Nội dung",
     "Addresses the real issue with concrete information, trade-offs, and useful next steps.": "Câu trả lời giải quyết đúng vấn đề thực tế với thông tin cụ thể, các đánh đổi rõ ràng và bước tiếp theo hữu ích.",
@@ -5224,7 +5226,6 @@
     "Supports claims with evidence, examples, limitations, or a believable plan.": "Các nhận định được hỗ trợ bằng bằng chứng, ví dụ, giới hạn hoặc kế hoạch khả thi.",
     "Differentiation": "Khác biệt hóa",
     "Creates a clear point of view, contrast, or differentiated value.": "Câu trả lời tạo ra góc nhìn rõ ràng, so sánh hữu ích hoặc giá trị khác biệt.",
-    "Zhipu V4": "Zhipu V4",
     "Zoom": "Zoom"
   }
 }

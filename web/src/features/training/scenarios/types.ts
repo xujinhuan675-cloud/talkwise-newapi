@@ -28,6 +28,7 @@ export type TrainingScenarioCategory =
 export type TrainingSessionMode = 'text' | 'video' | 'voice'
 
 export interface TrainingScenarioPersona {
+  avatarUrl?: string | null
   name: string
   role: string
   style: string

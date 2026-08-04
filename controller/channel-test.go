@@ -577,7 +577,13 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 }
 
 func isVolcengineSpeechChannel(channel *model.Channel) bool {
-	if channel == nil || channel.Type != constant.ChannelTypeVolcEngine {
+	if channel == nil {
+		return false
+	}
+	if channel.Type == constant.ChannelTypeDoubaoVoice {
+		return true
+	}
+	if channel.Type != constant.ChannelTypeVolcEngine {
 		return false
 	}
 	switch channel.GetOtherSettings().VolcengineServiceMode {
@@ -747,6 +753,10 @@ func testVolcengineSpeechChannel(ctx context.Context, channel *model.Channel, te
 		ctx = context.Background()
 	}
 	settings := channel.GetOtherSettings()
+	if channel.Type == constant.ChannelTypeDoubaoVoice &&
+		settings.VolcengineServiceMode == "" {
+		settings.VolcengineServiceMode = volcenginechannel.ServiceModeVoiceV3
+	}
 	testModel = strings.TrimSpace(testModel)
 	if testModel == "" && channel.TestModel != nil {
 		testModel = strings.TrimSpace(*channel.TestModel)

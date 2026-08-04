@@ -25,6 +25,7 @@ import {
   trainingPlanMetadata,
   trainingTurnBudget,
   type TrainingPlanInput,
+  type TrainingPressure,
 } from '../training-plan'
 import type {
   CreateTrainingSessionRequest,
@@ -55,6 +56,7 @@ interface ScenarioTemplateDTO {
   required: boolean
   opening_line: string
   persona: {
+    avatar_url?: string | null
     name: string
     role: string
     style: string
@@ -76,6 +78,46 @@ interface TrainingSessionDTO {
   room_id?: string | number | null
   user_id?: string | null
   team_id?: string | null
+}
+
+type StartTrainingSessionRequest =
+  | {
+      runtime: 'conversation_message_tree'
+      opening_message?: {
+        content: string
+        metadata: Record<string, unknown>
+      }
+    }
+  | {
+      room_name: string
+      room_type: 'battle_prep'
+      runtime_persona: {
+        name: string
+        role: string
+        style: string
+        scenario_context: string
+        training_points: string[]
+        difficulty: 'easy' | 'hard' | 'normal'
+      }
+      opening_message?: {
+        content: string
+        metadata: Record<string, unknown>
+      }
+    }
+
+export class ScenarioTrainingStartError extends Error {
+  readonly sessionId: string
+
+  constructor(sessionId: string, error: unknown) {
+    super(
+      trainingRequestErrorMessage(
+        error,
+        'The session was created, but it could not be started.'
+      )
+    )
+    this.name = 'ScenarioTrainingStartError'
+    this.sessionId = sessionId
+  }
 }
 
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
@@ -153,7 +195,12 @@ export function toTrainingScenario(dto: ScenarioTemplateDTO): TrainingScenario {
     category: normalizeCategory(dto.category),
     required: dto.required,
     openingLine: dto.opening_line,
-    persona: { ...dto.persona },
+    persona: {
+      avatarUrl: dto.persona.avatar_url ?? null,
+      name: dto.persona.name,
+      role: dto.persona.role,
+      style: dto.persona.style,
+    },
     learnerRole: dto.learner_role,
     framework: dto.framework,
     trainingPoints: [...dto.training_points],
@@ -246,6 +293,10 @@ export function buildTrainingSessionRequest(
         scenario_training: {
           id: scenario.id,
           title: scenario.title,
+          description: scenario.description,
+          customer_profile: scenario.customerProfile,
+          opening_line: scenario.openingLine,
+          persona: { ...scenario.persona },
           required: scenario.required,
           category: scenario.category,
           difficulty: scenario.difficulty,
@@ -257,6 +308,85 @@ export function buildTrainingSessionRequest(
         },
       },
     },
+  }
+}
+
+function runtimePersonaDifficulty(
+  pressure: TrainingPressure
+): 'easy' | 'hard' | 'normal' {
+  if (pressure === 'easy') return 'easy'
+  if (pressure === 'hard') return 'hard'
+  return 'normal'
+}
+
+function normalizeTrainingSession(
+  session: TrainingSessionDTO
+): TrainingSession {
+  return {
+    sessionId: session.session_id,
+    mode: session.mode,
+    scenarioTemplateId: session.scenario_template_id ?? null,
+    status: session.status,
+    roomId: session.room_id == null ? null : String(session.room_id),
+    createdForUserId: session.user_id ?? null,
+    createdForTeamId: session.team_id ?? null,
+  }
+}
+
+export function buildScenarioStartRequest(
+  scenario: TrainingScenario,
+  mode: TrainingSessionMode,
+  plan: TrainingPlanInput = {
+    focusScope: 'all',
+    selectedFocus: scenario.trainingPoints,
+    pressure: scenarioPressure(scenario.difficulty),
+    lengthProfile: 'standard',
+  }
+): StartTrainingSessionRequest {
+  const trainingPoints =
+    plan.selectedFocus.length > 0
+      ? [...plan.selectedFocus]
+      : scenario.trainingPoints
+  const context = [
+    scenario.description,
+    scenario.customerProfile,
+    scenario.openingLine ? `Opening line: ${scenario.openingLine}` : '',
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .join('\n')
+  const openingMessage = scenario.openingLine.trim()
+    ? {
+        content: scenario.openingLine.trim(),
+        metadata: {
+          source: 'scenario_training_opening',
+          scenarioTrainingId: scenario.id,
+          trainingMode: mode,
+        },
+      }
+    : null
+
+  if (mode === 'text') {
+    return {
+      runtime: 'conversation_message_tree',
+      ...(openingMessage ? { opening_message: openingMessage } : {}),
+    }
+  }
+
+  return {
+    room_name: `Training: ${scenario.title}`,
+    room_type: 'battle_prep',
+    runtime_persona: {
+      name: scenario.persona.name || 'Training counterpart',
+      role: scenario.persona.role || 'Scenario counterpart',
+      style:
+        scenario.persona.style ||
+        'Stay in role, ask focused follow-up questions, and keep the exchange realistic.',
+      scenario_context: context || scenario.title,
+      training_points: trainingPoints,
+      difficulty: runtimePersonaDifficulty(plan.pressure),
+    },
+    ...(openingMessage ? { opening_message: openingMessage } : {}),
   }
 }
 
@@ -281,15 +411,27 @@ export async function createTrainingSession(
   )
   const session = requireTalkWiseData(response.data)
 
-  return {
-    sessionId: session.session_id,
-    mode: session.mode,
-    scenarioTemplateId: session.scenario_template_id ?? null,
-    status: session.status,
-    roomId: session.room_id == null ? null : String(session.room_id),
-    createdForUserId: session.user_id ?? null,
-    createdForTeamId: session.team_id ?? null,
-  }
+  return normalizeTrainingSession(session)
+}
+
+export async function startScenarioTrainingSession(
+  apiBase: string,
+  sessionId: string,
+  scenario: TrainingScenario,
+  mode: TrainingSessionMode,
+  plan?: TrainingPlanInput
+): Promise<TrainingSession> {
+  const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
+    trainingApiUrl(
+      apiBase,
+      `${TRAINING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/start`
+    ),
+    buildScenarioStartRequest(scenario, mode, plan),
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+  const session = requireTalkWiseData(response.data)
+
+  return normalizeTrainingSession(session)
 }
 
 export async function startTextTrainingSession(
@@ -306,24 +448,35 @@ export async function startTextTrainingSession(
   )
   const session = requireTalkWiseData(response.data)
 
-  return {
-    sessionId: session.session_id,
-    mode: session.mode,
-    scenarioTemplateId: session.scenario_template_id ?? null,
-    status: session.status,
-    roomId: session.room_id == null ? null : String(session.room_id),
-    createdForUserId: session.user_id ?? null,
-    createdForTeamId: session.team_id ?? null,
-  }
+  return normalizeTrainingSession(session)
 }
 
 export async function launchTextScenarioTrainingSession(
   apiBase: string,
   scenario: TrainingScenario
 ): Promise<TrainingSession> {
+  return launchScenarioTrainingSession(apiBase, scenario, 'text')
+}
+
+export async function launchScenarioTrainingSession(
+  apiBase: string,
+  scenario: TrainingScenario,
+  mode: TrainingSessionMode,
+  plan?: TrainingPlanInput
+): Promise<TrainingSession> {
   const created = await createTrainingSession(
     apiBase,
-    buildTrainingSessionRequest(scenario, 'text')
+    buildTrainingSessionRequest(scenario, mode, plan)
   )
-  return startTextTrainingSession(apiBase, created.sessionId)
+  try {
+    return await startScenarioTrainingSession(
+      apiBase,
+      created.sessionId,
+      scenario,
+      mode,
+      plan
+    )
+  } catch (error) {
+    throw new ScenarioTrainingStartError(created.sessionId, error)
+  }
 }

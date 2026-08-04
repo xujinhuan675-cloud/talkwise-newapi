@@ -20,8 +20,10 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  buildScenarioStartRequest,
   buildTrainingSessionRequest,
   filterTrainingScenarios,
+  ScenarioTrainingStartError,
   toTrainingScenario,
   trainingApiUrl,
 } from '../api'
@@ -68,7 +70,10 @@ describe('training scenario contract', () => {
     const scenario = toTrainingScenario(template)
 
     assert.equal(scenario.customerProfile, template.customer_profile)
-    assert.deepEqual(scenario.persona, template.persona)
+    assert.deepEqual(scenario.persona, {
+      avatarUrl: null,
+      ...template.persona,
+    })
     assert.deepEqual(scenario.dimensionWeights, [
       { dimensionId: 'discovery', weight: 40 },
       { dimensionId: 'value', weight: 60 },
@@ -115,6 +120,64 @@ describe('training scenario contract', () => {
       ).training_points,
       ['Clarify decision criteria']
     )
+  })
+
+  test('builds a room-backed scenario start request for voice training', () => {
+    const request = buildScenarioStartRequest(
+      toTrainingScenario(template),
+      'voice',
+      {
+        focusScope: 'custom',
+        selectedFocus: ['Clarify decision criteria'],
+        pressure: 'hard',
+        lengthProfile: 'standard',
+      }
+    )
+
+    if ('runtime' in request) {
+      throw new Error('voice scenario training must use a room-backed runtime')
+    }
+    assert.equal(request.room_type, 'battle_prep')
+    assert.equal(request.runtime_persona.name, template.persona.name)
+    assert.equal(request.runtime_persona.role, template.persona.role)
+    assert.equal(request.runtime_persona.difficulty, 'hard')
+    assert.deepEqual(request.runtime_persona.training_points, [
+      'Clarify decision criteria',
+    ])
+    assert.equal(request.opening_message?.content, template.opening_line)
+    assert.equal(
+      request.opening_message?.metadata.source,
+      'scenario_training_opening'
+    )
+  })
+
+  test('uses the same persisted scenario opening for text training', () => {
+    const request = buildScenarioStartRequest(
+      toTrainingScenario(template),
+      'text'
+    )
+
+    if (!('runtime' in request)) {
+      throw new Error(
+        'text scenario training must use the message-tree runtime'
+      )
+    }
+    assert.equal(request.runtime, 'conversation_message_tree')
+    assert.equal(request.opening_message?.content, template.opening_line)
+    assert.equal(
+      request.opening_message?.metadata.source,
+      'scenario_training_opening'
+    )
+  })
+
+  test('keeps the created session id when start needs a retry', () => {
+    const error = new ScenarioTrainingStartError(
+      'session-42',
+      new Error('Opening persistence failed')
+    )
+
+    assert.equal(error.sessionId, 'session-42')
+    assert.equal(error.message, 'Opening persistence failed')
   })
 
   test('filters across category, difficulty, persona, and training points', () => {

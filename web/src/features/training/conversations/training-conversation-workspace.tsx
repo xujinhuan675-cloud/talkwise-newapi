@@ -178,24 +178,15 @@ function TrainingConversationWorkspaceContent({
 
   return (
     <div className='flex size-full min-h-0 overflow-hidden'>
-      <aside
-        className={cn(
-          'bg-muted/20 hidden shrink-0 border-r transition-[width] duration-200 md:flex md:flex-col',
-          isListCollapsed ? 'w-12' : 'w-72'
-        )}
-      >
-        <div className='flex items-center justify-between gap-2 border-b px-2.5 py-3'>
-          {!isListCollapsed && (
-            <div className='truncate px-0.5 text-sm font-semibold'>
+      {!isListCollapsed && (
+        <aside
+          className='bg-muted/20 hidden w-72 shrink-0 border-r md:flex md:flex-col'
+          id='training-conversation-list'
+        >
+          <div className='flex min-h-12 items-center gap-2 border-b px-3 py-2'>
+            <span className='min-w-0 flex-1 truncate text-sm font-semibold'>
               {localize('Training conversations', '训练会话')}
-            </div>
-          )}
-          <div
-            className={cn(
-              'flex items-center gap-1',
-              isListCollapsed && 'w-full flex-col'
-            )}
-          >
+            </span>
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -216,32 +207,7 @@ function TrainingConversationWorkspaceContent({
                 {localize('Start training session', '开始训练会话')}
               </TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-label={
-                      isListCollapsed
-                        ? localize('Expand conversation list', '展开会话列表')
-                        : localize('Collapse conversation list', '折叠会话列表')
-                    }
-                    size='icon-sm'
-                    variant='ghost'
-                    onClick={() => setIsListCollapsed((current) => !current)}
-                  />
-                }
-              >
-                {isListCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-              </TooltipTrigger>
-              <TooltipContent>
-                {isListCollapsed
-                  ? localize('Expand conversation list', '展开会话列表')
-                  : localize('Collapse conversation list', '折叠会话列表')}
-              </TooltipContent>
-            </Tooltip>
           </div>
-        </div>
-        {!isListCollapsed && (
           <ScrollArea className='min-h-0 flex-1 p-2'>
             {sessionsQuery.isPending && (
               <div className='text-muted-foreground flex items-center gap-2 px-2 py-3 text-sm'>
@@ -310,26 +276,83 @@ function TrainingConversationWorkspaceContent({
               ))}
             </div>
           </ScrollArea>
-        )}
-      </aside>
+        </aside>
+      )}
 
       <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>
-        {activeSession && (
-          <div className='flex min-h-12 items-center gap-2 border-b px-4 py-2'>
-            <ClipboardList className='text-muted-foreground size-4 shrink-0' />
-            <div className='min-w-0 flex-1'>
+        <div className='flex min-h-12 items-center gap-2 border-b px-3 py-2 sm:px-4'>
+          <div className='flex shrink-0 items-center gap-1'>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-controls='training-conversation-list'
+                    aria-expanded={!isListCollapsed}
+                    aria-label={
+                      isListCollapsed
+                        ? localize('Expand conversation list', '展开会话列表')
+                        : localize('Collapse conversation list', '折叠会话列表')
+                    }
+                    className='hidden md:inline-flex'
+                    size='icon-sm'
+                    variant='ghost'
+                    onClick={() => setIsListCollapsed((current) => !current)}
+                  />
+                }
+              >
+                {isListCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+              </TooltipTrigger>
+              <TooltipContent>
+                {isListCollapsed
+                  ? localize('Expand conversation list', '展开会话列表')
+                  : localize('Collapse conversation list', '折叠会话列表')}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={localize(
+                      'Start training session',
+                      '开始训练会话'
+                    )}
+                    className='md:hidden'
+                    size='icon-sm'
+                    variant='ghost'
+                    onClick={() => setIsNewConversationOpen(true)}
+                  />
+                }
+              >
+                <Plus />
+              </TooltipTrigger>
+              <TooltipContent>
+                {localize('Start training session', '开始训练会话')}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <ClipboardList className='text-muted-foreground size-4 shrink-0' />
+          <div className='min-w-0 flex-1'>
+            {activeSession ? (
+              <>
+                <div className='truncate text-sm font-medium'>
+                  {activeSession.title}
+                </div>
+                <div className='text-muted-foreground truncate text-xs'>
+                  {activeSession.description}
+                </div>
+              </>
+            ) : (
               <div className='truncate text-sm font-medium'>
-                {activeSession.title}
+                {localize('Training conversations', '训练会话')}
               </div>
-              <div className='text-muted-foreground truncate text-xs'>
-                {activeSession.description}
-              </div>
-            </div>
+            )}
+          </div>
+          {activeSession && (
             <Badge className='capitalize' variant='outline'>
               {activeSession.difficulty}
             </Badge>
-          </div>
-        )}
+          )}
+        </div>
         {activeSession ? (
           <TrainingConversationSurface
             conversationId={activeSession.conversationId}

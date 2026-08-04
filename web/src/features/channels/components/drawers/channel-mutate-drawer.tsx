@@ -111,7 +111,6 @@ import {
   useSecureVerification,
 } from '@/features/auth/secure-verification'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
 import {
   ADMIN_PERMISSION_ACTIONS,
   ADMIN_PERMISSION_RESOURCES,
@@ -724,9 +723,6 @@ export function ChannelMutateDrawer({
   const awsKeyType = form.watch('aws_key_type')
   const vertexKeyType = form.watch('vertex_key_type')
   const volcengineServiceMode = form.watch('volcengine_service_mode')
-  const volcengineAuthMode = form.watch('volcengine_auth_mode')
-  const volcengineRequiresLegacyAuth =
-    volcengineServiceMode === 'speech_voice_v3'
   const upstreamModelUpdateCheckEnabled = form.watch(
     'upstream_model_update_check_enabled'
   )
@@ -766,23 +762,6 @@ export function ChannelMutateDrawer({
   const shouldPreviewUnsavedModels =
     !isEditing ||
     (currentType === CHANNEL_TYPE_ADVANCED_CUSTOM && canEditSensitive)
-  const {
-    unlocked: doubaoApiEditUnlocked,
-    handleClick: handleApiConfigSecretClick,
-    reset: resetDoubaoApiUnlock,
-  } = useHiddenClickUnlock({
-    requiredClicks: 10,
-    disabled: currentType !== 45 || sensitiveLocked,
-    onUnlock: () => {
-      toast.info(t('Doubao custom API address editing unlocked'))
-    },
-  })
-
-  useEffect(() => {
-    if (!open) {
-      resetDoubaoApiUnlock()
-    }
-  }, [open, resetDoubaoApiUnlock])
 
   const applyConnectionInfo = useCallback(
     (connectionInfo: ChannelConnectionInfo) => {
@@ -962,7 +941,7 @@ export function ChannelMutateDrawer({
   )
   const advancedHaveErrors =
     hasAdvancedSettingsErrors(formErrors) || Boolean(formErrors.advanced_custom)
-  const providerRequiresBaseUrl = [3, 8, 36, 45].includes(currentType)
+  const providerRequiresBaseUrl = [3, 8, 36, 45, 59].includes(currentType)
   const providerRequiresOther = [3, 18, 21, 39, 41, 49].includes(currentType)
   const identityComplete = Boolean(currentName?.trim() && currentType > 0)
   const credentialsComplete = Boolean(
@@ -1264,14 +1243,40 @@ export function ChannelMutateDrawer({
   useEffect(() => {
     if (isEditing) return // Don't auto-set defaults when editing
 
-    // Type 45 (VolcEngine) - set default base_url
+    // Type 45 (VolcEngine Ark) - set Ark defaults
     if (currentType === 45) {
       const currentBaseUrlValue = form.getValues('base_url')
-      if (!currentBaseUrlValue || currentBaseUrlValue === '') {
+      if (
+        !currentBaseUrlValue ||
+        currentBaseUrlValue === '' ||
+        currentBaseUrlValue === 'https://openspeech.bytedance.com'
+      ) {
         form.setValue('base_url', 'https://ark.cn-beijing.volces.com')
       }
       form.setValue('volcengine_service_mode', 'ark')
-      form.setValue('volcengine_auth_mode', 'api_key')
+    }
+
+    // Type 59 (Doubao Voice) - set speech defaults
+    if (currentType === 59) {
+      const currentBaseUrlValue = form.getValues('base_url')
+      if (
+        !currentBaseUrlValue ||
+        currentBaseUrlValue === '' ||
+        currentBaseUrlValue === 'https://ark.cn-beijing.volces.com'
+      ) {
+        form.setValue('base_url', 'https://openspeech.bytedance.com')
+      }
+      form.setValue('volcengine_service_mode', 'speech_voice_v3')
+      if (!form.getValues('models')?.trim()) {
+        form.setValue(
+          'models',
+          'seed-tts-2.0,volc.bigasr.sauc.duration,1.2.1.1',
+          { shouldDirty: true, shouldValidate: true }
+        )
+      }
+      if (!form.getValues('test_model')?.trim()) {
+        form.setValue('test_model', '1.2.1.1', { shouldDirty: true })
+      }
     }
 
     // Type 18 (Xunfei) - set default other (version)
@@ -1281,7 +1286,7 @@ export function ChannelMutateDrawer({
         form.setValue('other', 'v2.1')
       }
     }
-  }, [currentType, isEditing, form])
+  }, [currentType, currentBaseUrl, isEditing, form])
 
   useEffect(() => {
     if (currentType !== 45 || currentBaseUrl !== 'doubao-coding-plan') return
@@ -2645,179 +2650,9 @@ export function ChannelMutateDrawer({
                               </>
                             )}
 
-                            {currentType === 45 && (
-                              <FormField
-                                control={form.control}
-                                name='volcengine_service_mode'
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <FormLabel>{t('Service Mode *')}</FormLabel>
-                                    <Select
-                                      value={field.value || 'ark'}
-                                      onValueChange={(value) => {
-                                        const serviceMode = value as
-                                          | 'ark'
-                                          | 'speech_voice_v3'
-                                        field.onChange(serviceMode)
-                                        if (serviceMode === 'ark') {
-                                          form.setValue(
-                                            'base_url',
-                                            'https://ark.cn-beijing.volces.com',
-                                            { shouldDirty: true }
-                                          )
-                                          form.setValue(
-                                            'volcengine_auth_mode',
-                                            'api_key',
-                                            { shouldDirty: true }
-                                          )
-                                          return
-                                        }
-                                        form.setValue(
-                                          'base_url',
-                                          'https://openspeech.bytedance.com',
-                                          { shouldDirty: true }
-                                        )
-                                        const defaults = {
-                                          speech_voice_v3: {
-                                            model:
-                                              'seed-tts-2.0,volc.bigasr.sauc.duration,1.2.1.1',
-                                            resource: '',
-                                            auth: 'legacy' as const,
-                                          },
-                                        }[serviceMode]
-                                        form.setValue(
-                                          'models',
-                                          defaults.model,
-                                          {
-                                            shouldDirty: true,
-                                            shouldValidate: true,
-                                          }
-                                        )
-                                        form.setValue(
-                                          'test_model',
-                                          defaults.model,
-                                          { shouldDirty: true }
-                                        )
-                                        form.setValue(
-                                          'volcengine_resource_id',
-                                          defaults.resource,
-                                          { shouldDirty: true }
-                                        )
-                                        form.setValue(
-                                          'volcengine_auth_mode',
-                                          defaults.auth,
-                                          { shouldDirty: true }
-                                        )
-                                      }}
-                                    >
-                                      <FormControl>
-                                        <SelectTrigger className='w-full sm:w-72'>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                      </FormControl>
-                                      <SelectContent
-                                        align='start'
-                                        alignItemWithTrigger={false}
-                                        className='w-72 max-w-[calc(100vw-2rem)]'
-                                      >
-                                        <SelectGroup>
-                                          <SelectItem value='ark'>
-                                            {t('Volcengine Ark Models')}
-                                          </SelectItem>
-                                          <SelectItem value='speech_voice_v3'>
-                                            {t(
-                                              'Doubao Voice & Realtime (TTS / STT / Realtime)'
-                                            )}
-                                          </SelectItem>
-                                        </SelectGroup>
-                                      </SelectContent>
-                                    </Select>
-                                    <FormDescription>
-                                      {t(
-                                        'Use one credential for TTS, STT (ASR), and Realtime; the request endpoint selects the service.'
-                                      )}
-                                    </FormDescription>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-                            )}
-
                             {/* VolcEngine Ark (type 45) */}
                             {currentType === 45 &&
-                              volcengineServiceMode === 'ark' &&
-                              !doubaoApiEditUnlocked && (
-                                <FormField
-                                  control={form.control}
-                                  name='base_url'
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel
-                                        className='cursor-pointer select-none'
-                                        onClick={handleApiConfigSecretClick}
-                                      >
-                                        {t('API Base URL *')}
-                                      </FormLabel>
-                                      <Select
-                                        items={[
-                                          {
-                                            value:
-                                              'https://ark.cn-beijing.volces.com',
-                                            label: t(
-                                              'https://ark.cn-beijing.volces.com'
-                                            ),
-                                          },
-                                          {
-                                            value:
-                                              'https://ark.ap-southeast.bytepluses.com',
-                                            label: t(
-                                              'https://ark.ap-southeast.bytepluses.com'
-                                            ),
-                                          },
-                                        ]}
-                                        onValueChange={field.onChange}
-                                        value={
-                                          field.value === 'doubao-coding-plan'
-                                            ? 'https://ark.cn-beijing.volces.com'
-                                            : field.value ||
-                                              'https://ark.cn-beijing.volces.com'
-                                        }
-                                      >
-                                        <FormControl>
-                                          <SelectTrigger>
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                        </FormControl>
-                                        <SelectContent
-                                          alignItemWithTrigger={false}
-                                        >
-                                          <SelectGroup>
-                                            <SelectItem value='https://ark.cn-beijing.volces.com'>
-                                              {t(
-                                                'https://ark.cn-beijing.volces.com'
-                                              )}
-                                            </SelectItem>
-                                            <SelectItem value='https://ark.ap-southeast.bytepluses.com'>
-                                              {t(
-                                                'https://ark.ap-southeast.bytepluses.com'
-                                              )}
-                                            </SelectItem>
-                                          </SelectGroup>
-                                        </SelectContent>
-                                      </Select>
-                                      <FormDescription>
-                                        {t('Select the API endpoint region')}
-                                      </FormDescription>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                              )}
-
-                            {/* VolcEngine (type 45) - Custom API URL (unlocked) */}
-                            {currentType === 45 &&
-                              volcengineServiceMode === 'ark' &&
-                              doubaoApiEditUnlocked && (
+                              volcengineServiceMode === 'ark' && (
                                 <FormField
                                   control={form.control}
                                   name='base_url'
@@ -2843,157 +2678,57 @@ export function ChannelMutateDrawer({
                                 />
                               )}
 
-                            {currentType === 45 &&
-                              volcengineServiceMode !== 'ark' && (
-                                <>
-                                  <FormField
-                                    control={form.control}
-                                    name='base_url'
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>
-                                          {t('Speech API Base URL *')}
-                                        </FormLabel>
-                                        <FormControl>
-                                          <Input {...field} />
-                                        </FormControl>
-                                        <FormDescription>
-                                          https://openspeech.bytedance.com
-                                        </FormDescription>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                  <FormField
-                                    control={form.control}
-                                    name='volcengine_auth_mode'
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>
-                                          {t('Authentication Mode *')}
-                                        </FormLabel>
-                                        <Select
-                                          value={field.value || 'api_key'}
-                                          onValueChange={field.onChange}
-                                          disabled={volcengineRequiresLegacyAuth}
-                                        >
-                                          <FormControl>
-                                            <SelectTrigger>
-                                              <SelectValue />
-                                            </SelectTrigger>
-                                          </FormControl>
-                                          <SelectContent
-                                            alignItemWithTrigger={false}
-                                          >
-                                            <SelectGroup>
-                                              <SelectItem value='api_key'>
-                                                {t('New API Key')}
-                                              </SelectItem>
-                                              <SelectItem value='legacy'>
-                                                {t('Legacy AppID + Access Key')}
-                                              </SelectItem>
-                                            </SelectGroup>
-                                          </SelectContent>
-                                        </Select>
-                                        <FormDescription>
-                                          {volcengineRequiresLegacyAuth
-                                            ? t(
-                                                'This mode includes Realtime and requires credentials from the legacy Doubao Speech application console.'
-                                              )
-                                            : t(
-                                                'Use the authentication mode enabled for this speech application.'
-                                              )}
-                                        </FormDescription>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                  {volcengineAuthMode === 'legacy' && (
-                                    <FormField
-                                      control={form.control}
-                                      name='volcengine_app_id'
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>{t('AppID *')}</FormLabel>
-                                          <FormControl>
-                                            <Input {...field} />
-                                          </FormControl>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
+                            {currentType === 59 && (
+                              <>
+                                <FormField
+                                  control={form.control}
+                                  name='base_url'
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {t('Speech API Base URL *')}
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
                                   )}
-                                  {volcengineRequiresLegacyAuth && (
-                                    <FormField
-                                      control={form.control}
-                                      name='volcengine_app_key'
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <FormLabel>
-                                            {t('App Key Override')}
-                                          </FormLabel>
-                                          <FormControl>
-                                            <Input
-                                              placeholder='PlgvMymc7f3tQnJ6'
-                                              {...field}
-                                            />
-                                          </FormControl>
-                                          <FormDescription>
-                                            {t(
-                                              'Leave empty to use the current official Realtime App Key.'
-                                            )}
-                                          </FormDescription>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name='volcengine_resource_id'
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {currentType === 59
+                                          ? t('Resource ID Override')
+                                          : t('Resource ID *')}
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
                                   )}
-                                  <FormField
-                                    control={form.control}
-                                    name='volcengine_resource_id'
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>
-                                          {volcengineServiceMode ===
-                                          'speech_voice_v3'
-                                            ? t('Resource ID Override')
-                                            : t('Resource ID *')}
-                                        </FormLabel>
-                                        <FormControl>
-                                          <Input {...field} />
-                                        </FormControl>
-                                        {volcengineServiceMode ===
-                                          'speech_voice_v3' && (
-                                          <FormDescription>
-                                            {t(
-                                              'Leave empty to use the default resource for the selected TTS, STT, or Realtime route.'
-                                            )}
-                                          </FormDescription>
-                                        )}
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                  <FormField
-                                    control={form.control}
-                                    name='volcengine_voice'
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel>
-                                          {t('Default Voice')}
-                                        </FormLabel>
-                                        <FormControl>
-                                          <Input
-                                            placeholder='zh_female_vv_uranus_bigtts'
-                                            {...field}
-                                          />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
-                                  />
-                                </>
-                              )}
+                                />
+                                <FormField
+                                  control={form.control}
+                                  name='volcengine_voice'
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {t('Default Voice')}
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input {...field} />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </>
+                            )}
 
                             {/* Coze (type 49) */}
                             {currentType === 49 && (
@@ -3019,7 +2754,7 @@ export function ChannelMutateDrawer({
                             )}
 
                             {/* General base_url for other types */}
-                            {![3, 8, 22, 36, 45].includes(currentType) && (
+                            {![3, 8, 22, 36, 45, 59].includes(currentType) && (
                               <FormField
                                 control={form.control}
                                 name='base_url'
@@ -3172,9 +2907,7 @@ export function ChannelMutateDrawer({
                                     getKeyPromptForType(currentType)
                                   )
                                   if (isEditing) {
-                                    keyPlaceholder = t(
-                                      'Leave empty to keep existing key'
-                                    )
+                                    keyPlaceholder = ''
                                   } else if (
                                     currentType === 33 &&
                                     awsKeyType === 'api_key' &&
@@ -3238,13 +2971,7 @@ export function ChannelMutateDrawer({
                                   }
                                   return (
                                     <FormItem>
-                                      <FormLabel>
-                                        {currentType === 45 &&
-                                        volcengineServiceMode !== 'ark' &&
-                                        volcengineAuthMode === 'legacy'
-                                          ? t('Access Key *')
-                                          : t('API Key *')}
-                                      </FormLabel>
+                                      <FormLabel>{t('API Key *')}</FormLabel>
                                       <FormControl>
                                         <Textarea
                                           placeholder={keyPlaceholder}

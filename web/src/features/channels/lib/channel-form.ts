@@ -232,15 +232,7 @@ export const channelFormSchema = z
     vertex_key_type: z.enum(['json', 'api_key']).optional(), // Vertex AI specific
     aws_key_type: z.enum(['ak_sk', 'api_key']).optional(), // AWS specific
     azure_responses_version: z.string().optional(), // Azure specific
-    volcengine_service_mode: z
-      .enum([
-        'ark',
-        'speech_voice_v3',
-      ])
-      .optional(),
-    volcengine_auth_mode: z.enum(['api_key', 'legacy']).optional(),
-    volcengine_app_id: z.string().optional(),
-    volcengine_app_key: z.string().optional(),
+    volcengine_service_mode: z.enum(['ark', 'speech_voice_v3']).optional(),
     volcengine_resource_id: z.string().optional(),
     volcengine_voice: z.string().optional(),
     // Field passthrough controls (stored in settings JSON)
@@ -258,7 +250,7 @@ export const channelFormSchema = z
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
-    if ([3, 8, 36, 45].includes(data.type) && !data.base_url?.trim()) {
+    if ([3, 8, 36, 45, 59].includes(data.type) && !data.base_url?.trim()) {
       addRequiredIssue(
         ctx,
         'base_url',
@@ -349,24 +341,19 @@ export const channelFormSchema = z
     }
 
     if (data.type === 45 && data.volcengine_service_mode !== 'ark') {
-      if (
-        data.volcengine_service_mode === 'speech_voice_v3' &&
-        data.volcengine_auth_mode !== 'legacy'
-      ) {
+      addRequiredIssue(
+        ctx,
+        'volcengine_service_mode',
+        'VolcEngine channels only support the Ark service mode'
+      )
+    }
+
+    if (data.type === 59) {
+      if (data.volcengine_service_mode !== 'speech_voice_v3') {
         addRequiredIssue(
           ctx,
-          'volcengine_auth_mode',
-          'Doubao unified voice mode requires legacy AppID and Access Key authentication'
-        )
-      }
-      if (
-        data.volcengine_auth_mode === 'legacy' &&
-        !data.volcengine_app_id?.trim()
-      ) {
-        addRequiredIssue(
-          ctx,
-          'volcengine_app_id',
-          'AppID is required for legacy Volcengine speech authentication'
+          'volcengine_service_mode',
+          'Doubao Voice channels require the speech_voice_v3 service mode'
         )
       }
     }
@@ -417,9 +404,6 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   aws_key_type: 'ak_sk',
   azure_responses_version: '',
   volcengine_service_mode: 'ark',
-  volcengine_auth_mode: 'api_key',
-  volcengine_app_id: '',
-  volcengine_app_key: '',
   volcengine_resource_id: '',
   volcengine_voice: '',
   // Field passthrough controls
@@ -491,12 +475,7 @@ export function transformChannelToFormDefaults(
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
   let advancedCustom = ''
-  let volcengineServiceMode:
-    | 'ark'
-    | 'speech_voice_v3' = 'ark'
-  let volcengineAuthMode: 'api_key' | 'legacy' = 'api_key'
-  let volcengineAppID = ''
-  let volcengineAppKey = ''
+  let volcengineServiceMode: 'ark' | 'speech_voice_v3' = 'ark'
   let volcengineResourceID = ''
   let volcengineVoice = ''
 
@@ -528,15 +507,20 @@ export function transformChannelToFormDefaults(
         advancedCustom = stringifyAdvancedCustomConfig(parsed.advanced_custom)
       }
       volcengineServiceMode = parsed.volcengine_service_mode || 'ark'
-      volcengineAuthMode = parsed.volcengine_auth_mode || 'api_key'
-      volcengineAppID = parsed.volcengine_app_id || ''
-      volcengineAppKey = parsed.volcengine_app_key || ''
       volcengineResourceID = parsed.volcengine_resource_id || ''
       volcengineVoice = parsed.volcengine_voice || ''
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to parse channel settings:', error)
     }
+  }
+
+  if (channel.type === 59) {
+    volcengineServiceMode = 'speech_voice_v3'
+  } else if (channel.type === 45) {
+    volcengineServiceMode = 'ark'
+    volcengineResourceID = ''
+    volcengineVoice = ''
   }
 
   return {
@@ -585,9 +569,6 @@ export function transformChannelToFormDefaults(
     upstream_model_update_ignored_models: upstreamModelUpdateIgnoredModels,
     advanced_custom: advancedCustom,
     volcengine_service_mode: volcengineServiceMode,
-    volcengine_auth_mode: volcengineAuthMode,
-    volcengine_app_id: volcengineAppID,
-    volcengine_app_key: volcengineAppKey,
     volcengine_resource_id: volcengineResourceID,
     volcengine_voice: volcengineVoice,
   }
@@ -653,23 +634,20 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
   }
 
   if (formData.type === 45) {
-    const serviceMode = formData.volcengine_service_mode || 'ark'
-    settingsObj.volcengine_service_mode = serviceMode
-    if (serviceMode === 'ark') {
-      delete settingsObj.volcengine_auth_mode
-      delete settingsObj.volcengine_app_id
-      delete settingsObj.volcengine_app_key
-      delete settingsObj.volcengine_resource_id
-      delete settingsObj.volcengine_voice
-    } else {
-      settingsObj.volcengine_auth_mode =
-        formData.volcengine_auth_mode || 'api_key'
-      settingsObj.volcengine_app_id = formData.volcengine_app_id?.trim() || ''
-      settingsObj.volcengine_app_key = formData.volcengine_app_key?.trim() || ''
-      settingsObj.volcengine_resource_id =
-        formData.volcengine_resource_id?.trim() || ''
-      settingsObj.volcengine_voice = formData.volcengine_voice?.trim() || ''
-    }
+    settingsObj.volcengine_service_mode = 'ark'
+    delete settingsObj.volcengine_auth_mode
+    delete settingsObj.volcengine_app_id
+    delete settingsObj.volcengine_app_key
+    delete settingsObj.volcengine_resource_id
+    delete settingsObj.volcengine_voice
+  } else if (formData.type === 59) {
+    settingsObj.volcengine_service_mode = 'speech_voice_v3'
+    delete settingsObj.volcengine_auth_mode
+    delete settingsObj.volcengine_app_id
+    delete settingsObj.volcengine_app_key
+    settingsObj.volcengine_resource_id =
+      formData.volcengine_resource_id?.trim() || ''
+    settingsObj.volcengine_voice = formData.volcengine_voice?.trim() || ''
   } else {
     delete settingsObj.volcengine_service_mode
     delete settingsObj.volcengine_auth_mode

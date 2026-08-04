@@ -478,22 +478,26 @@ func TestAdvancedCustomSupportedEndpointTypesForModel(t *testing.T) {
 	}, config.SupportedEndpointTypesForModel("other-model"))
 }
 
-func TestValidateVolcengineUnifiedVoiceRequiresLegacyAuth(t *testing.T) {
+func TestValidateVolcengineUnifiedVoice(t *testing.T) {
 	settings := &ChannelOtherSettings{
 		VolcengineServiceMode: "speech_voice_v3",
-		VolcengineAuthMode:    "api_key",
-	}
-
-	err := settings.ValidateVolcengine()
-	require.ErrorContains(t, err, "requires legacy")
-}
-
-func TestValidateVolcengineUnifiedVoiceAcceptsLegacyAuth(t *testing.T) {
-	settings := &ChannelOtherSettings{
-		VolcengineServiceMode: "speech_voice_v3",
-		VolcengineAuthMode:    "legacy",
-		VolcengineAppID:       "test-app-id",
 	}
 
 	require.NoError(t, settings.ValidateVolcengine())
+}
+
+func TestValidateVolcengineArkRejectsVoiceMode(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		VolcengineServiceMode: "speech_voice_v3",
+	}
+
+	require.ErrorContains(t, settings.ValidateVolcengineArk(), "only support the ark")
+}
+
+func TestValidateDoubaoVoiceSettings(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		VolcengineServiceMode: "speech_voice_v3",
+	}
+
+	require.NoError(t, settings.ValidateDoubaoVoice())
 }

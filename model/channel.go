@@ -990,7 +990,12 @@ func (channel *Channel) ValidateSettings() error {
 		}
 	}
 	if channel.Type == constant.ChannelTypeVolcEngine {
-		if err := channelOtherSettings.ValidateVolcengine(); err != nil {
+		if err := channelOtherSettings.ValidateVolcengineArk(); err != nil {
+			return err
+		}
+	}
+	if channel.Type == constant.ChannelTypeDoubaoVoice {
+		if err := channelOtherSettings.ValidateDoubaoVoice(); err != nil {
 			return err
 		}
 	}

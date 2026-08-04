@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -33,14 +33,17 @@ import type {
   ParameterEnabled,
   PlaygroundConfig,
 } from '../../types'
+import type { PlaygroundInputCapabilities } from './playground-input-capabilities'
 import { PlaygroundInputControls } from './playground-input-controls'
 import { PlaygroundInputTools } from './playground-input-tools'
 
 interface PlaygroundInputProps {
+  capabilities?: Partial<PlaygroundInputCapabilities>
   config: PlaygroundConfig
   onSubmit: (text: string) => void
   onStop?: () => void
   disabled?: boolean
+  extraTools?: ReactNode
   isGenerating?: boolean
   models: ModelOption[]
   modelValue: string
@@ -63,10 +66,12 @@ interface PlaygroundInputProps {
 }
 
 export function PlaygroundInput({
+  capabilities,
   config,
   onSubmit,
   onStop,
   disabled,
+  extraTools,
   isGenerating,
   models,
   modelValue,
@@ -126,8 +131,10 @@ export function PlaygroundInput({
             text={text}
             tools={
               <PlaygroundInputTools
+                capabilities={capabilities}
                 config={config}
                 disabled={disabled}
+                extraTools={extraTools}
                 hasMessages={hasMessages}
                 onConfigChange={onConfigChange}
                 onClearMessages={onClearMessages}

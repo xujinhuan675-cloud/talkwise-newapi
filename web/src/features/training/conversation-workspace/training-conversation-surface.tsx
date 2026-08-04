@@ -23,6 +23,8 @@ import {
   Clock3,
   Flag,
   LoaderCircle,
+  Mic,
+  PanelRightClose,
   PanelRightOpen,
   ShieldAlert,
   TriangleAlert,
@@ -40,6 +42,7 @@ import {
   BranchPrevious,
   BranchSelector,
 } from '@/components/ai-elements/branch'
+import { PromptInputButton } from '@/components/ai-elements/prompt-input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -60,6 +63,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { PlaygroundChat } from '@/features/playground/components/chat/playground-chat'
 import { PlaygroundInput } from '@/features/playground/components/input/playground-input'
 import {
@@ -73,7 +81,12 @@ import {
   processStreamingContent,
 } from '@/features/playground/lib'
 import type { Message } from '@/features/playground/types'
+import { useAuthStore } from '@/stores/auth-store'
 
+import {
+  launchRealtimeTrainingHandoff,
+  RealtimeTrainingHandoffError,
+} from '../studio/api'
 import { resolveBattlePrepPlan } from '../training-plan'
 import {
   completeTrainingConversationSession,
@@ -97,6 +110,14 @@ import {
   type TrainingConversationBranchStep,
   type TrainingConversationTreeProjection,
 } from './branch-model'
+import {
+  loadTrainingInsightsExpanded,
+  saveTrainingInsightsExpanded,
+} from './insights-preference'
+import {
+  trainingCounterpartParticipant,
+  trainingUserParticipant,
+} from './participant-identity'
 import { TrainingConversationInsights } from './training-conversation-insights'
 
 export type { TrainingConversationSessionContext } from './api'
@@ -128,6 +149,12 @@ const EMPTY_TREE_PROJECTION: TrainingConversationTreeProjection = {
 }
 
 const DEFAULT_TRAINING_TEXT_MODEL = 'doubao-seed-2-0-pro-260215'
+const TRAINING_INPUT_CAPABILITIES = {
+  attachments: false,
+  search: false,
+  parameters: false,
+  clearMessages: false,
+} as const
 
 function metadataRecord(
   value: unknown
@@ -300,6 +327,7 @@ export function TrainingConversationSurface({
 }: TrainingConversationSurfaceProps) {
   const { i18n, t } = useTranslation()
   const navigate = useNavigate()
+  const currentUser = useAuthStore((state) => state.auth.user)
   const {
     config,
     parameterEnabled,
@@ -328,7 +356,16 @@ export function TrainingConversationSurface({
   const [forkOption, setForkOption] =
     useState<TrainingConversationForkOption>('directPath')
   const [isForking, setIsForking] = useState(false)
-  const [isInsightsOpen, setIsInsightsOpen] = useState(false)
+  const [isStartingVoiceTraining, setIsStartingVoiceTraining] = useState(false)
+  const [voiceHandoffRetrySessionId, setVoiceHandoffRetrySessionId] = useState<
+    string | null
+  >(null)
+  const [isMobileInsightsOpen, setIsMobileInsightsOpen] = useState(false)
+  const [isInsightsExpanded, setIsInsightsExpanded] = useState(() =>
+    loadTrainingInsightsExpanded(
+      typeof window === 'undefined' ? null : window.localStorage
+    )
+  )
   const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false)
   const [isCompleting, setIsCompleting] = useState(false)
   const [completionError, setCompletionError] = useState<unknown>(null)
@@ -352,6 +389,14 @@ export function TrainingConversationSurface({
   const battlePlan = useMemo(
     () => resolveBattlePrepPlan(trainingSession.metadata),
     [trainingSession.metadata]
+  )
+  const assistantParticipant = useMemo(
+    () => trainingCounterpartParticipant(trainingSession),
+    [trainingSession]
+  )
+  const userParticipant = useMemo(
+    () => trainingUserParticipant(currentUser),
+    [currentUser]
   )
   const completedBattleTurns = battlePlan
     ? treeProjection.path.filter((message) => message.role === 'user').length
@@ -380,7 +425,15 @@ export function TrainingConversationSurface({
     setCompletionResult(null)
     setBattleSheet(null)
     setBattleSheetError(null)
+    setVoiceHandoffRetrySessionId(null)
   }, [trainingSession.sessionId])
+
+  useEffect(() => {
+    saveTrainingInsightsExpanded(
+      typeof window === 'undefined' ? null : window.localStorage,
+      isInsightsExpanded
+    )
+  }, [isInsightsExpanded])
 
   const replaceMessages = useCallback(
     (nextMessages: Message[]) => {
@@ -817,6 +870,48 @@ export function TrainingConversationSurface({
     })
   }, [navigate, trainingSession.sessionId])
 
+  const handleOpenVoiceTraining = useCallback(() => {
+    if (isStartingVoiceTraining) return
+    setIsStartingVoiceTraining(true)
+    void launchRealtimeTrainingHandoff(
+      trainingApiBase,
+      trainingSession.sessionId,
+      voiceHandoffRetrySessionId
+    )
+      .then((session) => {
+        setVoiceHandoffRetrySessionId(null)
+        void navigate({
+          to: '/training/studio',
+          search: { session: session.sessionId },
+        })
+      })
+      .catch((error: unknown) => {
+        if (error instanceof RealtimeTrainingHandoffError) {
+          setVoiceHandoffRetrySessionId(error.sessionId)
+        }
+        toast.error(
+          voiceHandoffRetrySessionId
+            ? localize(
+                'Voice training could not be opened. Click the microphone to retry.',
+                '语音训练仍未能打开，请点击麦克风重试。'
+              )
+            : localize(
+                'Voice training could not be started. Click the microphone to retry.',
+                '语音训练启动失败，请点击麦克风重试。'
+              ),
+          { description: trainingConversationErrorMessage(error) }
+        )
+      })
+      .finally(() => setIsStartingVoiceTraining(false))
+  }, [
+    isStartingVoiceTraining,
+    localize,
+    navigate,
+    trainingApiBase,
+    trainingSession.sessionId,
+    voiceHandoffRetrySessionId,
+  ])
+
   const handleCompleteTraining = useCallback(() => {
     const selectedTail = treeProjection.selectedTailId?.trim()
     if (!selectedTail || isCompleting || trainingSession.status !== 'active') {
@@ -1039,83 +1134,151 @@ export function TrainingConversationSurface({
           </Button>
         )}
         <Button
+          className='lg:hidden'
           size='sm'
           variant='ghost'
-          onClick={() => setIsInsightsOpen(true)}
+          onClick={() => setIsMobileInsightsOpen(true)}
         >
           <PanelRightOpen />
           {localize('Training insights', '训练洞察')}
         </Button>
+        <Button
+          aria-expanded={isInsightsExpanded}
+          className='hidden lg:inline-flex'
+          size='sm'
+          variant='ghost'
+          onClick={() => setIsInsightsExpanded((current) => !current)}
+        >
+          {isInsightsExpanded ? <PanelRightClose /> : <PanelRightOpen />}
+          {isInsightsExpanded
+            ? localize('Collapse insights', '收起洞察')
+            : localize('Expand insights', '展开洞察')}
+        </Button>
       </div>
-      <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
-        {battleTurnLimitReached && !isSessionReadOnly && (
-          <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
-            <Flag />
-            <AlertTitle>
-              {localize('Planned rounds complete', '计划轮次已完成')}
-            </AlertTitle>
-            <AlertDescription>
-              {localize(
-                'Finish battle preparation to generate the briefing card, or switch branches before finishing.',
-                '现在可以结束备战生成速记卡，也可以先切换分支再结束。'
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-        {treeProjection.excludedMessageIds.length > 0 && (
-          <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
-            <TriangleAlert />
-            <AlertDescription>
-              {localize(
-                'Some messages could not be placed in this conversation path.',
-                '部分消息无法放入当前会话路径。'
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
-        <PlaygroundChat
-          editingKey={editingMessageKey}
-          forkMessageLabel={localize('Fork conversation', '创建会话分支')}
-          isGenerating={isBusy}
-          isLoadingMessages={isLoadingMessages || isLoadingConversation}
-          messages={messages}
-          onCancelEdit={(open) => {
-            if (!open) setEditingMessageKey(null)
-          }}
-          onEditMessage={
-            isInputLocked
-              ? undefined
-              : (message) => setEditingMessageKey(message.key)
-          }
-          onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
-          onRegenerateMessage={
-            isInputLocked ? undefined : handleRegenerateMessage
-          }
-          onSaveEdit={handleSaveEdit}
-          onSaveEditAndSubmit={handleSaveEditAndSubmit}
-          onSelectPrompt={handleSendMessage}
-          renderMessageFooter={renderMessageBranchSelector}
-        />
-      </div>
+      <div className='flex min-h-0 flex-1 overflow-hidden'>
+        <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>
+          <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+            {battleTurnLimitReached && !isSessionReadOnly && (
+              <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
+                <Flag />
+                <AlertTitle>
+                  {localize('Planned rounds complete', '计划轮次已完成')}
+                </AlertTitle>
+                <AlertDescription>
+                  {localize(
+                    'Finish battle preparation to generate the briefing card, or switch branches before finishing.',
+                    '现在可以结束备战生成速记卡，也可以先切换分支再结束。'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            {treeProjection.excludedMessageIds.length > 0 && (
+              <Alert className='mx-auto mt-3 w-[calc(100%-2rem)] max-w-4xl'>
+                <TriangleAlert />
+                <AlertDescription>
+                  {localize(
+                    'Some messages could not be placed in this conversation path.',
+                    '部分消息无法放入当前会话路径。'
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            <PlaygroundChat
+              assistantParticipant={assistantParticipant}
+              contentClassName='max-w-none'
+              editingKey={editingMessageKey}
+              forkMessageLabel={localize('Fork conversation', '创建会话分支')}
+              isGenerating={isBusy}
+              isLoadingMessages={isLoadingMessages || isLoadingConversation}
+              messages={messages}
+              onCancelEdit={(open) => {
+                if (!open) setEditingMessageKey(null)
+              }}
+              onEditMessage={
+                isInputLocked
+                  ? undefined
+                  : (message) => setEditingMessageKey(message.key)
+              }
+              onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
+              onRegenerateMessage={
+                isInputLocked ? undefined : handleRegenerateMessage
+              }
+              onSaveEdit={handleSaveEdit}
+              onSaveEditAndSubmit={handleSaveEditAndSubmit}
+              onSelectPrompt={handleSendMessage}
+              renderMessageFooter={renderMessageBranchSelector}
+              userParticipant={userParticipant}
+            />
+          </div>
 
-      <div className='mx-auto w-full max-w-4xl'>
-        <PlaygroundInput
-          config={config}
-          disabled={isBusy || isInputLocked}
-          groups={groups}
-          groupValue={config.group}
-          hasMessages={messages.length > 0}
+          <div className='mx-auto w-full max-w-4xl'>
+            <PlaygroundInput
+              capabilities={TRAINING_INPUT_CAPABILITIES}
+              config={config}
+              disabled={isBusy || isInputLocked}
+              extraTools={
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <PromptInputButton
+                        aria-label={localize(
+                          'Open voice training',
+                          '进入语音训练'
+                        )}
+                        className='text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
+                        disabled={isBusy || isStartingVoiceTraining}
+                        onClick={handleOpenVoiceTraining}
+                        type='button'
+                        variant='ghost'
+                      >
+                        {isStartingVoiceTraining ? (
+                          <LoaderCircle className='animate-spin' size={16} />
+                        ) : (
+                          <Mic size={16} />
+                        )}
+                      </PromptInputButton>
+                    }
+                  />
+                  <TooltipContent>
+                    {voiceHandoffRetrySessionId
+                      ? localize(
+                          'Retry opening voice training',
+                          '重试进入语音训练'
+                        )
+                      : localize('Open voice training', '进入语音训练')}
+                  </TooltipContent>
+                </Tooltip>
+              }
+              groups={groups}
+              groupValue={config.group}
+              hasMessages={messages.length > 0}
+              isGenerating={isGenerating}
+              isModelLoading={isLoadingModels}
+              modelValue={config.model}
+              models={models}
+              onConfigChange={updateConfig}
+              onGroupChange={(value) => updateConfig('group', value)}
+              onModelChange={(value) => updateConfig('model', value)}
+              onParameterEnabledChange={updateParameterEnabled}
+              onStop={() => streamAbortRef.current?.abort()}
+              onSubmit={handleSendMessage}
+              parameterEnabled={parameterEnabled}
+            />
+          </div>
+        </div>
+        <TrainingConversationInsights
+          desktopExpanded={isInsightsExpanded}
           isGenerating={isGenerating}
-          isModelLoading={isLoadingModels}
-          modelValue={config.model}
-          models={models}
-          onConfigChange={updateConfig}
-          onGroupChange={(value) => updateConfig('group', value)}
-          onModelChange={(value) => updateConfig('model', value)}
-          onParameterEnabledChange={updateParameterEnabled}
-          onStop={() => streamAbortRef.current?.abort()}
-          onSubmit={handleSendMessage}
-          parameterEnabled={parameterEnabled}
+          isLoadingConversation={
+            isLoadingConversation || loadedConversationId !== conversationId
+          }
+          messages={treeProjection.path}
+          mobileOpen={isMobileInsightsOpen}
+          selectedTailId={treeProjection.selectedTailId}
+          trainingApiBase={trainingApiBase}
+          trainingSession={trainingSession}
+          onDesktopExpandedChange={setIsInsightsExpanded}
+          onMobileOpenChange={setIsMobileInsightsOpen}
         />
       </div>
       <Dialog
@@ -1342,18 +1505,6 @@ export function TrainingConversationSurface({
           )}
         </DialogContent>
       </Dialog>
-      <TrainingConversationInsights
-        isGenerating={isGenerating}
-        isLoadingConversation={
-          isLoadingConversation || loadedConversationId !== conversationId
-        }
-        messages={treeProjection.path}
-        open={isInsightsOpen}
-        selectedTailId={treeProjection.selectedTailId}
-        trainingApiBase={trainingApiBase}
-        trainingSession={trainingSession}
-        onOpenChange={setIsInsightsOpen}
-      />
     </div>
   )
 }

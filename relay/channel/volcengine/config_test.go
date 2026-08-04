@@ -17,47 +17,31 @@ func TestSpeechEndpointUsesServicePathAndWebsocketScheme(t *testing.T) {
 	assert.Equal(t, "wss://openspeech.bytedance.com/api/v3/realtime/dialogue", endpoint)
 }
 
-func TestResolveRealtimeAuthRequiresLegacyCredentials(t *testing.T) {
+func TestResolveRealtimeAuthAcceptsAPIKeyCredentials(t *testing.T) {
 	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
 		ApiKey: "api-key",
-		ChannelOtherSettings: dto.ChannelOtherSettings{
-			VolcengineAuthMode: AuthModeAPIKey,
-		},
-	}}
-	_, err := resolveRealtimeAuth(info)
-	require.ErrorContains(t, err, "requires legacy")
-}
-
-func TestResolveRealtimeAuthUsesFixedAppKeyByDefault(t *testing.T) {
-	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
-		ApiKey: "access-key",
-		ChannelOtherSettings: dto.ChannelOtherSettings{
-			VolcengineAuthMode: AuthModeLegacy,
-			VolcengineAppID:    "app-id",
-		},
 	}}
 	auth, err := resolveRealtimeAuth(info)
 	require.NoError(t, err)
-	assert.Equal(t, defaultRealtimeAppKey, auth.AppKey)
-
 	header := http.Header{}
-	applySpeechAuthHeaders(header, auth, "connect-id")
-	assert.Equal(t, "app-id", header.Get("X-Api-App-Id"))
-	assert.Equal(t, "access-key", header.Get("X-Api-Access-Key"))
-	assert.Equal(t, defaultRealtimeAppKey, header.Get("X-Api-App-Key"))
-	assert.Equal(t, defaultRealtimeResourceID, header.Get("X-Api-Resource-Id"))
-	assert.Equal(t, "connect-id", header.Get("X-Api-Connect-Id"))
+	applySpeechAuthHeaders(header, auth, "")
+	assert.Equal(t, "api-key", header.Get("X-Api-Key"))
+	assert.Empty(t, header.Get("X-Api-App-Id"))
+	assert.Empty(t, header.Get("X-Api-Access-Key"))
 }
 
-func TestApplySpeechAuthHeadersDoesNotUseAppIDAsAppKey(t *testing.T) {
+func TestApplySpeechAuthHeadersUsesAPIKeyOnly(t *testing.T) {
 	header := http.Header{}
 	applySpeechAuthHeaders(header, speechAuth{
-		Mode:       AuthModeLegacy,
-		AppID:      "app-id",
-		Secret:     "access-key",
+		Secret:     "api-key",
 		ResourceID: defaultTTSResourceID,
-	}, "")
+	}, "connect-id")
+	assert.Equal(t, "api-key", header.Get("X-Api-Key"))
+	assert.Empty(t, header.Get("X-Api-App-Id"))
 	assert.Empty(t, header.Get("X-Api-App-Key"))
+	assert.Empty(t, header.Get("X-Api-Access-Key"))
+	assert.Equal(t, defaultTTSResourceID, header.Get("X-Api-Resource-Id"))
+	assert.Equal(t, "connect-id", header.Get("X-Api-Connect-Id"))
 }
 
 func TestResolvedServiceModeRoutesUnifiedVoiceByRelayMode(t *testing.T) {

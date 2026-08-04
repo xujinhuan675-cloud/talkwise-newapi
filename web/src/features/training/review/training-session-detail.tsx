@@ -428,7 +428,10 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
                     ],
                   ] as const
                 ).map(([outcomeId, label, observation]) => (
-                  <div key={outcomeId} className='space-y-2 rounded-md border p-3'>
+                  <div
+                    key={outcomeId}
+                    className='space-y-2 rounded-md border p-3'
+                  >
                     <div className='flex items-center justify-between gap-3'>
                       <span className='font-medium'>{label}</span>
                       <Badge variant='secondary'>
@@ -458,50 +461,50 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
               </div>
               <div className='grid gap-3 sm:grid-cols-2'>
                 {Object.entries(session.evaluationState.competencies).map(
-                ([dimensionId, observation]) => {
-                  const labels = COMPETENCY_LABELS[dimensionId]
-                  const label = labels
-                    ? localize(labels[0], labels[1])
-                    : dimensionId
-                  return (
-                    <div
-                      key={dimensionId}
-                      className='space-y-2 rounded-md border p-3'
-                    >
-                      <div className='flex items-center justify-between gap-3'>
-                        <span className='font-medium'>{label}</span>
-                        <Badge variant='secondary'>
-                          {observation.rating === null
-                            ? localize('N/A', '\u65e0\u8bc1\u636e')
-                            : `${observation.rating}/5`}
-                        </Badge>
+                  ([dimensionId, observation]) => {
+                    const labels = COMPETENCY_LABELS[dimensionId]
+                    const label = labels
+                      ? localize(labels[0], labels[1])
+                      : dimensionId
+                    return (
+                      <div
+                        key={dimensionId}
+                        className='space-y-2 rounded-md border p-3'
+                      >
+                        <div className='flex items-center justify-between gap-3'>
+                          <span className='font-medium'>{label}</span>
+                          <Badge variant='secondary'>
+                            {observation.rating === null
+                              ? localize('N/A', '\u65e0\u8bc1\u636e')
+                              : `${observation.rating}/5`}
+                          </Badge>
+                        </div>
+                        {observation.reason && (
+                          <p className='text-muted-foreground text-sm leading-5'>
+                            {observation.reason}
+                          </p>
+                        )}
+                        {observation.evidence.map((evidence) => (
+                          <blockquote
+                            key={`${evidence.messageId}:${evidence.quote}`}
+                            className='border-l-2 pl-3 text-sm leading-5'
+                          >
+                            {evidence.quote}
+                            <span className='text-muted-foreground mt-1 block font-mono text-xs'>
+                              {evidence.messageId}
+                            </span>
+                          </blockquote>
+                        ))}
+                        {observation.suggestion && (
+                          <p className='text-muted-foreground text-xs leading-5'>
+                            {localize('Next step', '\u4e0b\u4e00\u6b65')}:{' '}
+                            {observation.suggestion}
+                          </p>
+                        )}
                       </div>
-                      {observation.reason && (
-                        <p className='text-muted-foreground text-sm leading-5'>
-                          {observation.reason}
-                        </p>
-                      )}
-                      {observation.evidence.map((evidence) => (
-                        <blockquote
-                          key={`${evidence.messageId}:${evidence.quote}`}
-                          className='border-l-2 pl-3 text-sm leading-5'
-                        >
-                          {evidence.quote}
-                          <span className='text-muted-foreground mt-1 block font-mono text-xs'>
-                            {evidence.messageId}
-                          </span>
-                        </blockquote>
-                      ))}
-                      {observation.suggestion && (
-                        <p className='text-muted-foreground text-xs leading-5'>
-                          {localize('Next step', '\u4e0b\u4e00\u6b65')}:{' '}
-                          {observation.suggestion}
-                        </p>
-                      )}
-                    </div>
-                  )
-                }
-              )}
+                    )
+                  }
+                )}
               </div>
             </CardContent>
           </Card>

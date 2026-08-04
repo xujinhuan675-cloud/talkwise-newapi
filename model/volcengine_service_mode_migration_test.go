@@ -56,3 +56,45 @@ func TestMigrateVolcengineServiceModes(t *testing.T) {
 	require.NoError(t, db.First(&unchanged, ark.Id).Error)
 	assert.Equal(t, "ark", unchanged.GetOtherSettings().VolcengineServiceMode)
 }
+
+func TestMigrateDoubaoVoiceChannels(t *testing.T) {
+	previousDB := DB
+	previousType := common.MainDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&Channel{}))
+	DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		DB = previousDB
+		common.SetMainDatabaseType(previousType)
+	})
+
+	voice := &Channel{
+		Type: constant.ChannelTypeVolcEngine,
+		Name: "legacy-voice",
+	}
+	voice.SetOtherSettings(dto.ChannelOtherSettings{
+		VolcengineServiceMode: unifiedVolcengineServiceMode,
+	})
+	require.NoError(t, db.Create(voice).Error)
+
+	ark := &Channel{
+		Type: constant.ChannelTypeVolcEngine,
+		Name: "ark",
+	}
+	ark.SetOtherSettings(dto.ChannelOtherSettings{
+		VolcengineServiceMode: "ark",
+	})
+	require.NoError(t, db.Create(ark).Error)
+
+	require.NoError(t, MigrateDoubaoVoiceChannels())
+
+	var migrated Channel
+	require.NoError(t, db.First(&migrated, voice.Id).Error)
+	assert.Equal(t, constant.ChannelTypeDoubaoVoice, migrated.Type)
+
+	var unchanged Channel
+	require.NoError(t, db.First(&unchanged, ark.Id).Error)
+	assert.Equal(t, constant.ChannelTypeVolcEngine, unchanged.Type)
+}
