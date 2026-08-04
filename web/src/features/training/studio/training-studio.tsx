@@ -47,6 +47,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
 import {
+  getTrainingSession,
   launchTrainingSession,
   getRealtimeReadiness,
   trainingStudioErrorMessage,
@@ -86,7 +87,11 @@ function chineseFeedbackLabel(label: string): string {
   return '逐项练习'
 }
 
-function TrainingStudioContent() {
+type TrainingStudioContentProps = {
+  initialSessionId?: string
+}
+
+function TrainingStudioContent({ initialSessionId }: TrainingStudioContentProps) {
   const { i18n, t } = useTranslation()
   const { apiBase, authStatus } = useTrainingHost()
   const [role, setRole] = useState('')
@@ -108,10 +113,13 @@ function TrainingStudioContent() {
   const [roomRefreshVersion, setRoomRefreshVersion] = useState(0)
   const [isLaunching, setIsLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const localize = (english: string, chinese: string) =>
-    t(english, {
-      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
-    })
+  const localize = useCallback(
+    (english: string, chinese: string) =>
+      t(english, {
+        defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+      }),
+    [i18n.language, t]
+  )
 
   useEffect(() => {
     if (authStatus !== 'authenticated') return
@@ -125,6 +133,33 @@ function TrainingStudioContent() {
       cancelled = true
     }
   }, [apiBase, authStatus])
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    if (!initialSessionId) return
+    if (session?.sessionId === initialSessionId) return
+
+    let cancelled = false
+    setError(null)
+    void getTrainingSession(apiBase, initialSessionId)
+      .then((nextSession) => {
+        if (cancelled) return
+        setSession(nextSession)
+        setRoomRefreshVersion((current) => current + 1)
+      })
+      .catch((nextError) => {
+        if (cancelled) return
+        setError(
+          trainingStudioErrorMessage(
+            nextError,
+            localize('Failed to load training session.', '加载训练会话失败。')
+          )
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase, authStatus, initialSessionId, localize, session?.sessionId])
 
   const startSession = async () => {
     setError(null)
@@ -506,10 +541,10 @@ function TrainingStudioContent() {
   )
 }
 
-export function TrainingStudio() {
+export function TrainingStudio({ sessionId }: { sessionId?: string }) {
   return (
     <TrainingHostProvider>
-      <TrainingStudioContent />
+      <TrainingStudioContent initialSessionId={sessionId} />
     </TrainingHostProvider>
   )
 }

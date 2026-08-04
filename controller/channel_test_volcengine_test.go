@@ -19,6 +19,11 @@ func TestIsVolcengineSpeechChannel(t *testing.T) {
 		{name: "different channel type", channel: &model.Channel{Type: constant.ChannelTypeOpenAI}, expected: false},
 		{name: "ark", channel: volcengineTestChannel(volcenginechannel.ServiceModeArk), expected: false},
 		{name: "unified voice", channel: volcengineTestChannel(volcenginechannel.ServiceModeVoiceV3), expected: true},
+		{
+			name:     "dedicated Doubao Voice channel",
+			channel:  &model.Channel{Type: constant.ChannelTypeDoubaoVoice},
+			expected: true,
+		},
 	}
 
 	for _, test := range tests {

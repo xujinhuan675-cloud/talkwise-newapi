@@ -107,12 +107,7 @@ export interface ChannelOtherSettings {
   upstream_model_update_last_check_time?: number
   upstream_model_update_last_detected_models?: string[]
   advanced_custom?: AdvancedCustomConfig
-  volcengine_service_mode?:
-    | 'ark'
-    | 'speech_voice_v3'
-  volcengine_auth_mode?: 'api_key' | 'legacy'
-  volcengine_app_id?: string
-  volcengine_app_key?: string
+  volcengine_service_mode?: 'ark' | 'speech_voice_v3'
   volcengine_resource_id?: string
   volcengine_voice?: string
 }

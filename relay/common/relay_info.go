@@ -330,6 +330,7 @@ var streamSupportedChannels = map[int]bool{
 	constant.ChannelCloudflare:         true,
 	constant.ChannelTypeAzure:          true,
 	constant.ChannelTypeVolcEngine:     true,
+	constant.ChannelTypeDoubaoVoice:    true,
 	constant.ChannelTypeOllama:         true,
 	constant.ChannelTypeXai:            true,
 	constant.ChannelTypeDeepSeek:       true,

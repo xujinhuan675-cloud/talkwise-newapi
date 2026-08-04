@@ -50,3 +50,36 @@ func MigrateVolcengineServiceModes() error {
 		return nil
 	})
 }
+
+// MigrateDoubaoVoiceChannels separates legacy 45-type voice channels from
+// VolcEngine Ark channels while preserving their credentials and model list.
+func MigrateDoubaoVoiceChannels() error {
+	if DB == nil {
+		return errors.New("database is not initialized")
+	}
+
+	var channels []Channel
+	if err := DB.Where("type = ?", constant.ChannelTypeVolcEngine).Find(&channels).Error; err != nil {
+		return fmt.Errorf("load Volcengine channels for Doubao Voice migration: %w", err)
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		for i := range channels {
+			settings := channels[i].GetOtherSettings()
+			if settings.VolcengineServiceMode != unifiedVolcengineServiceMode {
+				continue
+			}
+
+			if err := tx.Model(&Channel{}).
+				Where("id = ?", channels[i].Id).
+				Updates(map[string]any{
+					"type":     constant.ChannelTypeDoubaoVoice,
+					"settings": channels[i].OtherSettings,
+				}).Error; err != nil {
+				return fmt.Errorf("migrate Volcengine voice channel %d to Doubao Voice: %w", channels[i].Id, err)
+			}
+			common.SysLog(fmt.Sprintf("migrated Volcengine voice channel %d to Doubao Voice", channels[i].Id))
+		}
+		return nil
+	})
+}

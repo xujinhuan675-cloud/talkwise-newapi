@@ -24,6 +24,7 @@ import {
   History,
   Lightbulb,
   MessageSquareText,
+  PanelRightClose,
   RefreshCw,
   Target,
 } from 'lucide-react'
@@ -71,8 +72,10 @@ import {
 type InsightTab = 'context' | 'guidance' | 'analysis'
 
 type TrainingConversationInsightsProps = {
-  readonly open: boolean
-  readonly onOpenChange: (open: boolean) => void
+  readonly desktopExpanded: boolean
+  readonly mobileOpen: boolean
+  readonly onDesktopExpandedChange: (expanded: boolean) => void
+  readonly onMobileOpenChange: (open: boolean) => void
   readonly initialTab?: InsightTab
   readonly isGenerating: boolean
   readonly isLoadingConversation: boolean
@@ -122,7 +125,8 @@ function scenarioMetadata(
   metadata: Readonly<Record<string, unknown>> | undefined
 ): ScenarioMetadata {
   const source = recordValue(metadata?.scenario_training)
-  const persona = recordValue(source?.persona)
+  const persona =
+    recordValue(source?.persona) ?? recordValue(metadata?.counterpartPersona)
   return {
     title: textValue(source?.title),
     description: textValue(source?.description),
@@ -379,6 +383,7 @@ function GuidanceTab({
   messages,
   onAutoRefreshEnabledChange,
   onRequestGuidance,
+  onRetryHistory,
   pending,
   result,
   session,
@@ -393,6 +398,7 @@ function GuidanceTab({
   readonly messages: readonly TrainingConversationMessage[]
   readonly onAutoRefreshEnabledChange: (enabled: boolean) => void
   readonly onRequestGuidance: () => void
+  readonly onRetryHistory: () => void
   readonly pending: boolean
   readonly result: TrainingConversationGuidanceResult | null
   readonly session: TrainingConversationSessionContext
@@ -483,7 +489,18 @@ function GuidanceTab({
           <Alert variant='destructive'>
             <AlertCircle />
             <AlertTitle>{error.title}</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
+            <AlertDescription className='space-y-2'>
+              <p>{error.message}</p>
+              <Button
+                disabled={pending}
+                size='sm'
+                variant='outline'
+                onClick={onRequestGuidance}
+              >
+                <RefreshCw />
+                {localize('Try again', '重试')}
+              </Button>
+            </AlertDescription>
           </Alert>
         )}
 
@@ -491,7 +508,18 @@ function GuidanceTab({
           <Alert variant='destructive'>
             <AlertCircle />
             <AlertTitle>{historyError.title}</AlertTitle>
-            <AlertDescription>{historyError.message}</AlertDescription>
+            <AlertDescription className='space-y-2'>
+              <p>{historyError.message}</p>
+              <Button
+                disabled={historyPending}
+                size='sm'
+                variant='outline'
+                onClick={onRetryHistory}
+              >
+                <RefreshCw />
+                {localize('Retry history', '重试历史记录')}
+              </Button>
+            </AlertDescription>
           </Alert>
         )}
 
@@ -871,8 +899,10 @@ function AnalysisTab({
 }
 
 export function TrainingConversationInsights({
-  open,
-  onOpenChange,
+  desktopExpanded,
+  mobileOpen,
+  onDesktopExpandedChange,
+  onMobileOpenChange,
   initialTab = 'context',
   isGenerating,
   isLoadingConversation,
@@ -1080,75 +1110,114 @@ export function TrainingConversationInsights({
   )
 
   useEffect(() => {
-    if (open) setTab(initialTab)
-  }, [initialTab, open])
+    if (desktopExpanded || mobileOpen) setTab(initialTab)
+  }, [desktopExpanded, initialTab, mobileOpen])
+
+  const insightTabs = (
+    <Tabs
+      className='min-h-0 flex-1 px-4 pb-4'
+      value={tab}
+      onValueChange={(value) => setTab(value as InsightTab)}
+    >
+      <TabsList className='w-full' variant='line'>
+        <TabsTrigger value='context'>
+          <BookOpen />
+          {localize('Context', '上下文')}
+        </TabsTrigger>
+        <TabsTrigger value='guidance'>
+          <Lightbulb />
+          {localize('Coach', '教练')}
+        </TabsTrigger>
+        <TabsTrigger value='analysis'>
+          <MessageSquareText />
+          {localize('Analysis', '分析')}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent className='min-h-0' value='context'>
+        <ContextTab
+          localize={localize}
+          messages={messages}
+          session={trainingSession}
+        />
+      </TabsContent>
+      <TabsContent className='min-h-0' value='guidance'>
+        <GuidanceTab
+          autoRefreshEnabled={autoRefreshEnabled}
+          error={guidanceError}
+          history={guidanceHistory}
+          historyError={historyError}
+          historyPending={historyPending}
+          isLoading={isLoadingConversation}
+          localize={localize}
+          messages={messages}
+          pending={guidancePending}
+          result={guidanceResult}
+          session={trainingSession}
+          onAutoRefreshEnabledChange={setAutoRefreshEnabled}
+          onRequestGuidance={() => void requestGuidance()}
+          onRetryHistory={() => void refreshGuidanceHistory()}
+        />
+      </TabsContent>
+      <TabsContent className='min-h-0' value='analysis'>
+        {(desktopExpanded || mobileOpen) && tab === 'analysis' && (
+          <AnalysisTab
+            localize={localize}
+            session={trainingSession}
+            trainingApiBase={trainingApiBase}
+          />
+        )}
+      </TabsContent>
+    </Tabs>
+  )
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className='w-full sm:max-w-lg'>
-        <SheetHeader>
-          <SheetTitle>{localize('Training insights', '训练洞察')}</SheetTitle>
-          <SheetDescription>
-            {localize(
-              'Session context, selected-path guidance, and available review evidence.',
-              '查看会话上下文、当前路径教练提示和已有复盘证据。'
-            )}
-          </SheetDescription>
-        </SheetHeader>
-        <Tabs
-          className='min-h-0 flex-1 px-4 pb-4'
-          value={tab}
-          onValueChange={(value) => setTab(value as InsightTab)}
+    <>
+      {desktopExpanded && (
+        <aside
+          aria-label={localize('Training insights', '训练洞察')}
+          className='bg-background hidden w-80 shrink-0 flex-col border-l lg:flex'
         >
-          <TabsList className='w-full' variant='line'>
-            <TabsTrigger value='context'>
-              <BookOpen />
-              {localize('Context', '上下文')}
-            </TabsTrigger>
-            <TabsTrigger value='guidance'>
-              <Lightbulb />
-              {localize('Coach', '教练')}
-            </TabsTrigger>
-            <TabsTrigger value='analysis'>
-              <MessageSquareText />
-              {localize('Analysis', '分析')}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent className='min-h-0' value='context'>
-            <ContextTab
-              localize={localize}
-              messages={messages}
-              session={trainingSession}
-            />
-          </TabsContent>
-          <TabsContent className='min-h-0' value='guidance'>
-            <GuidanceTab
-              autoRefreshEnabled={autoRefreshEnabled}
-              error={guidanceError}
-              history={guidanceHistory}
-              historyError={historyError}
-              historyPending={historyPending}
-              isLoading={isLoadingConversation}
-              localize={localize}
-              messages={messages}
-              pending={guidancePending}
-              result={guidanceResult}
-              session={trainingSession}
-              onAutoRefreshEnabledChange={setAutoRefreshEnabled}
-              onRequestGuidance={() => void requestGuidance()}
-            />
-          </TabsContent>
-          <TabsContent className='min-h-0' value='analysis'>
-            {open && tab === 'analysis' && (
-              <AnalysisTab
-                localize={localize}
-                session={trainingSession}
-                trainingApiBase={trainingApiBase}
-              />
-            )}
-          </TabsContent>
-        </Tabs>
-      </SheetContent>
-    </Sheet>
+          <div className='flex min-h-14 items-start justify-between gap-3 border-b px-4 py-3'>
+            <div className='min-w-0'>
+              <h2 className='text-sm font-semibold'>
+                {localize('Training insights', '训练洞察')}
+              </h2>
+              <p className='text-muted-foreground mt-0.5 line-clamp-2 text-xs'>
+                {localize(
+                  'Live coaching and review evidence',
+                  '实时教练提示与复盘证据'
+                )}
+              </p>
+            </div>
+            <Button
+              aria-label={localize(
+                'Collapse training insights',
+                '收起训练洞察'
+              )}
+              size='icon-sm'
+              variant='ghost'
+              onClick={() => onDesktopExpandedChange(false)}
+            >
+              <PanelRightClose />
+            </Button>
+          </div>
+          {insightTabs}
+        </aside>
+      )}
+      <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+        <SheetContent className='w-full sm:max-w-lg lg:hidden'>
+          <SheetHeader>
+            <SheetTitle>{localize('Training insights', '训练洞察')}</SheetTitle>
+            <SheetDescription>
+              {localize(
+                'Session context, selected-path guidance, and available review evidence.',
+                '查看会话上下文、当前路径教练提示和已有复盘证据。'
+              )}
+            </SheetDescription>
+          </SheetHeader>
+          {insightTabs}
+        </SheetContent>
+      </Sheet>
+    </>
   )
 }

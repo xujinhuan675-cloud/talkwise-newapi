@@ -107,6 +107,28 @@ func TestFetchAdvancedCustomModelsAppliesHeaderOverrideAfterRouteAuth(t *testing
 	require.Equal(t, "models.example.test", request.Host)
 }
 
+func TestFetchVolcengineArkModelsUsesArkModelListEndpoint(t *testing.T) {
+	receivedAuthorization := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/api/v3/models", r.URL.Path)
+		receivedAuthorization <- r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`{"data":[{"id":"doubao-seed-1.6"}]}`))
+	}))
+	defer server.Close()
+
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeVolcEngine,
+		Key:     "ark-api-key",
+		BaseURL: &server.URL,
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{VolcengineServiceMode: "ark"})
+
+	models, err := fetchChannelUpstreamModelIDs(channel)
+	require.NoError(t, err)
+	require.Equal(t, []string{"doubao-seed-1.6"}, models)
+	require.Equal(t, "Bearer ark-api-key", <-receivedAuthorization)
+}
+
 func TestFetchAdvancedCustomModelsUsesEnabledSavedMultiKey(t *testing.T) {
 	authorization := make(chan string, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

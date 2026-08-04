@@ -134,6 +134,28 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'Default: https://api.replicate.com',
     },
   },
+  45: {
+    id: 45,
+    name: CHANNEL_TYPES[45],
+    icon: 'volcengine',
+    defaultBaseUrl: 'https://ark.cn-beijing.volces.com',
+    hints: {
+      baseUrl: 'Volcengine Ark endpoint',
+      key: 'Volcengine Ark API Key',
+      models: 'Ark endpoint or bot model IDs',
+    },
+  },
+  59: {
+    id: 59,
+    name: CHANNEL_TYPES[59],
+    icon: 'doubao',
+    defaultBaseUrl: 'https://openspeech.bytedance.com',
+    hints: {
+      baseUrl: 'Doubao Speech endpoint',
+      key: 'Doubao Speech API Key',
+      models: 'seed-tts-2.0,volc.bigasr.sauc.duration,1.2.1.1',
+    },
+  },
   58: {
     id: 58,
     name: CHANNEL_TYPES[58],

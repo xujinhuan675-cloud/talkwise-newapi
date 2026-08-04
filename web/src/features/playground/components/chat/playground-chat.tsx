@@ -25,7 +25,8 @@ import {
   ConversationScrollButton,
 } from '@/components/ai-elements/conversation'
 import { Loader } from '@/components/ai-elements/loader'
-import { Message } from '@/components/ai-elements/message'
+import { Message, MessageAvatar } from '@/components/ai-elements/message'
+import { cn } from '@/lib/utils'
 
 import {
   getChatMessageRenderState,
@@ -47,6 +48,8 @@ import { PlaygroundEmptyState } from './playground-empty-state'
 const MAX_RENDERED_HISTORY_MESSAGES = 24
 
 interface PlaygroundChatProps {
+  assistantParticipant?: PlaygroundMessageParticipant
+  contentClassName?: string
   messages: MessageType[]
   onCopyMessage?: (message: MessageType) => void
   onRegenerateMessage?: (message: MessageType) => void
@@ -63,6 +66,12 @@ interface PlaygroundChatProps {
   onCancelEdit?: (open: boolean) => void
   onSaveEditAndSubmit?: (newContent: string) => void
   messageLayoutMode?: PlaygroundMessageLayoutMode
+  userParticipant?: PlaygroundMessageParticipant
+}
+
+type PlaygroundMessageParticipant = {
+  avatarUrl?: string | null
+  name: string
 }
 
 export function PlaygroundChat({
@@ -82,6 +91,9 @@ export function PlaygroundChat({
   onCancelEdit,
   onSaveEditAndSubmit,
   messageLayoutMode = 'alternating',
+  assistantParticipant,
+  contentClassName,
+  userParticipant,
 }: PlaygroundChatProps) {
   const { t } = useTranslation()
   const [editText, setEditText] = useState('')
@@ -132,10 +144,12 @@ export function PlaygroundChat({
       : null
     const alignment = getMessageAlignment(message, messageLayoutMode)
     const isSourceVisible = sourceMessageKeys.has(message.key)
+    const participant =
+      message.from === 'user' ? userParticipant : assistantParticipant
 
     return (
       <Message
-        className='group flex-row-reverse py-2.5'
+        className='group items-start py-2.5'
         from={message.from}
         key={message.key}
       >
@@ -198,6 +212,13 @@ export function PlaygroundChat({
           )}
           {!isEditing && renderMessageFooter?.(message)}
         </div>
+        {participant && (
+          <MessageAvatar
+            aria-label={participant.name}
+            name={participant.name}
+            src={participant.avatarUrl ?? ''}
+          />
+        )}
       </Message>
     )
   })
@@ -224,7 +245,11 @@ export function PlaygroundChat({
     <Conversation>
       {/* Remove outer padding; apply padding to inner centered container to align with input */}
       <ConversationContent className='p-0'>
-        <div className='mx-auto w-full max-w-4xl px-4 py-4'>{chatContent}</div>
+        <div
+          className={cn('mx-auto w-full max-w-4xl px-4 py-4', contentClassName)}
+        >
+          {chatContent}
+        </div>
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

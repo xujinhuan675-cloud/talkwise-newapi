@@ -89,7 +89,11 @@ export const MessageAvatar = ({
   ...props
 }: MessageAvatarProps) => (
   <Avatar className={cn('ring-border size-8 ring-1', className)} {...props}>
-    <AvatarImage alt='' className='mt-0 mb-0' src={src} />
+    <AvatarImage
+      alt={name ? `${name} avatar` : ''}
+      className='mt-0 mb-0'
+      src={src}
+    />
     <AvatarFallback>{name?.slice(0, 2) || 'ME'}</AvatarFallback>
   </Avatar>
 )

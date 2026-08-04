@@ -381,7 +381,11 @@ func fetchChannelUpstreamModelIDs(channel *model.Channel) ([]string, error) {
 			url = fmt.Sprintf("%s/api/paas/v4/models", baseURL)
 		}
 	case constant.ChannelTypeVolcEngine:
-		if plan, ok := constant.ChannelSpecialBases[baseURL]; ok && plan.OpenAIBaseURL != "" {
+		volcengineSettings := channel.GetOtherSettings()
+		if volcengineSettings.VolcengineServiceMode == "" ||
+			volcengineSettings.VolcengineServiceMode == "ark" {
+			url = fmt.Sprintf("%s/api/v3/models", baseURL)
+		} else if plan, ok := constant.ChannelSpecialBases[baseURL]; ok && plan.OpenAIBaseURL != "" {
 			url = fmt.Sprintf("%s/v1/models", plan.OpenAIBaseURL)
 		} else {
 			url = fmt.Sprintf("%s/v1/models", baseURL)

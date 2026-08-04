@@ -178,6 +178,8 @@ function getLatestChannelTestCachePatch(
   return latest?.patch
 }
 
+const DOUBAO_VOICE_CHANNEL_TYPE = 59
+
 const endpointTypeOptions: Array<{ value: string; label: string }> = [
   { value: 'auto', label: 'Auto detect (default)' },
   { value: 'openai', label: 'OpenAI (/v1/chat/completions)' },
@@ -202,6 +204,11 @@ const endpointTypeOptions: Array<{ value: string; label: string }> = [
   },
   { value: 'embeddings', label: 'Embeddings (/v1/embeddings)' },
 ]
+
+const doubaoVoiceEndpointTypeOption = {
+  value: 'doubao-voice',
+  label: 'Doubao Voice & Realtime (auto: TTS / ASR / Realtime)',
+}
 
 const endpointSelectContentClass = 'w-[460px] max-w-[calc(100vw-2rem)]'
 const endpointSelectItemClass =
@@ -360,13 +367,17 @@ function ChannelTestDialogContent({
     pageIndex: 0,
     pageSize: 30,
   })
+  const isDoubaoVoiceChannel = currentRow.type === DOUBAO_VOICE_CHANNEL_TYPE
   const endpointSelectItems = useMemo(
     () =>
-      endpointTypeOptions.map((option) => ({
+      [
+        ...endpointTypeOptions,
+        ...(isDoubaoVoiceChannel ? [doubaoVoiceEndpointTypeOption] : []),
+      ].map((option) => ({
         value: option.value,
         label: t(option.label),
       })),
-    [t]
+    [isDoubaoVoiceChannel, t]
   )
 
   const dismissBatchProgressToast = useCallback(() => {
@@ -420,7 +431,8 @@ function ChannelTestDialogContent({
     setPagination({ pageIndex: 0, pageSize: 30 })
   }, [])
 
-  const streamDisabled = STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
+  const streamDisabled =
+    isDoubaoVoiceChannel || STREAM_INCOMPATIBLE_ENDPOINTS.has(endpointType)
   const effectiveStreamTest = !streamDisabled && isStreamTest
 
   const handleEndpointTypeChange = useCallback((value: string | null) => {
@@ -565,7 +577,10 @@ function ChannelTestDialogContent({
           {
             channelName: currentRow.name,
             testModel: model,
-            endpointType: endpointType === 'auto' ? undefined : endpointType,
+            endpointType:
+              isDoubaoVoiceChannel || endpointType === 'auto'
+                ? undefined
+                : endpointType,
             stream: effectiveStreamTest || undefined,
             silent,
           },
@@ -605,6 +620,7 @@ function ChannelTestDialogContent({
       currentRow,
       endpointType,
       effectiveStreamTest,
+      isDoubaoVoiceChannel,
       markModelTesting,
       refreshChannelLists,
       t,
@@ -1033,7 +1049,9 @@ function ChannelTestDialogContent({
               </Select>
               <p className='text-muted-foreground text-xs'>
                 {t(
-                  'Override the endpoint used for testing. Leave empty to auto detect.'
+                  isDoubaoVoiceChannel
+                    ? 'Doubao Voice channels use the native speech probe. The model selects TTS, ASR, or Realtime.'
+                    : 'Override the endpoint used for testing. Leave empty to auto detect.'
                 )}
               </p>
             </div>
@@ -1051,7 +1069,11 @@ function ChannelTestDialogContent({
                 </span>
               </div>
               <p className='text-muted-foreground text-xs'>
-                {t('Enable streaming mode for the test request.')}
+                {t(
+                  isDoubaoVoiceChannel
+                    ? 'Native speech testing controls the request mode.'
+                    : 'Enable streaming mode for the test request.'
+                )}
               </p>
             </div>
           </div>

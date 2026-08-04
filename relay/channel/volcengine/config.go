@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	channelconstant "github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/google/uuid"
@@ -19,9 +20,6 @@ const (
 	RouteASRV3      = "asr_v3"
 	RouteRealtimeV3 = "realtime_v3"
 
-	AuthModeAPIKey = "api_key"
-	AuthModeLegacy = "legacy"
-
 	defaultSpeechBaseURL        = "https://openspeech.bytedance.com"
 	defaultTTSV3Path            = "/api/v3/tts/unidirectional"
 	defaultASRV3Path            = "/api/v3/sauc/bigmodel"
@@ -29,7 +27,6 @@ const (
 	defaultTTSResourceID        = "seed-tts-2.0"
 	defaultASRResourceID        = "volc.bigasr.sauc.duration"
 	defaultRealtimeResourceID   = "volc.speech.dialog"
-	defaultRealtimeAppKey       = "PlgvMymc7f3tQnJ6"
 	defaultRealtimeModel        = "1.2.1.1"
 	defaultVolcengineVoice      = "zh_female_vv_uranus_bigtts"
 	defaultASRSampleRate        = 16000
@@ -40,10 +37,7 @@ const (
 )
 
 type speechAuth struct {
-	Mode       string
 	Secret     string
-	AppID      string
-	AppKey     string
 	ResourceID string
 }
 
@@ -53,6 +47,9 @@ func serviceMode(info *relaycommon.RelayInfo) string {
 	}
 	mode := strings.TrimSpace(info.ChannelOtherSettings.VolcengineServiceMode)
 	if mode == "" {
+		if info.ChannelMeta != nil && info.ChannelMeta.ChannelType == channelconstant.ChannelTypeDoubaoVoice {
+			return ServiceModeVoiceV3
+		}
 		return ServiceModeArk
 	}
 	return mode
@@ -116,16 +113,9 @@ func resolveSpeechAuth(info *relaycommon.RelayInfo, fallbackResourceID string) (
 	if info == nil {
 		return speechAuth{}, fmt.Errorf("volcengine channel metadata is missing")
 	}
-	settings := info.ChannelOtherSettings
 	auth := speechAuth{
-		Mode:       strings.TrimSpace(settings.VolcengineAuthMode),
 		Secret:     strings.TrimSpace(info.ApiKey),
-		AppID:      strings.TrimSpace(settings.VolcengineAppID),
-		AppKey:     strings.TrimSpace(settings.VolcengineAppKey),
 		ResourceID: speechResourceID(info, fallbackResourceID),
-	}
-	if auth.Mode == "" {
-		auth.Mode = AuthModeAPIKey
 	}
 	if auth.Secret == "" {
 		return speechAuth{}, fmt.Errorf("volcengine credential is required")
@@ -133,42 +123,16 @@ func resolveSpeechAuth(info *relaycommon.RelayInfo, fallbackResourceID string) (
 	if auth.ResourceID == "" {
 		return speechAuth{}, fmt.Errorf("volcengine resource ID is required")
 	}
-	switch auth.Mode {
-	case AuthModeAPIKey:
-		return auth, nil
-	case AuthModeLegacy:
-		if auth.AppID == "" {
-			return speechAuth{}, fmt.Errorf("volcengine AppID is required for legacy authentication")
-		}
-		return auth, nil
-	default:
-		return speechAuth{}, fmt.Errorf("unsupported volcengine authentication mode: %s", auth.Mode)
-	}
+	return auth, nil
 }
 
 func resolveRealtimeAuth(info *relaycommon.RelayInfo) (speechAuth, error) {
-	auth, err := resolveSpeechAuth(info, defaultRealtimeResourceID)
-	if err != nil {
-		return speechAuth{}, err
-	}
-	if auth.Mode != AuthModeLegacy {
-		return speechAuth{}, fmt.Errorf("volcengine realtime requires legacy AppID and Access Key authentication")
-	}
-	auth.AppKey = firstNonEmpty(auth.AppKey, defaultRealtimeAppKey)
-	return auth, nil
+	return resolveSpeechAuth(info, defaultRealtimeResourceID)
 }
 
 func applySpeechAuthHeaders(header http.Header, auth speechAuth, connectID string) {
 	header.Set("X-Api-Resource-Id", auth.ResourceID)
-	if auth.Mode == AuthModeAPIKey {
-		header.Set("X-Api-Key", auth.Secret)
-	} else {
-		header.Set("X-Api-App-Id", auth.AppID)
-		if auth.AppKey != "" {
-			header.Set("X-Api-App-Key", auth.AppKey)
-		}
-		header.Set("X-Api-Access-Key", auth.Secret)
-	}
+	header.Set("X-Api-Key", auth.Secret)
 	if connectID != "" {
 		header.Set("X-Api-Connect-Id", connectID)
 	}

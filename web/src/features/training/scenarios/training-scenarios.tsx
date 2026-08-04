@@ -1,3 +1,4 @@
+import { useMutation, useQuery } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -16,10 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useNavigate } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
-  CheckCircle2,
   CircleAlert,
   LoaderCircle,
   MessageSquare,
@@ -90,17 +90,18 @@ import {
   type TrainingPressure,
 } from '../training-plan'
 import {
-  buildTrainingSessionRequest,
-  createTrainingSession,
+  type buildTrainingSessionRequest,
   filterTrainingScenarios,
+  launchScenarioTrainingSession,
   listTrainingScenarios,
+  ScenarioTrainingStartError,
+  startScenarioTrainingSession,
   trainingRequestErrorMessage,
 } from './api'
 import type {
   TrainingScenario,
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
-  TrainingSession,
   TrainingSessionMode,
 } from './types'
 
@@ -399,6 +400,7 @@ function ScenarioDataTable({
 export function TrainingScenarios() {
   const { i18n, t } = useTranslation()
   const host = useTrainingHost()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [difficulty, setDifficulty] = useState<
     TrainingScenarioDifficulty | 'all'
@@ -415,9 +417,7 @@ export function TrainingScenarios() {
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
   const [lengthProfile, setLengthProfile] =
     useState<TrainingLengthProfile>('standard')
-  const [createdSession, setCreatedSession] = useState<TrainingSession | null>(
-    null
-  )
+  const [retrySessionId, setRetrySessionId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useDataTableViewMode({
     storageKey: 'talkwise.training-scenarios.view-mode',
     defaultMode: 'table',
@@ -434,9 +434,48 @@ export function TrainingScenarios() {
   })
 
   const createSessionMutation = useMutation({
-    mutationFn: (request: ReturnType<typeof buildTrainingSessionRequest>) =>
-      createTrainingSession(host.apiBase, request),
-    onSuccess: setCreatedSession,
+    mutationFn: (request: {
+      mode: TrainingSessionMode
+      plan: Parameters<typeof buildTrainingSessionRequest>[2]
+      retrySessionId: string | null
+      scenario: TrainingScenario
+    }) => {
+      if (request.retrySessionId) {
+        return startScenarioTrainingSession(
+          host.apiBase,
+          request.retrySessionId,
+          request.scenario,
+          request.mode,
+          request.plan
+        )
+      }
+      return launchScenarioTrainingSession(
+        host.apiBase,
+        request.scenario,
+        request.mode,
+        request.plan
+      )
+    },
+    onSuccess: (session) => {
+      setRetrySessionId(null)
+      setSelectedScenario(null)
+      if (session.mode === 'text') {
+        void navigate({
+          to: '/training/conversations',
+          search: { session: session.sessionId },
+        })
+        return
+      }
+      void navigate({
+        to: '/training/studio',
+        search: { session: session.sessionId },
+      })
+    },
+    onError: (error) => {
+      if (error instanceof ScenarioTrainingStartError) {
+        setRetrySessionId(error.sessionId)
+      }
+    },
   })
 
   const filteredScenarios = useMemo(
@@ -499,7 +538,7 @@ export function TrainingScenarios() {
   }
   const openScenario = (scenario: TrainingScenario) => {
     createSessionMutation.reset()
-    setCreatedSession(null)
+    setRetrySessionId(null)
     setMode('text')
     setFocusScope('recommended')
     setSelectedFocus(scenario.trainingPoints.slice(0, 3))
@@ -510,19 +549,29 @@ export function TrainingScenarios() {
   const closeScenario = () => {
     if (createSessionMutation.isPending) return
     createSessionMutation.reset()
-    setCreatedSession(null)
+    setRetrySessionId(null)
     setSelectedScenario(null)
   }
   const createSelectedSession = () => {
     if (!selectedScenario) return
-    createSessionMutation.mutate(
-      buildTrainingSessionRequest(selectedScenario, mode, {
+    createSessionMutation.mutate({
+      mode,
+      scenario: selectedScenario,
+      plan: {
         focusScope,
         selectedFocus,
         pressure,
         lengthProfile,
-      })
-    )
+      },
+      retrySessionId,
+    })
+  }
+  let startButtonLabel = localize('Start training', '开始训练')
+  if (retrySessionId) {
+    startButtonLabel = localize('Retry start', '重试启动')
+  }
+  if (createSessionMutation.isPending) {
+    startButtonLabel = localize('Starting...', '启动中...')
   }
   if (host.authStatus === 'anonymous') {
     return (
@@ -728,10 +777,7 @@ export function TrainingScenarios() {
                         '训练重点范围'
                       )}
                       className='grid w-full grid-cols-3'
-                      disabled={
-                        createSessionMutation.isPending ||
-                        createdSession !== null
-                      }
+                      disabled={createSessionMutation.isPending}
                       onValueChange={(values) => {
                         const next = values.find(
                           (value) => value !== focusScope
@@ -764,10 +810,7 @@ export function TrainingScenarios() {
                       {selectedScenario.trainingPoints.map((point) => (
                         <Button
                           className='h-auto px-2 py-1 text-xs whitespace-normal'
-                          disabled={
-                            createSessionMutation.isPending ||
-                            createdSession !== null
-                          }
+                          disabled={createSessionMutation.isPending}
                           key={point}
                           onClick={() => {
                             setFocusScope('custom')
@@ -797,10 +840,7 @@ export function TrainingScenarios() {
                       {localize('Counterpart pressure', '对手压力')}
                     </Label>
                     <Select
-                      disabled={
-                        createSessionMutation.isPending ||
-                        createdSession !== null
-                      }
+                      disabled={createSessionMutation.isPending}
                       value={pressure}
                       onValueChange={(value) =>
                         value && setPressure(value as TrainingPressure)
@@ -825,10 +865,7 @@ export function TrainingScenarios() {
                   <div className='space-y-2'>
                     <Label>{localize('Practice length', '练习长度')}</Label>
                     <Select
-                      disabled={
-                        createSessionMutation.isPending ||
-                        createdSession !== null
-                      }
+                      disabled={createSessionMutation.isPending}
                       value={lengthProfile}
                       onValueChange={(value) =>
                         value &&
@@ -863,9 +900,7 @@ export function TrainingScenarios() {
                     }}
                     variant='outline'
                     className='grid w-full grid-cols-3'
-                    disabled={
-                      createSessionMutation.isPending || createdSession !== null
-                    }
+                    disabled={createSessionMutation.isPending}
                     aria-label={localize('Training mode', '训练模式')}
                   >
                     {SESSION_MODES.map((option) => {
@@ -888,7 +923,15 @@ export function TrainingScenarios() {
                   <Alert variant='destructive'>
                     <CircleAlert />
                     <AlertTitle>
-                      {localize('Failed to create session', '训练会话创建失败')}
+                      {retrySessionId
+                        ? localize(
+                            'The session started without an opening message',
+                            '会话已启动，但开场消息未就绪'
+                          )
+                        : localize(
+                            'Failed to create session',
+                            '训练会话创建失败'
+                          )}
                     </AlertTitle>
                     <AlertDescription>
                       {trainingRequestErrorMessage(
@@ -898,43 +941,26 @@ export function TrainingScenarios() {
                     </AlertDescription>
                   </Alert>
                 )}
-
-                {createdSession && (
-                  <Alert>
-                    <CheckCircle2 />
-                    <AlertTitle>
-                      {localize('Session created', '训练会话已创建')}
-                    </AlertTitle>
-                    <AlertDescription className='break-all'>
-                      {localize('Session ID', '会话 ID')}:{' '}
-                      {createdSession.sessionId}
-                    </AlertDescription>
-                  </Alert>
-                )}
               </div>
 
               <DialogFooter>
                 <DialogClose render={<Button variant='outline' />}>
                   {localize('Close', '关闭')}
                 </DialogClose>
-                {!createdSession && (
-                  <Button
-                    onClick={createSelectedSession}
-                    disabled={
-                      createSessionMutation.isPending ||
-                      selectedFocus.length === 0
-                    }
-                  >
-                    {createSessionMutation.isPending ? (
-                      <LoaderCircle className='animate-spin' />
-                    ) : (
-                      <Play />
-                    )}
-                    {createSessionMutation.isPending
-                      ? localize('Starting...', '启动中...')
-                      : localize('Start training', '开始训练')}
-                  </Button>
-                )}
+                <Button
+                  onClick={createSelectedSession}
+                  disabled={
+                    createSessionMutation.isPending ||
+                    selectedFocus.length === 0
+                  }
+                >
+                  {createSessionMutation.isPending ? (
+                    <LoaderCircle className='animate-spin' />
+                  ) : (
+                    <Play />
+                  )}
+                  {startButtonLabel}
+                </Button>
               </DialogFooter>
             </>
           )}

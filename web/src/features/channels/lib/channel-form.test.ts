@@ -17,45 +17,31 @@ import {
   transformFormDataToCreatePayload,
 } from './channel-form'
 
-describe('Volcengine speech channel form', () => {
+describe('Doubao Voice channel form', () => {
   const realtimeForm = {
     ...CHANNEL_FORM_DEFAULT_VALUES,
     name: 'Doubao Voice',
-    type: 45,
+    type: 59,
     base_url: 'https://openspeech.bytedance.com/',
     key: 'access-key',
     models: 'seed-tts-2.0,volc.bigasr.sauc.duration,1.2.1.1',
     group: ['default'],
     test_model: '1.2.1.1',
     volcengine_service_mode: 'speech_voice_v3' as const,
-    volcengine_auth_mode: 'legacy' as const,
-    volcengine_app_id: 'app-id',
-    volcengine_app_key: '',
     volcengine_resource_id: '',
     volcengine_voice: 'zh_female_vv_uranus_bigtts',
   }
 
-  test('persists unified voice service and legacy credential metadata', () => {
+  test('persists unified voice service and API key metadata', () => {
     assert.equal(channelFormSchema.safeParse(realtimeForm).success, true)
     const payload = transformFormDataToCreatePayload(realtimeForm).channel
     assert.equal(payload.base_url, 'https://openspeech.bytedance.com')
     assert.deepEqual(JSON.parse(payload.settings || '{}'), {
       volcengine_service_mode: 'speech_voice_v3',
-      volcengine_auth_mode: 'legacy',
-      volcengine_app_id: 'app-id',
-      volcengine_app_key: '',
       volcengine_resource_id: '',
       volcengine_voice: 'zh_female_vv_uranus_bigtts',
       disable_task_polling_sleep: false,
     })
-  })
-
-  test('rejects unified voice without a legacy AppID', () => {
-    const result = channelFormSchema.safeParse({
-      ...realtimeForm,
-      volcengine_app_id: '',
-    })
-    assert.equal(result.success, false)
   })
 
   test('round trips stored speech settings into the editor', () => {
@@ -63,7 +49,7 @@ describe('Volcengine speech channel form', () => {
     const defaults = transformChannelToFormDefaults({
       ...payload,
       id: 7,
-      type: 45,
+      type: 59,
       key: '',
       status: 1,
       name: 'Doubao Realtime',
@@ -81,19 +67,25 @@ describe('Volcengine speech channel form', () => {
         multi_key_polling_index: 0,
         multi_key_mode: 'random',
       },
-      } as Channel)
+    } as Channel)
     assert.equal(defaults.volcengine_service_mode, 'speech_voice_v3')
-    assert.equal(defaults.volcengine_auth_mode, 'legacy')
-    assert.equal(defaults.volcengine_app_id, 'app-id')
     assert.equal(defaults.volcengine_resource_id, '')
   })
 
-  test('rejects unified voice without legacy authentication', () => {
-    const result = channelFormSchema.safeParse({
-      ...realtimeForm,
+  test('keeps Ark channels free of speech settings', () => {
+    const payload = transformFormDataToCreatePayload({
+      ...CHANNEL_FORM_DEFAULT_VALUES,
+      name: 'Volcengine Ark',
+      type: 45,
+      base_url: 'https://ark.cn-beijing.volces.com',
+      key: 'ark-key',
+      models: 'doubao-seed-1-6',
       volcengine_service_mode: 'speech_voice_v3',
-      volcengine_auth_mode: 'api_key',
+    }).channel
+
+    assert.deepEqual(JSON.parse(payload.settings || '{}'), {
+      volcengine_service_mode: 'ark',
+      disable_task_polling_sleep: false,
     })
-    assert.equal(result.success, false)
   })
 })

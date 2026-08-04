@@ -21,10 +21,59 @@ import { describe, test } from 'node:test'
 
 import {
   buildLiveCoachSessionInput,
+  buildRealtimeHandoffSessionRequest,
+  buildRealtimeHandoffStartRequest,
   buildStudioSessionRequest,
   buildStudioStartRequest,
   normalizeRealtimeReadiness,
+  type TrainingSessionDTO,
 } from '../api'
+
+const textSessionSource: TrainingSessionDTO = {
+  session_id: 'text-session-1',
+  scenario_template_id: 'renewal-objection',
+  mode: 'text',
+  status: 'active',
+  task_config: {
+    role: 'Account manager',
+    level: 'hard',
+    tech_stack: ['Renewal objection', 'category:negotiation'],
+    question_type_ratios: { discovery: 50, delivery: 50 },
+    question_count: 8,
+    framework: 'prep',
+    difficulty: 'hard',
+    category: 'negotiation',
+    rubric_version: 'communication-v1',
+    rubric_weights: { discovery: 0.5, delivery: 0.5 },
+    metadata: {
+      source: 'scenario_training',
+      ownerUserId: 'must-not-cross-the-client-boundary',
+      selectedPath: { tailMessageId: 'text-tail' },
+      reportId: 'report-1',
+      conversationId: 'conversation-source',
+      roomId: 'room-source',
+      messageTreeSelection: { tailMessageId: 'text-tail' },
+      overallScore: 99,
+      scoreStatus: 'complete',
+      isComplete: true,
+      trainingPlan: { version: 1, pressure: 'hard' },
+      scenario_training: {
+        title: 'Renewal objection',
+        description: 'Discuss the upcoming renewal.',
+        customer_profile: 'A skeptical procurement lead.',
+        opening_line: 'Your renewal price is too high.',
+        training_points: ['Clarify the objection', 'Defend value'],
+        persona: {
+          name: 'Lin Wei',
+          role: 'Procurement lead',
+          style: 'Direct and evidence-driven',
+        },
+        trainingMode: 'text',
+        interactionMode: 'turn_based',
+      },
+    },
+  },
+}
 
 describe('training studio adapter', () => {
   test('builds a scoped session request without client-owned identity fields', () => {
@@ -54,7 +103,7 @@ describe('training studio adapter', () => {
     assert.equal('team_id' in request, false)
   })
 
-  test('uses the message-tree runtime for text sessions without room-only payloads', () => {
+  test('uses the message-tree runtime and the shared opening payload for text sessions', () => {
     const request = buildStudioStartRequest({
       role: 'Account manager',
       goal: 'Handle a pricing objection.',
@@ -62,9 +111,16 @@ describe('training studio adapter', () => {
       feedbackMode: 'simulation',
     })
 
-    assert.deepEqual(request, { runtime: 'conversation_message_tree' })
+    assert.equal(request.runtime, 'conversation_message_tree')
     assert.equal('runtime_persona' in request, false)
-    assert.equal('opening_message' in request, false)
+    assert.equal(
+      request.opening_message.content,
+      "Let's begin. Handle a pricing objection."
+    )
+    assert.equal(
+      request.opening_message.metadata.source,
+      'newapi_training_studio'
+    )
   })
 
   test('builds room-backed runtime persona data for voice and video sessions', () => {
@@ -101,6 +157,55 @@ describe('training studio adapter', () => {
       'speech_to_speech'
     )
     assert.equal(request.task_config.metadata.latencyProfile, 'true_realtime')
+  })
+
+  test('creates a clean realtime session handoff from persisted text training context', () => {
+    const request = buildRealtimeHandoffSessionRequest(textSessionSource)
+    const scenarioTraining = request.task_config.metadata
+      .scenario_training as Record<string, unknown>
+
+    assert.equal(request.mode, 'realtime')
+    assert.equal(request.scenario_template_id, 'renewal-objection')
+    assert.equal(request.task_config.role, 'Account manager')
+    assert.deepEqual(request.task_config.metadata.trainingPlan, {
+      version: 1,
+      pressure: 'hard',
+    })
+    assert.equal(
+      request.task_config.metadata.source,
+      'conversation_realtime_handoff'
+    )
+    assert.equal(request.task_config.metadata.interactionMode, 'realtime')
+    assert.equal(request.task_config.metadata.realtimeProfile, 'cascade')
+    assert.equal(scenarioTraining.trainingMode, 'realtime')
+    assert.equal(scenarioTraining.interactionMode, 'realtime')
+    assert.equal('ownerUserId' in request.task_config.metadata, false)
+    assert.equal('selectedPath' in request.task_config.metadata, false)
+    assert.equal('reportId' in request.task_config.metadata, false)
+    assert.equal('conversationId' in request.task_config.metadata, false)
+    assert.equal('roomId' in request.task_config.metadata, false)
+    assert.equal('messageTreeSelection' in request.task_config.metadata, false)
+    assert.equal('overallScore' in request.task_config.metadata, false)
+    assert.equal('scoreStatus' in request.task_config.metadata, false)
+    assert.equal('isComplete' in request.task_config.metadata, false)
+  })
+
+  test('starts the Pipecat handoff with the persisted scenario persona and opening', () => {
+    const request = buildRealtimeHandoffStartRequest(textSessionSource)
+
+    assert.equal(request.room_type, 'battle_prep')
+    assert.equal(request.runtime_persona.name, 'Lin Wei')
+    assert.equal(request.runtime_persona.role, 'Procurement lead')
+    assert.equal(request.runtime_persona.difficulty, 'hard')
+    assert.deepEqual(request.runtime_persona.training_points, [
+      'Clarify the objection',
+      'Defend value',
+    ])
+    assert.equal(
+      request.opening_message?.content,
+      'Your renewal price is too high.'
+    )
+    assert.equal(request.opening_message?.metadata.trainingMode, 'realtime')
   })
 
   test('preserves language intent in the live coach training context', () => {

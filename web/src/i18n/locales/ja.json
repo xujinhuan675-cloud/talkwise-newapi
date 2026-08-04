@@ -1437,6 +1437,7 @@
     "Done": "完了",
     "Doubao custom API address editing unlocked": "豆包カスタムAPI アドレス編集がアンロックされました",
     "DoubaoVideo": "DoubaoVideo",
+    "DoubaoVoice": "DoubaoVoice",
     "Double check the configuration below. Your system will be locked until initialization is complete.": "下記の設定を再確認してください。初期化が完了するまでシステムはロックされます。",
     "Downgrade Group": "ダウングレードグループ",
     "Downgrade to pre-purchase group": "購入前のグループにダウングレード",
@@ -5213,6 +5214,7 @@
     "Your Turnstile site key": "あなたのTurnstileサイトキー",
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
+    "Zhipu V4": "Zhipu V 4",
     "Scoring dimensions": "評価基準",
     "Substance": "内容の質",
     "Addresses the real issue with concrete information, trade-offs, and useful next steps.": "実際の課題に、具体的な情報、トレードオフ、役立つ次の一手を示して答えている。",
@@ -5224,7 +5226,6 @@
     "Supports claims with evidence, examples, limitations, or a believable plan.": "根拠、事例、制約、または実現可能な計画で主張を裏付けている。",
     "Differentiation": "差別化",
     "Creates a clear point of view, contrast, or differentiated value.": "明確な視点、有効な対比、または差別化された価値を生み出している。",
-    "Zhipu V4": "Zhipu V 4",
     "Zoom": "ズーム"
   }
 }

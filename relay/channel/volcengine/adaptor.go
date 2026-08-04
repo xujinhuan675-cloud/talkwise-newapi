@@ -32,6 +32,14 @@ const (
 type Adaptor struct {
 }
 
+func defaultBaseURL(info *relaycommon.RelayInfo) string {
+	if info != nil && info.ChannelMeta != nil &&
+		info.ChannelMeta.ChannelType == channelconstant.ChannelTypeDoubaoVoice {
+		return channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeDoubaoVoice]
+	}
+	return channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine]
+}
+
 func (a *Adaptor) ConvertGeminiRequest(*gin.Context, *relaycommon.RelayInfo, *dto.GeminiChatRequest) (any, error) {
 	//TODO implement me
 	return nil, errors.New("not implemented")
@@ -250,7 +258,7 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseUrl := info.ChannelBaseUrl
 	if baseUrl == "" {
-		baseUrl = channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine]
+		baseUrl = defaultBaseURL(info)
 	}
 	specialPlan, hasSpecialPlan := channelconstant.ChannelSpecialBases[baseUrl]
 
@@ -400,7 +408,7 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if info.RelayMode == constant.RelayModeAudioSpeech {
 		baseUrl := info.ChannelBaseUrl
 		if baseUrl == "" {
-			baseUrl = channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine]
+			baseUrl = defaultBaseURL(info)
 		}
 
 		if baseUrl == channelconstant.ChannelBaseURLs[channelconstant.ChannelTypeVolcEngine] {

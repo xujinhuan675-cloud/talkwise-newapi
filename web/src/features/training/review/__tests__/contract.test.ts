@@ -308,16 +308,12 @@ describe('training review contract', () => {
         judgeModel: 'openai:gpt-test',
         effectiveness: {
           rating: 4,
-          evidence: [
-            { messageId: 'message-12', quote: 'What matters most?' },
-          ],
+          evidence: [{ messageId: 'message-12', quote: 'What matters most?' }],
           reason: 'Advanced the task goal.',
         },
         appropriateness: {
           rating: 3,
-          evidence: [
-            { messageId: 'message-12', quote: 'What matters most?' },
-          ],
+          evidence: [{ messageId: 'message-12', quote: 'What matters most?' }],
           reason: 'Stayed respectful.',
         },
         competencies: {

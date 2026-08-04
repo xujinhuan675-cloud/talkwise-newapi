@@ -54,9 +54,6 @@ type ChannelOtherSettings struct {
 	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
 	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
 	VolcengineServiceMode                 string                `json:"volcengine_service_mode,omitempty"`
-	VolcengineAuthMode                    string                `json:"volcengine_auth_mode,omitempty"`
-	VolcengineAppID                       string                `json:"volcengine_app_id,omitempty"`
-	VolcengineAppKey                      string                `json:"volcengine_app_key,omitempty"`
 	VolcengineResourceID                  string                `json:"volcengine_resource_id,omitempty"`
 	VolcengineVoice                       string                `json:"volcengine_voice,omitempty"`
 }
@@ -77,18 +74,22 @@ func (s *ChannelOtherSettings) ValidateVolcengine() error {
 	default:
 		return fmt.Errorf("unsupported volcengine service mode: %s", s.VolcengineServiceMode)
 	}
-	authMode := s.VolcengineAuthMode
-	if authMode == "" {
-		authMode = "api_key"
+	return nil
+}
+
+func (s *ChannelOtherSettings) ValidateVolcengineArk() error {
+	if s == nil || s.VolcengineServiceMode == "" || s.VolcengineServiceMode == "ark" {
+		return nil
 	}
-	if authMode != "api_key" && authMode != "legacy" {
-		return fmt.Errorf("unsupported volcengine authentication mode: %s", authMode)
+	return fmt.Errorf("volcengine Ark channels only support the ark service mode")
+}
+
+func (s *ChannelOtherSettings) ValidateDoubaoVoice() error {
+	if s == nil {
+		return fmt.Errorf("doubao voice settings are required")
 	}
-	if s.VolcengineServiceMode == "speech_voice_v3" && authMode != "legacy" {
-		return fmt.Errorf("volcengine unified voice mode requires legacy AppID and Access Key authentication")
-	}
-	if authMode == "legacy" && strings.TrimSpace(s.VolcengineAppID) == "" {
-		return fmt.Errorf("volcengine AppID is required for legacy authentication")
+	if s.VolcengineServiceMode != "" && s.VolcengineServiceMode != "speech_voice_v3" {
+		return fmt.Errorf("doubao voice channels only support speech_voice_v3 service mode")
 	}
 	return nil
 }

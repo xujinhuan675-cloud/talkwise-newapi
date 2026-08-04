@@ -82,12 +82,26 @@ export interface RealtimeReadiness {
   provider: string
 }
 
-interface TrainingSessionDTO {
+export interface TrainingSessionDTO {
   session_id: string
   room_id?: string | number | null
   conversation?: {
     conversationId?: string | number | null
   }
+  task_config: {
+    role: string
+    level: string
+    tech_stack: string[]
+    question_type_ratios: Record<string, number>
+    question_count: number
+    framework: string
+    difficulty: string
+    category: string
+    rubric_version?: string
+    rubric_weights?: Record<string, number>
+    metadata?: Record<string, unknown> | null
+  }
+  scenario_template_id?: string | null
   status: TrainingSession['status']
   mode: TrainingStudioMode
 }
@@ -122,6 +136,206 @@ function normalizeSession(session: TrainingSessionDTO): TrainingSession {
         : String(session.conversation.conversationId),
     status: session.status,
     mode: session.mode,
+  }
+}
+
+const HANDOFF_RESET_METADATA_TOKENS = new Set([
+  'authscope',
+  'branchid',
+  'branchpolicy',
+  'branchstate',
+  'completed',
+  'completedat',
+  'completion',
+  'completionreport',
+  'completionstatus',
+  'conversationid',
+  'conversationruntimecontract',
+  'createdbyuserid',
+  'currentbranchtail',
+  'failurereason',
+  'liveguidancehistory',
+  'liveguidancepersistence',
+  'messagebody',
+  'messagetreeselection',
+  'overallscore',
+  'ownerteamid',
+  'owneruserid',
+  'report',
+  'reportid',
+  'roomid',
+  'runtime',
+  'score',
+  'scoreid',
+  'scorestatus',
+  'selectedpath',
+  'sourcepath',
+  'teamid',
+  'trainingcompleted',
+  'trainingcompletedat',
+  'trainingcompletion',
+  'trainingcompletionstatus',
+  'trainingsessionid',
+  'userid',
+  'iscomplete',
+])
+
+function metadataToken(value: string): string {
+  return value.toLowerCase().replaceAll(/[^a-z0-9]/g, '')
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function metadataText(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || null
+}
+
+function metadataTextList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => metadataText(item))
+        .filter((item): item is string => item !== null)
+    : []
+}
+
+function realtimeRuntimeDifficulty(value: string): 'easy' | 'hard' | 'normal' {
+  if (value === 'easy') return 'easy'
+  if (value === 'hard' || value === 'expert') return 'hard'
+  return 'normal'
+}
+
+function realtimeHandoffMetadata(
+  source: TrainingSessionDTO
+): Record<string, unknown> {
+  const sourceMetadata = source.task_config.metadata ?? {}
+  const cleaned = Object.fromEntries(
+    Object.entries(sourceMetadata).filter(
+      ([key]) => !HANDOFF_RESET_METADATA_TOKENS.has(metadataToken(key))
+    )
+  )
+  const sourceKind = metadataText(sourceMetadata.source)
+  const scenarioTraining = metadataRecord(cleaned.scenario_training)
+
+  return {
+    ...cleaned,
+    ...(scenarioTraining
+      ? {
+          scenario_training: {
+            ...scenarioTraining,
+            trainingMode: 'realtime',
+            interactionMode: 'realtime',
+          },
+        }
+      : {}),
+    source: 'conversation_realtime_handoff',
+    ...(sourceKind ? { sourceTrainingOrigin: sourceKind } : {}),
+    sourceTrainingSessionId: source.session_id,
+    trainingMode: 'realtime',
+    interactionMode: 'realtime',
+    realtimeProfile: 'cascade',
+    latencyProfile: 'near_realtime',
+  }
+}
+
+export function buildRealtimeHandoffSessionRequest(source: TrainingSessionDTO) {
+  return {
+    mode: 'realtime' as const,
+    scenario_template_id: source.scenario_template_id ?? undefined,
+    task_config: {
+      role: source.task_config.role,
+      level: source.task_config.level,
+      tech_stack: [...source.task_config.tech_stack],
+      question_type_ratios: {
+        ...source.task_config.question_type_ratios,
+      },
+      question_count: source.task_config.question_count,
+      framework: source.task_config.framework,
+      difficulty: source.task_config.difficulty,
+      category: source.task_config.category,
+      ...(source.task_config.rubric_version
+        ? { rubric_version: source.task_config.rubric_version }
+        : {}),
+      ...(source.task_config.rubric_weights
+        ? { rubric_weights: { ...source.task_config.rubric_weights } }
+        : {}),
+      metadata: realtimeHandoffMetadata(source),
+    },
+  }
+}
+
+export function buildRealtimeHandoffStartRequest(source: TrainingSessionDTO) {
+  const metadata = source.task_config.metadata ?? {}
+  const scenario = metadataRecord(metadata.scenario_training)
+  const persona =
+    metadataRecord(scenario?.persona) ??
+    metadataRecord(metadata.counterpartPersona) ??
+    metadataRecord(metadata.runtimePersona)
+  const scenarioTitle =
+    metadataText(scenario?.title) || source.task_config.tech_stack[0]
+  const openingLine =
+    metadataText(scenario?.opening_line) ||
+    metadataText(scenario?.openingLine) ||
+    metadataText(metadata.openingLine)
+  const trainingPoints =
+    metadataTextList(scenario?.training_points).length > 0
+      ? metadataTextList(scenario?.training_points)
+      : source.task_config.tech_stack
+          .filter((item) => !item.startsWith('category:'))
+          .filter((item) => !item.startsWith('opening:'))
+          .slice(0, 5)
+  const scenarioContext = [
+    metadataText(scenario?.description),
+    metadataText(scenario?.customer_profile),
+  ]
+    .filter((item): item is string => item !== null)
+    .join('\n')
+
+  return {
+    room_name: `Training: ${scenarioTitle || source.task_config.role}`,
+    room_type: 'battle_prep' as const,
+    runtime_persona: {
+      name: metadataText(persona?.name) || 'Training counterpart',
+      role: metadataText(persona?.role) || 'Scenario counterpart',
+      style:
+        metadataText(persona?.style) ||
+        'Stay in role, ask focused follow-up questions, and keep the exchange realistic.',
+      scenario_context:
+        scenarioContext || scenarioTitle || source.task_config.role,
+      training_points: trainingPoints,
+      difficulty: realtimeRuntimeDifficulty(source.task_config.difficulty),
+    },
+    ...(openingLine
+      ? {
+          opening_message: {
+            content: openingLine,
+            metadata: {
+              source: 'scenario_training_opening',
+              sourceTrainingSessionId: source.session_id,
+              trainingMode: 'realtime',
+            },
+          },
+        }
+      : {}),
+  }
+}
+
+export class RealtimeTrainingHandoffError extends Error {
+  readonly sessionId: string
+
+  constructor(sessionId: string, error: unknown) {
+    super(
+      trainingStudioErrorMessage(
+        error,
+        'The realtime training session could not be started.'
+      )
+    )
+    this.name = 'RealtimeTrainingHandoffError'
+    this.sessionId = sessionId
   }
 }
 
@@ -188,6 +402,7 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
       category: 'workplace',
       metadata: {
         source: 'newapi_training_studio',
+        counterpartPersona: studioPersona(input),
         trainingMode: input.mode,
         interactionMode: input.mode === 'realtime' ? 'realtime' : 'turn_based',
         feedbackMode: input.feedbackMode,
@@ -223,8 +438,15 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
 }
 
 export function buildStudioStartRequest(input: StudioLaunchInput) {
+  const openingMessage = {
+    content: `Let's begin. ${input.goal.trim() || 'What would you like to practice?'}`,
+    metadata: { source: 'newapi_training_studio' },
+  }
   if (input.mode === 'text') {
-    return { runtime: 'conversation_message_tree' as const }
+    return {
+      runtime: 'conversation_message_tree' as const,
+      opening_message: openingMessage,
+    }
   }
 
   const persona = studioPersona(input)
@@ -233,10 +455,7 @@ export function buildStudioStartRequest(input: StudioLaunchInput) {
     room_name: `Training: ${input.role.trim() || 'Practice'}`,
     room_type: 'battle_prep' as const,
     runtime_persona: persona,
-    opening_message: {
-      content: `Let's begin. ${input.goal.trim() || 'What would you like to practice?'}`,
-      metadata: { source: 'newapi_training_studio' },
-    },
+    opening_message: openingMessage,
   }
 }
 
@@ -278,6 +497,71 @@ export async function launchTrainingSession(
   )
 
   return normalizeSession(requireTrainingData(startedResponse.data))
+}
+
+async function getTrainingSessionDTO(
+  apiBase: string,
+  sessionId: string
+): Promise<TrainingSessionDTO> {
+  const normalizedSessionId = sessionId.trim()
+  if (!normalizedSessionId) {
+    throw new Error('training session id cannot be empty')
+  }
+  const response = await api.get<TalkWiseResponse<TrainingSessionDTO>>(
+    trainingApiUrl(
+      apiBase,
+      `/sessions/${encodeURIComponent(normalizedSessionId)}`
+    ),
+    { skipBusinessError: true, skipErrorHandler: true }
+  )
+
+  return requireTrainingData(response.data)
+}
+
+export async function getTrainingSession(
+  apiBase: string,
+  sessionId: string
+): Promise<TrainingSession> {
+  return normalizeSession(await getTrainingSessionDTO(apiBase, sessionId))
+}
+
+export async function launchRealtimeTrainingHandoff(
+  apiBase: string,
+  sourceSessionId: string,
+  retrySessionId?: string | null
+): Promise<TrainingSession> {
+  const source = await getTrainingSessionDTO(apiBase, sourceSessionId)
+  if (source.mode !== 'text') {
+    throw new Error('Only a text training session can start this handoff.')
+  }
+
+  let realtimeSessionId = retrySessionId?.trim() || ''
+  if (!realtimeSessionId) {
+    const createdResponse = await api.post<
+      TalkWiseResponse<TrainingSessionDTO>
+    >(
+      trainingApiUrl(apiBase, '/sessions'),
+      buildRealtimeHandoffSessionRequest(source),
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    realtimeSessionId = requireTrainingData(createdResponse.data).session_id
+  }
+
+  try {
+    const startedResponse = await api.post<
+      TalkWiseResponse<TrainingSessionDTO>
+    >(
+      trainingApiUrl(
+        apiBase,
+        `/sessions/${encodeURIComponent(realtimeSessionId)}/start`
+      ),
+      buildRealtimeHandoffStartRequest(source),
+      { skipBusinessError: true, skipErrorHandler: true }
+    )
+    return normalizeSession(requireTrainingData(startedResponse.data))
+  } catch (error) {
+    throw new RealtimeTrainingHandoffError(realtimeSessionId, error)
+  }
 }
 
 export async function requestLiveGuidance(

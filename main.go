@@ -318,6 +318,10 @@ func InitResources() error {
 			common.FatalLog("failed to migrate Volcengine service modes: " + err.Error())
 			return err
 		}
+		if err := model.MigrateDoubaoVoiceChannels(); err != nil {
+			common.FatalLog("failed to migrate Doubao Voice channels: " + err.Error())
+			return err
+		}
 	}
 	model.InitOptionMap()
 
