@@ -271,11 +271,11 @@ export function UsersMutateDrawer({
                     name='role'
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t('Role')}</FormLabel>
+                        <FormLabel>{t('Platform role')}</FormLabel>
                         <Select
                           items={[
-                            { value: '1', label: t('Common User') },
-                            { value: '10', label: t('Admin') },
+                            { value: '1', label: t('Regular user') },
+                            { value: '10', label: t('Platform admin') },
                           ]}
                           onValueChange={(value) =>
                             value !== null &&
@@ -291,14 +291,18 @@ export function UsersMutateDrawer({
                           <SelectContent alignItemWithTrigger={false}>
                             <SelectGroup>
                               <SelectItem value='1'>
-                                {t('Common User')}
+                                {t('Regular user')}
                               </SelectItem>
-                              <SelectItem value='10'>{t('Admin')}</SelectItem>
+                              <SelectItem value='10'>
+                                {t('Platform admin')}
+                              </SelectItem>
                             </SelectGroup>
                           </SelectContent>
                         </Select>
                         <FormDescription>
-                          {t("Set the user's role (cannot be Root)")}
+                          {t(
+                            "Set the user's platform role (Root is managed separately)"
+                          )}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

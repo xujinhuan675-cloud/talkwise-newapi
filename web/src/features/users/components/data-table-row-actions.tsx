@@ -18,16 +18,14 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { Row } from '@tanstack/react-table'
 import {
+  CreditCard,
+  KeyRound,
+  Link2,
   Pencil,
-  Trash2,
   Power,
   PowerOff,
-  ArrowUp,
-  ArrowDown,
-  KeyRound,
   ShieldAlert,
-  Link2,
-  CreditCard,
+  Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -37,9 +35,13 @@ import { ConfirmDialog } from '@/components/confirm-dialog'
 import { DataTableRowActionMenu } from '@/components/data-table/core/row-action-menu'
 import { Button } from '@/components/ui/button'
 import {
+  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
   Tooltip,
@@ -47,6 +49,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { UserSubscriptionsDialog } from '@/features/subscriptions/components/dialogs/user-subscriptions-dialog'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { manageUser, resetUserPasskey, resetUserTwoFA } from '../api'
 import {
@@ -55,8 +59,10 @@ import {
   ERROR_MESSAGES,
   isUserDeleted,
 } from '../constants'
-import { getUserActionMessage } from '../lib'
+import { getAssignableManagementPermissions } from '../lib/management-permissions'
+import { getUserActionMessageDetails } from '../lib/user-actions'
 import type { User, ManageUserAction } from '../types'
+import { TeamAdminPermissionDialog } from './dialogs/team-admin-permission-dialog'
 import { UserBindingDialog } from './dialogs/user-binding-dialog'
 import { useUsers } from './users-provider'
 
@@ -65,13 +71,15 @@ interface DataTableRowActionsProps {
 }
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
   const user = row.original
   const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const currentUser = useAuthStore((state) => state.auth.user)
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false)
   const [subscriptionsDialogOpen, setSubscriptionsDialogOpen] = useState(false)
+  const [teamAdminDialogOpen, setTeamAdminDialogOpen] = useState(false)
 
   const handleEdit = () => {
     setCurrentRow(user)
@@ -87,7 +95,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     try {
       const result = await manageUser(user.id, action)
       if (result.success) {
-        toast.success(t(getUserActionMessage(action)))
+        const message = getUserActionMessageDetails(action)
+        toast.success(
+          t(message.english, {
+            defaultValue: i18n.language.startsWith('zh')
+              ? message.chinese
+              : message.english,
+          })
+        )
         triggerRefresh()
       } else {
         toast.error(
@@ -134,6 +149,14 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const isDisabled = user.status === USER_STATUS.DISABLED
   const isAdmin = user.role >= USER_ROLE.ADMIN
   const isRoot = user.role === USER_ROLE.ROOT
+  const managementPermissions = getAssignableManagementPermissions(
+    currentUser?.role ?? ROLE.GUEST,
+    user.role
+  )
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
 
   if (isUserDeleted(user)) {
     return null
@@ -180,23 +203,42 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           </DropdownMenuItem>
         )}
 
-        {isAdmin && !isRoot && (
-          <DropdownMenuItem onClick={() => handleManage('demote')}>
-            {t('Demote')}
-            <DropdownMenuShortcut>
-              <ArrowDown size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        )}
-
-        {!isAdmin && (
-          <DropdownMenuItem onClick={() => handleManage('promote')}>
-            {t('Promote')}
-            <DropdownMenuShortcut>
-              <ArrowUp size={16} />
-            </DropdownMenuShortcut>
-          </DropdownMenuItem>
-        )}
+        {managementPermissions.length ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              {localize('Manage permissions', '\u7ba1\u7406\u6743\u9650')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className='w-48'>
+              {managementPermissions.map((permission) => {
+                const label = localize(
+                  permission.englishLabel,
+                  permission.chineseLabel
+                )
+                if (permission.id === 'platform-admin') {
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={permission.id}
+                      checked={isAdmin}
+                      onCheckedChange={() => {
+                        void handleManage(isAdmin ? 'demote' : 'promote')
+                      }}
+                    >
+                      {label}
+                    </DropdownMenuCheckboxItem>
+                  )
+                }
+                return (
+                  <DropdownMenuItem
+                    key={permission.id}
+                    onClick={() => setTeamAdminDialogOpen(true)}
+                  >
+                    {label}
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
 
         <DropdownMenuItem
           onSelect={(event) => {
@@ -300,6 +342,12 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
         onOpenChange={setSubscriptionsDialogOpen}
         user={{ id: user.id, username: user.username }}
         onSuccess={triggerRefresh}
+      />
+
+      <TeamAdminPermissionDialog
+        user={user}
+        open={teamAdminDialogOpen}
+        onOpenChange={setTeamAdminDialogOpen}
       />
     </div>
   )

@@ -40,6 +40,17 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	return abilities, err
 }
 
+func GetGroupEnabledAbilityWithChannels(group string) ([]AbilityWithChannel, error) {
+	var abilities []AbilityWithChannel
+	err := DB.Table("abilities").
+		Select("abilities.*, channels.type as channel_type").
+		Joins("join channels on abilities.channel_id = channels.id").
+		Where("abilities."+commonGroupCol+" = ? and abilities.enabled = ? and channels.status = ?", group, true, common.ChannelStatusEnabled).
+		Order("abilities.model asc, abilities.channel_id asc").
+		Scan(&abilities).Error
+	return abilities, err
+}
+
 func GetGroupEnabledModels(group string) []string {
 	var models []string
 	// Find distinct models

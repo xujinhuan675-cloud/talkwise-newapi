@@ -83,8 +83,10 @@ func Distribute() func(c *gin.Context) {
 				}
 				var selectGroup string
 				usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
-				// check path is /pg/chat/completions
-				if strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
+				// Dashboard user relays may select one of the user's usable groups.
+				isPlaygroundChat := common.GetContextKeyBool(c, constant.ContextKeyPlayground) &&
+					strings.HasPrefix(c.Request.URL.Path, "/v1/chat/completions")
+				if isPlaygroundChat || strings.HasPrefix(c.Request.URL.Path, "/pg/chat/completions") {
 					playgroundRequest := &dto.PlayGroundRequest{}
 					err = common.UnmarshalBodyReusable(c, playgroundRequest)
 					if err != nil {
@@ -98,6 +100,7 @@ func Distribute() func(c *gin.Context) {
 						}
 						usingGroup = playgroundRequest.Group
 						common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+						common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
 					}
 				}
 

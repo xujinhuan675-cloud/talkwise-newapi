@@ -20,13 +20,13 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { TrainingTeamMembersPage } from '@/features/training/team/training-team-members'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
-import { ROLE } from '@/lib/roles'
+import { isTrainingTeamManager } from '@/lib/training-team-permissions'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/training/team/members')({
   beforeLoad: () => {
     const { auth } = useAuthStore.getState()
-    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+    if (!isTrainingTeamManager(auth.user)) {
       throw redirect({ to: '/403' })
     }
     if (!isSidebarModuleEnabled('training', 'studio')) {

@@ -51,6 +51,8 @@ import type { GroupOption, ModelOption, PlaygroundConfig } from '../types'
 type UsePlaygroundOptionsParams = {
   currentGroup: string
   currentModel: string
+  modelEndpointType?: string
+  preferredModel?: string
   setGroups: (groups: GroupOption[]) => void
   setModels: (models: ModelOption[]) => void
   updateConfig: <K extends keyof PlaygroundConfig>(
@@ -62,6 +64,8 @@ type UsePlaygroundOptionsParams = {
 export function usePlaygroundOptions({
   currentGroup,
   currentModel,
+  modelEndpointType,
+  preferredModel,
   setGroups,
   setModels,
   updateConfig,
@@ -74,8 +78,8 @@ export function usePlaygroundOptions({
     isError: isModelsError,
     isLoading: isLoadingModels,
   } = useQuery({
-    queryKey: ['playground-models', currentGroup],
-    queryFn: () => getUserModels(currentGroup),
+    queryKey: ['playground-models', currentGroup, modelEndpointType ?? 'all'],
+    queryFn: () => getUserModels(currentGroup, modelEndpointType),
     enabled: currentGroup !== '',
   })
 
@@ -114,7 +118,7 @@ export function usePlaygroundOptions({
     if (!modelsData) return
 
     setModels(modelsData)
-    const fallback = getModelFallback(modelsData, currentModel)
+    const fallback = getModelFallback(modelsData, currentModel, preferredModel)
 
     if (fallback) {
       updateConfig('model', fallback)
@@ -124,7 +128,7 @@ export function usePlaygroundOptions({
     if (shouldClearModelForGroup(modelsData, currentModel)) {
       updateConfig('model', '')
     }
-  }, [modelsData, currentModel, setModels, updateConfig])
+  }, [modelsData, currentModel, preferredModel, setModels, updateConfig])
 
   useEffect(() => {
     if (!groupsData) return

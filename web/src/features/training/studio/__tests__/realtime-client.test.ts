@@ -44,7 +44,7 @@ describe('training realtime client contract', () => {
 
     assert.equal(
       url,
-      'wss://talkwise.test/api/talkwise/training/realtime?input_sample_rate=24000&profile=speech_to_speech&provider=pipecat&room_id=42&session_id=session-1'
+      'wss://talkwise.test/api/talkwise/training/realtime?input_sample_rate=24000&profile=speech_to_speech&provider=configured&room_id=42&session_id=session-1'
     )
     assert.match(
       trainingRealtimeWebSocketUrl(
@@ -91,6 +91,16 @@ describe('training realtime client contract', () => {
     assert.equal(
       realtimeAudioContract('speech_to_speech').latencyProfile,
       'true_realtime'
+    )
+    assert.deepEqual(
+      realtimeAudioContract('speech_to_speech', 'volcengine.doubao_realtime'),
+      {
+        channels: 1,
+        inputSampleRate: 16000,
+        latencyProfile: 'true_realtime',
+        outputSampleRate: 24000,
+        profile: 'speech_to_speech',
+      }
     )
   })
 

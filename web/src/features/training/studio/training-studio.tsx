@@ -25,7 +25,7 @@ import {
   Radio,
   Settings2,
 } from 'lucide-react'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -48,6 +48,7 @@ import { TrainingHostProvider, useTrainingHost } from '../host'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
 import {
   launchTrainingSession,
+  getRealtimeReadiness,
   trainingStudioErrorMessage,
   type RealtimeProfile,
   type TrainingFeedbackMode,
@@ -95,6 +96,7 @@ function TrainingStudioContent() {
     useState<RealtimeProfile>('cascade')
   const [launchedRealtimeProfile, setLaunchedRealtimeProfile] =
     useState<RealtimeProfile>('cascade')
+  const [realtimeProvider, setRealtimeProvider] = useState('configured')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
@@ -110,6 +112,19 @@ function TrainingStudioContent() {
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
     })
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    let cancelled = false
+    void getRealtimeReadiness(apiBase)
+      .then((readiness) => {
+        if (!cancelled) setRealtimeProvider(readiness.provider)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase, authStatus])
 
   const startSession = async () => {
     setError(null)
@@ -471,6 +486,7 @@ function TrainingStudioContent() {
                 <RealtimeTrainingPanel
                   apiBase={apiBase}
                   profile={launchedRealtimeProfile}
+                  provider={realtimeProvider}
                   roomId={session.roomId}
                   sessionId={session.sessionId}
                 />

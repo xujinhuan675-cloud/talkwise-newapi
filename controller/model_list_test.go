@@ -215,6 +215,47 @@ func TestGetUserModelsFiltersByRequestedGroup(t *testing.T) {
 	require.Empty(t, decodeUserModelsResponse(t, vipRecorder))
 }
 
+func TestGetUserModelsFiltersByEndpointCapability(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1004,
+		Username: "endpoint-model-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Channel{
+		{Id: 41, Name: "Ark", Type: constant.ChannelTypeVolcEngine, Status: common.ChannelStatusEnabled},
+		{Id: 42, Name: "DoubaoVoice", Type: constant.ChannelTypeDoubaoVoice, Status: common.ChannelStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "default", Model: "doubao-seed-text", ChannelId: 41, Enabled: true},
+		{Group: "default", Model: "seed-tts-voice", ChannelId: 42, Enabled: true},
+	}).Error)
+
+	textRecorder := httptest.NewRecorder()
+	textContext, _ := gin.CreateTestContext(textRecorder)
+	textContext.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/user/models?group=default&endpoint_type=openai",
+		nil,
+	)
+	textContext.Set("id", 1004)
+	GetUserModels(textContext)
+	require.Equal(t, []string{"doubao-seed-text"}, decodeUserModelsResponse(t, textRecorder))
+
+	voiceRecorder := httptest.NewRecorder()
+	voiceContext, _ := gin.CreateTestContext(voiceRecorder)
+	voiceContext.Request = httptest.NewRequest(
+		http.MethodGet,
+		"/api/user/models?group=default&endpoint_type=openai-voice",
+		nil,
+	)
+	voiceContext.Set("id", 1004)
+	GetUserModels(voiceContext)
+	require.Equal(t, []string{"seed-tts-voice"}, decodeUserModelsResponse(t, voiceRecorder))
+}
+
 func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 	originalAutoGroups := setting.AutoGroups2JsonString()
 	originalUsableGroups := setting.UserUsableGroups2JSONString()

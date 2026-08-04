@@ -17,20 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  Activity,
-  Box,
   ClipboardList,
-  CreditCard,
-  FileText,
   History,
   Home,
-  Key,
   LayoutDashboard,
-  ListTodo,
-  Radio,
-  ServerCog,
+  MessageSquare,
   Settings,
-  Ticket,
+  Shield,
   TrendingUp,
   User,
   Users,
@@ -58,80 +51,47 @@ export function useSidebarData(): SidebarData {
     navGroups: [
       {
         id: 'training',
-        title: localize('Training', '训练'),
+        title: localize('Training', '\u8bad\u7ec3'),
         items: [
           {
-            title: localize('Training overview', '训练概览'),
+            title: localize('Training overview', '\u8bad\u7ec3\u6982\u89c8'),
             url: '/training',
             activeUrls: ['/training/overview'],
             icon: Home,
           },
           {
-            title: localize('Practice', '练习'),
+            title: localize('Start training', '\u5f00\u59cb\u8bad\u7ec3'),
+            url: '/training/scenarios',
             icon: ClipboardList,
-            items: [
-              {
-                title: localize('Scenarios', '场景训练'),
-                url: '/training/scenarios',
-              },
-              {
-                title: localize('Battle preparation', '备战准备'),
-                url: '/training/prep/battle',
-              },
-              {
-                title: localize('Defense preparation', '答辩准备'),
-                url: '/training/prep/defense',
-              },
-              {
-                title: localize('Training studio', '训练工作台'),
-                url: '/training/studio',
-              },
-              {
-                title: localize('Live coach', '实时教练'),
-                url: '/training/live-coach',
-              },
-              {
-                title: localize('Conversations', '对话'),
-                url: '/training/conversations',
-              },
-              {
-                title: localize('Personas', '角色资产'),
-                url: '/training/personas',
-              },
-            ],
           },
           {
-            title: localize('Review', '复盘'),
+            title: localize('Conversations', '\u5bf9\u8bdd'),
+            url: '/training/conversations',
+            icon: MessageSquare,
+          },
+          {
+            title: localize('Review', '\u590d\u76d8'),
             url: '/training/sessions',
             icon: History,
           },
           {
-            title: localize('Growth', '成长'),
+            title: localize('Growth', '\u6210\u957f'),
+            url: '/training/growth',
             icon: TrendingUp,
-            items: [
-              {
-                title: localize('Growth overview', '成长概览'),
-                url: '/training/growth',
-              },
-              {
-                title: localize('Scenario leaderboard', '场景排行'),
-                url: '/training/team/scenarios',
-                requiredRole: ROLE.ADMIN,
-              },
-              {
-                title: localize('Competency leaderboard', '能力排行'),
-                url: '/training/team/competencies',
-                requiredRole: ROLE.ADMIN,
-              },
-              {
-                title: localize('Training teams', '\u8bad\u7ec3\u56e2\u961f'),
-                url: '/training/team/members',
-                requiredRole: ROLE.ADMIN,
-              },
-            ],
+          },
+        ],
+      },
+      {
+        id: 'training-configuration',
+        title: localize('Training configuration', '\u8bad\u7ec3\u914d\u7f6e'),
+        items: [
+          {
+            title: localize('Personas', '\u89d2\u8272\u8d44\u4ea7'),
+            url: '/training/personas',
+            icon: Users,
           },
           {
-            title: localize('Training settings', '训练设置'),
+            title: localize('Training settings', '\u8bad\u7ec3\u8bbe\u7f6e'),
             url: '/training/settings',
             icon: Settings,
           },
@@ -141,97 +101,47 @@ export function useSidebarData(): SidebarData {
         id: 'personal',
         title: t('Personal'),
         items: [
+          { title: t('Wallet'), url: '/wallet', icon: Wallet },
+          { title: t('Profile'), url: '/profile', icon: User },
+        ],
+      },
+      {
+        id: 'team-management',
+        title: localize('Team management', '\u56e2\u961f\u7ba1\u7406'),
+        requiredTeamManagement: true,
+        items: [
           {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
+            title: localize('Scenario leaderboard', '\u573a\u666f\u6392\u884c'),
+            url: '/training/team/scenarios',
+            icon: TrendingUp,
           },
           {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
+            title: localize(
+              'Competency leaderboard',
+              '\u80fd\u529b\u6392\u884c'
+            ),
+            url: '/training/team/competencies',
+            icon: LayoutDashboard,
+          },
+          {
+            title: localize('Training teams', '\u8bad\u7ec3\u56e2\u961f'),
+            url: '/training/team/members',
+            icon: Users,
           },
         ],
       },
       {
-        id: 'admin',
-        title: t('Admin'),
+        id: 'platform-management',
+        title: localize('Platform management', '\u5e73\u53f0\u7ba1\u7406'),
+        requiredRole: ROLE.ADMIN,
         items: [
           {
-            title: localize('Platform overview', '平台概览'),
+            title: localize(
+              'Management console',
+              '\u7ba1\u7406\u63a7\u5236\u53f0'
+            ),
             url: '/dashboard/overview',
-            icon: Activity,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: localize('Operational data', '运营数据'),
-            url: '/dashboard/models',
-            activeUrls: ['/dashboard/flow', '/dashboard/users'],
-            icon: LayoutDashboard,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('API Keys'),
-            url: '/keys',
-            icon: Key,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Channels'),
-            url: '/channels',
-            icon: Radio,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Models'),
-            url: '/models/metadata',
-            icon: Box,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Users'),
-            url: '/users',
-            icon: Users,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Redemption Codes'),
-            url: '/redemption-codes',
-            icon: Ticket,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('Subscriptions'),
-            url: '/subscriptions',
-            icon: CreditCard,
-            requiredRole: ROLE.ADMIN,
-          },
-          {
-            title: t('System Info'),
-            url: '/system-info',
-            icon: ServerCog,
-            requiredRole: ROLE.SUPER_ADMIN,
-          },
-          {
-            title: t('System Settings'),
-            url: '/system-settings/site',
-            activeUrls: ['/system-settings'],
-            icon: Settings,
-            requiredRole: ROLE.ADMIN,
+            icon: Shield,
           },
         ],
       },

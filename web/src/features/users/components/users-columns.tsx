@@ -35,7 +35,7 @@ import { formatQuota, formatTimestamp } from '@/lib/format'
 import {
   USER_STATUS,
   USER_STATUSES,
-  USER_ROLES,
+  getPlatformRole,
   isUserDeleted,
 } from '../constants'
 import type { User } from '../types'
@@ -43,7 +43,11 @@ import { DataTableRowActions } from './data-table-row-actions'
 import { UserQuotaCell } from './user-quota-cell'
 
 export function useUsersColumns(): ColumnDef<User>[] {
-  const { t } = useTranslation()
+  const { i18n, t } = useTranslation()
+  const localize = (english: string, chinese: string) =>
+    t(english, {
+      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
+    })
   return [
     {
       id: 'select',
@@ -193,10 +197,10 @@ export function useUsersColumns(): ColumnDef<User>[] {
     },
     {
       accessorKey: 'role',
-      header: t('Role'),
+      header: localize('Platform role', '平台角色'),
       cell: ({ row }) => {
         const roleValue = row.getValue('role') as number
-        const roleConfig = USER_ROLES[roleValue as keyof typeof USER_ROLES]
+        const roleConfig = getPlatformRole(roleValue)
 
         if (!roleConfig) {
           return null
@@ -207,7 +211,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
             {roleConfig.icon && (
               <roleConfig.icon size={16} className='text-muted-foreground' />
             )}
-            <span className='text-sm'>{t(roleConfig.labelKey)}</span>
+            <span className='text-sm'>
+              {localize(roleConfig.labelKey, roleConfig.chineseLabel)}
+            </span>
           </div>
         )
       },

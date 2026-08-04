@@ -18,22 +18,39 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import type { ManageUserAction } from '../types'
 
+export type UserActionMessage = {
+  english: string
+  chinese: string
+}
+
 // ============================================================================
 // User Action Messages
 // ============================================================================
 
-const ACTION_MESSAGES: Record<ManageUserAction, string> = {
-  enable: 'User enabled successfully',
-  disable: 'User disabled successfully',
-  promote: 'User promoted to admin successfully',
-  demote: 'User demoted to regular user successfully',
-  delete: 'User deleted successfully',
-  add_quota: 'Quota adjusted successfully',
+const ACTION_MESSAGES: Record<ManageUserAction, UserActionMessage> = {
+  enable: { english: 'User enabled successfully', chinese: '用户已启用' },
+  disable: { english: 'User disabled successfully', chinese: '用户已禁用' },
+  promote: {
+    english: 'User set as platform admin successfully',
+    chinese: '已设为平台管理员',
+  },
+  demote: {
+    english: 'Platform admin access removed successfully',
+    chinese: '已取消平台管理员权限',
+  },
+  delete: { english: 'User deleted successfully', chinese: '用户已删除' },
+  add_quota: { english: 'Quota adjusted successfully', chinese: '配额已调整' },
 }
 
 /**
  * Get success message for user management action
  */
-export function getUserActionMessage(action: ManageUserAction): string {
+export function getUserActionMessageDetails(
+  action: ManageUserAction
+): UserActionMessage {
   return ACTION_MESSAGES[action]
+}
+
+export function getUserActionMessage(action: ManageUserAction): string {
+  return getUserActionMessageDetails(action).english
 }

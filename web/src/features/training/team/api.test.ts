@@ -27,6 +27,7 @@ import {
   teamMemberDisplayId,
   addTrainingTeamMember,
   createTrainingTeam,
+  getUserTrainingTeamAssignment,
   isTrainingTeamAssignmentRequired,
   isTrainingTeamQueryLoading,
   listTrainingTeamMembers,
@@ -265,6 +266,52 @@ test('uses the admin training-team API without writing gateway user fields', asy
     (await createTrainingTeam(' Sales coaching ')).name,
     'Sales coaching'
   )
+})
+
+test('loads a user training-team assignment without merging it into the platform role', async () => {
+  api.defaults.adapter = async (config) => {
+    assert.equal(config.method, 'get')
+    assert.equal(config.url, '/api/talkwise/admin/users/7/training-team')
+    return {
+      data: {
+        success: true,
+        message: '',
+        data: {
+          membership: {
+            team_id: 'training-team-sales',
+            team_name: 'Sales coaching',
+            team_role: 'admin',
+          },
+        },
+      },
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      config,
+    }
+  }
+
+  assert.deepEqual(await getUserTrainingTeamAssignment(7), {
+    teamId: 'training-team-sales',
+    teamName: 'Sales coaching',
+    teamRole: 'admin',
+  })
+})
+
+test('returns null when a user has no training-team assignment', async () => {
+  api.defaults.adapter = async (config) => ({
+    data: {
+      success: true,
+      message: '',
+      data: { membership: null },
+    },
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    config,
+  })
+
+  assert.equal(await getUserTrainingTeamAssignment(8), null)
 })
 
 test('lists, searches, adds, and removes independent training memberships', async () => {

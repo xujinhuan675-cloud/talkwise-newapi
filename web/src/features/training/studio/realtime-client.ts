@@ -50,8 +50,18 @@ const AUTH_PROTOCOL_PREFIX = 'talkwise.bearer.'
 export const TALKWISE_REALTIME_PROTOCOL = 'talkwise.realtime'
 
 export function realtimeAudioContract(
-  profile: RealtimeProfile
+  profile: RealtimeProfile,
+  provider?: string
 ): RealtimeAudioContract {
+  if (provider?.trim() === 'volcengine.doubao_realtime') {
+    return {
+      channels: 1,
+      inputSampleRate: 16000,
+      latencyProfile: 'true_realtime',
+      outputSampleRate: 24000,
+      profile,
+    }
+  }
   if (profile === 'speech_to_speech') {
     return {
       channels: 1,
@@ -106,10 +116,10 @@ export function trainingRealtimeWebSocketUrl(
   const path = `${normalizedBase}/realtime`
   const params = new URLSearchParams({
     input_sample_rate: String(
-      realtimeAudioContract(input.profile).inputSampleRate
+      realtimeAudioContract(input.profile, input.provider).inputSampleRate
     ),
     profile: input.profile,
-    provider: input.provider?.trim() || 'pipecat',
+    provider: input.provider?.trim() || 'configured',
     room_id: input.roomId,
     session_id: input.sessionId,
   })

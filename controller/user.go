@@ -198,7 +198,7 @@ func setupLoginAtAuthVersion(user *model.User, expectedAuthVersion int64, c *gin
 			"token_type":        bundle.TokenType,
 			"access_expires_at": bundle.AccessExpiresAt,
 			"session":           bundle.Session,
-			"user":              buildSelfUserData(currentUser),
+			"user":              buildSelfUserDataWithTrainingTeam(currentUser),
 		},
 	})
 }
@@ -493,15 +493,13 @@ func GetSelf(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	responseData := buildSelfUserData(user)
+	responseData := buildSelfUserDataWithTrainingTeam(user)
 	// The authenticated role is loaded from GetUserCache. It should equal the
 	// row role, but use it for capabilities so GetSelf and login/refresh remain
 	// consistent with the authorization decision made for this request.
 	permissions := calculateUserPermissions(userRole)
 	permissions["admin_permissions"] = authz.Capabilities(id, userRole)
 	responseData["permissions"] = permissions
-	attachTalkWiseTrainingTeamClaims(responseData, user.Id)
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -529,6 +527,12 @@ func attachTalkWiseTrainingTeamClaims(responseData map[string]interface{}, userI
 		"name": team.Name,
 		"role": membership.Role,
 	}
+}
+
+func buildSelfUserDataWithTrainingTeam(user *model.User) map[string]interface{} {
+	responseData := buildSelfUserData(user)
+	attachTalkWiseTrainingTeamClaims(responseData, user.Id)
+	return responseData
 }
 
 // buildSelfUserData is the single safe dashboard-user DTO used by GetSelf,
@@ -684,10 +688,21 @@ func GetUserModels(c *gin.Context) {
 			groupsToQuery = []string{group}
 		}
 	}
+	models := service.GetGroupsEnabledModels(groupsToQuery)
+	if endpointType := strings.TrimSpace(c.Query("endpoint_type")); endpointType != "" {
+		models, err = service.GetGroupsEnabledModelsForEndpoint(
+			groupsToQuery,
+			constant.EndpointType(endpointType),
+		)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data":    service.GetGroupsEnabledModels(groupsToQuery),
+		"data":    models,
 	})
 }
 

@@ -20,11 +20,17 @@ import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { TeamCompetenciesPage } from '@/features/training/team/team-competencies'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
+import { isTrainingTeamManager } from '@/lib/training-team-permissions'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute(
   '/_authenticated/training/team/competencies'
 )({
   beforeLoad: () => {
+    const { auth } = useAuthStore.getState()
+    if (!isTrainingTeamManager(auth.user)) {
+      throw redirect({ to: '/403' })
+    }
     if (!isSidebarModuleEnabled('training', 'studio')) {
       throw redirect({ to: '/dashboard' })
     }

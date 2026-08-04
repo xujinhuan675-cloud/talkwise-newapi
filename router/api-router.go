@@ -95,16 +95,16 @@ func SetApiRouter(router *gin.Engine) {
 			talkwiseRoute.POST("/team/members/remove", middleware.CriticalRateLimit(), middleware.DisableCache(), anonymousRequestBodyLimit, controller.RemoveTalkWiseTeamMember)
 
 			talkwiseAdminRoute := talkwiseRoute.Group("/admin")
-			talkwiseAdminRoute.Use(middleware.AdminAuth())
 			{
-				talkwiseAdminRoute.GET("/teams", controller.AdminListTalkWiseTrainingTeams)
-				talkwiseAdminRoute.POST("/teams", controller.AdminCreateTalkWiseTrainingTeam)
-				talkwiseAdminRoute.PUT("/teams/:teamId", controller.AdminUpdateTalkWiseTrainingTeam)
-				talkwiseAdminRoute.DELETE("/teams/:teamId", controller.AdminDeleteTalkWiseTrainingTeam)
-				talkwiseAdminRoute.GET("/teams/:teamId/members", controller.AdminListTalkWiseTrainingTeamMembers)
-				talkwiseAdminRoute.GET("/teams/:teamId/users/search", controller.AdminSearchTalkWiseTrainingTeamUsers)
-				talkwiseAdminRoute.POST("/teams/:teamId/members", controller.AdminAddTalkWiseTrainingTeamMember)
-				talkwiseAdminRoute.DELETE("/teams/:teamId/members/:userId", controller.AdminRemoveTalkWiseTrainingTeamMember)
+				talkwiseAdminRoute.GET("/users/:userId/training-team", middleware.AdminAuth(), controller.AdminGetTalkWiseUserTrainingTeam)
+				talkwiseAdminRoute.GET("/teams", middleware.UserAuth(), controller.AdminListTalkWiseTrainingTeams)
+				talkwiseAdminRoute.POST("/teams", middleware.AdminAuth(), controller.AdminCreateTalkWiseTrainingTeam)
+				talkwiseAdminRoute.PUT("/teams/:teamId", middleware.AdminAuth(), controller.AdminUpdateTalkWiseTrainingTeam)
+				talkwiseAdminRoute.DELETE("/teams/:teamId", middleware.AdminAuth(), controller.AdminDeleteTalkWiseTrainingTeam)
+				talkwiseAdminRoute.GET("/teams/:teamId/members", middleware.TrainingTeamManageAuth(), controller.AdminListTalkWiseTrainingTeamMembers)
+				talkwiseAdminRoute.GET("/teams/:teamId/users/search", middleware.TrainingTeamManageAuth(), controller.AdminSearchTalkWiseTrainingTeamUsers)
+				talkwiseAdminRoute.POST("/teams/:teamId/members", middleware.TrainingTeamManageAuth(), controller.AdminAddTalkWiseTrainingTeamMember)
+				talkwiseAdminRoute.DELETE("/teams/:teamId/members/:userId", middleware.TrainingTeamManageAuth(), controller.AdminRemoveTalkWiseTrainingTeamMember)
 			}
 		}
 

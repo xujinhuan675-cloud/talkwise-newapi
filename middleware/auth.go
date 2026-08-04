@@ -42,23 +42,23 @@ func validUserInfo(username string, role int) bool {
 	return true
 }
 
-func authHelper(c *gin.Context, minRole int) {
+func prepareDashboardAuth(c *gin.Context, minRole int) (*auditResponseWriter, bool) {
 	user, identity, useAccessToken, err := authenticateDashboardRequest(c)
 	if err != nil {
 		writeDashboardAuthError(c, err)
-		return
+		return nil, false
 	}
 	if user.Status != common.UserStatusEnabled {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
-		return
+		return nil, false
 	}
 	if user.Role < minRole {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"success": false, "code": "AUTH_INSUFFICIENT_PRIVILEGE", "message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege)})
-		return
+		return nil, false
 	}
 	if !validUserInfo(user.Username, user.Role) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_INVALID", "message": common.TranslateMessage(c, i18n.MsgAuthUserInfoInvalid)})
-		return
+		return nil, false
 	}
 	setDashboardAuthContext(c, user, identity, useAccessToken)
 
@@ -69,7 +69,14 @@ func authHelper(c *gin.Context, minRole int) {
 	if minRole >= common.RoleAdminUser {
 		auditWriter = beginAdminAudit(c)
 	}
+	return auditWriter, true
+}
 
+func authHelper(c *gin.Context, minRole int) {
+	auditWriter, ok := prepareDashboardAuth(c, minRole)
+	if !ok {
+		return
+	}
 	c.Next()
 
 	finishAdminAudit(c, auditWriter)

@@ -53,6 +53,10 @@ export interface AuthUser {
   stripe_customer?: string
   sidebar_modules?: string
   permissions?: UserPermissions
+  /** Optional TalkWise training-team identity, independent of platform role. */
+  team_id?: string
+  team_name?: string
+  team_role?: 'owner' | 'admin' | 'member'
 }
 
 export interface LoginSession {
