@@ -31,6 +31,7 @@ import type { RealtimeProfile } from './realtime-client'
 
 export type TrainingStudioMode = 'realtime' | 'text' | 'voice' | 'video'
 export type TrainingFeedbackMode = 'simulation' | 'assisted' | 'drill'
+export type RealtimeProviderChoice = 'doubao' | 'hybrid' | 'openai'
 export type { RealtimeProfile } from './realtime-client'
 
 interface TalkWiseResponse<T> {
@@ -45,6 +46,14 @@ export interface TrainingSession {
   conversationId: string | null
   status: 'created' | 'active' | 'completed' | 'failed'
   mode: TrainingStudioMode
+  feedbackMode?: TrainingFeedbackMode
+  realtimeProfile?: RealtimeProfile
+  realtimeProvider?: string
+}
+
+export type RoomBackedTrainingSession = TrainingSession & {
+  roomId: string
+  mode: Exclude<TrainingStudioMode, 'text'>
 }
 
 export interface GuidanceEvent {
@@ -70,6 +79,7 @@ export interface StudioLaunchInput {
   pressure?: TrainingPressure
   lengthProfile?: TrainingLengthProfile
   realtimeProfile?: RealtimeProfile
+  realtimeProvider?: RealtimeProviderChoice
   liveCoach?: {
     sourceLanguage: string
     targetLanguage: string
@@ -126,7 +136,13 @@ function requireTrainingData<T>(response: TalkWiseResponse<T>): T {
   return response.data
 }
 
-function normalizeSession(session: TrainingSessionDTO): TrainingSession {
+export function normalizeTrainingSession(
+  session: TrainingSessionDTO
+): TrainingSession {
+  const feedbackMode = metadataText(session.task_config.metadata?.feedbackMode)
+  const realtimeProfile = metadataText(
+    session.task_config.metadata?.realtimeProfile
+  )
   return {
     sessionId: session.session_id,
     roomId: session.room_id == null ? null : String(session.room_id),
@@ -136,7 +152,25 @@ function normalizeSession(session: TrainingSessionDTO): TrainingSession {
         : String(session.conversation.conversationId),
     status: session.status,
     mode: session.mode,
+    feedbackMode:
+      feedbackMode === 'simulation' ||
+      feedbackMode === 'assisted' ||
+      feedbackMode === 'drill'
+        ? feedbackMode
+        : undefined,
+    realtimeProfile:
+      realtimeProfile === 'cascade' || realtimeProfile === 'speech_to_speech'
+        ? realtimeProfile
+        : undefined,
+    realtimeProvider:
+      metadataText(session.task_config.metadata?.realtimeProvider) ?? undefined,
   }
+}
+
+export function isRoomBackedTrainingSession(
+  session: TrainingSession | null
+): session is RoomBackedTrainingSession {
+  return Boolean(session?.roomId && session.mode !== 'text')
 }
 
 const HANDOFF_RESET_METADATA_TOKENS = new Set([
@@ -379,6 +413,17 @@ function studioPersona(input: StudioLaunchInput) {
   }
 }
 
+export function realtimeProviderRuntime(
+  choice: RealtimeProviderChoice | undefined
+): 'openai' | 'volcengine.doubao_realtime' {
+  if (choice === 'hybrid') {
+    throw new Error(
+      'Mixed Doubao and OpenAI realtime routing is not configured'
+    )
+  }
+  return choice === 'doubao' ? 'volcengine.doubao_realtime' : 'openai'
+}
+
 export function buildStudioSessionRequest(input: StudioLaunchInput) {
   const role = input.role.trim() || 'Learner'
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
@@ -397,7 +442,7 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
         delivery: 33,
       },
       question_count: trainingTurnBudget(lengthProfile),
-      framework: 'talkwise',
+      framework: 'prep',
       difficulty: pressure,
       category: 'workplace',
       metadata: {
@@ -416,6 +461,8 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
         ...(input.mode === 'realtime'
           ? {
               realtimeProfile: input.realtimeProfile || 'cascade',
+              realtimeProviderChoice: input.realtimeProvider || 'openai',
+              realtimeProvider: realtimeProviderRuntime(input.realtimeProvider),
               latencyProfile:
                 input.realtimeProfile === 'speech_to_speech'
                   ? 'true_realtime'
@@ -489,14 +536,16 @@ export async function launchTrainingSession(
     buildStudioSessionRequest(input),
     { skipBusinessError: true, skipErrorHandler: true }
   )
-  const created = normalizeSession(requireTrainingData(createdResponse.data))
+  const created = normalizeTrainingSession(
+    requireTrainingData(createdResponse.data)
+  )
   const startedResponse = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
     trainingApiUrl(apiBase, `/sessions/${created.sessionId}/start`),
     buildStudioStartRequest(input),
     { skipBusinessError: true, skipErrorHandler: true }
   )
 
-  return normalizeSession(requireTrainingData(startedResponse.data))
+  return normalizeTrainingSession(requireTrainingData(startedResponse.data))
 }
 
 async function getTrainingSessionDTO(
@@ -522,7 +571,9 @@ export async function getTrainingSession(
   apiBase: string,
   sessionId: string
 ): Promise<TrainingSession> {
-  return normalizeSession(await getTrainingSessionDTO(apiBase, sessionId))
+  return normalizeTrainingSession(
+    await getTrainingSessionDTO(apiBase, sessionId)
+  )
 }
 
 export async function launchRealtimeTrainingHandoff(
@@ -558,7 +609,7 @@ export async function launchRealtimeTrainingHandoff(
       buildRealtimeHandoffStartRequest(source),
       { skipBusinessError: true, skipErrorHandler: true }
     )
-    return normalizeSession(requireTrainingData(startedResponse.data))
+    return normalizeTrainingSession(requireTrainingData(startedResponse.data))
   } catch (error) {
     throw new RealtimeTrainingHandoffError(realtimeSessionId, error)
   }

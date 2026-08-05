@@ -40,9 +40,7 @@ func insertPricingEndpointChannel(t *testing.T, channelID int, channelType int, 
 		Status: common.ChannelStatusEnabled,
 		Name:   fmt.Sprintf("channel-%d", channelID),
 	}
-	if settings.AdvancedCustom != nil {
-		channel.SetOtherSettings(settings)
-	}
+	channel.SetOtherSettings(settings)
 	require.NoError(t, DB.Create(channel).Error)
 }
 
@@ -188,6 +186,19 @@ func TestPricingNativeChannelEndpointTypesUnchanged(t *testing.T) {
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["gpt-4o"])
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeGemini, constant.EndpointTypeOpenAI}, byModel["gemini-2.5-flash"])
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeAnthropic, constant.EndpointTypeOpenAI}, byModel["claude-3-5-sonnet"])
+}
+
+func TestPricingNativeChannelUsesConfiguredEndpointTypeOverride(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 204, constant.ChannelTypeOpenAI, dto.ChannelOtherSettings{
+		SupportedEndpointTypes: []constant.EndpointType{constant.EndpointTypeOpenAIVoice},
+	})
+	insertPricingEndpointAbility(t, 204, "gpt-realtime-2.1")
+
+	byModel := pricingEndpointTypesByModel(t)
+
+	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVoice}, byModel["gpt-realtime-2.1"])
 }
 
 func TestInitChannelCacheInvalidatesPricingCache(t *testing.T) {

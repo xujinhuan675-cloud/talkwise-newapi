@@ -23,9 +23,6 @@ import {
   Clock3,
   Flag,
   LoaderCircle,
-  Mic,
-  PanelRightClose,
-  PanelRightOpen,
   ShieldAlert,
   TriangleAlert,
 } from 'lucide-react'
@@ -42,7 +39,6 @@ import {
   BranchPrevious,
   BranchSelector,
 } from '@/components/ai-elements/branch'
-import { PromptInputButton } from '@/components/ai-elements/prompt-input'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -63,11 +59,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { PlaygroundChat } from '@/features/playground/components/chat/playground-chat'
 import { PlaygroundInput } from '@/features/playground/components/input/playground-input'
 import {
@@ -83,10 +74,6 @@ import {
 import type { Message } from '@/features/playground/types'
 import { useAuthStore } from '@/stores/auth-store'
 
-import {
-  launchRealtimeTrainingHandoff,
-  RealtimeTrainingHandoffError,
-} from '../studio/api'
 import { resolveBattlePrepPlan } from '../training-plan'
 import {
   completeTrainingConversationSession,
@@ -118,6 +105,8 @@ import {
   trainingCounterpartParticipant,
   trainingUserParticipant,
 } from './participant-identity'
+import { TrainingConversationComposer } from './training-conversation-composer'
+import { TrainingConversationHeaderActions } from './training-conversation-header-actions'
 import { TrainingConversationInsights } from './training-conversation-insights'
 
 export type { TrainingConversationSessionContext } from './api'
@@ -129,6 +118,7 @@ type MessageRecord = {
 
 export interface TrainingConversationSurfaceProps {
   readonly conversationId: string
+  readonly headerActionsTarget?: HTMLElement | null
   readonly onCompletionConfirmed: (
     result: TrainingConversationCompletionResult
   ) => void | Promise<void>
@@ -318,6 +308,7 @@ function CompletionReportIcon({
 
 export function TrainingConversationSurface({
   conversationId,
+  headerActionsTarget,
   onCompletionConfirmed,
   onForkCreated,
   onSelectedTailChange,
@@ -356,10 +347,6 @@ export function TrainingConversationSurface({
   const [forkOption, setForkOption] =
     useState<TrainingConversationForkOption>('directPath')
   const [isForking, setIsForking] = useState(false)
-  const [isStartingVoiceTraining, setIsStartingVoiceTraining] = useState(false)
-  const [voiceHandoffRetrySessionId, setVoiceHandoffRetrySessionId] = useState<
-    string | null
-  >(null)
   const [isMobileInsightsOpen, setIsMobileInsightsOpen] = useState(false)
   const [isInsightsExpanded, setIsInsightsExpanded] = useState(() =>
     loadTrainingInsightsExpanded(
@@ -368,6 +355,9 @@ export function TrainingConversationSurface({
   )
   const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false)
   const [isCompleting, setIsCompleting] = useState(false)
+  const [completionIntent, setCompletionIntent] = useState<
+    'direct' | 'report' | null
+  >(null)
   const [completionError, setCompletionError] = useState<unknown>(null)
   const [completionResult, setCompletionResult] =
     useState<TrainingConversationCompletionResult | null>(null)
@@ -425,7 +415,6 @@ export function TrainingConversationSurface({
     setCompletionResult(null)
     setBattleSheet(null)
     setBattleSheetError(null)
-    setVoiceHandoffRetrySessionId(null)
   }, [trainingSession.sessionId])
 
   useEffect(() => {
@@ -870,114 +859,91 @@ export function TrainingConversationSurface({
     })
   }, [navigate, trainingSession.sessionId])
 
-  const handleOpenVoiceTraining = useCallback(() => {
-    if (isStartingVoiceTraining) return
-    setIsStartingVoiceTraining(true)
-    void launchRealtimeTrainingHandoff(
-      trainingApiBase,
-      trainingSession.sessionId,
-      voiceHandoffRetrySessionId
-    )
-      .then((session) => {
-        setVoiceHandoffRetrySessionId(null)
-        void navigate({
-          to: '/training/studio',
-          search: { session: session.sessionId },
-        })
-      })
-      .catch((error: unknown) => {
-        if (error instanceof RealtimeTrainingHandoffError) {
-          setVoiceHandoffRetrySessionId(error.sessionId)
-        }
-        toast.error(
-          voiceHandoffRetrySessionId
-            ? localize(
-                'Voice training could not be opened. Click the microphone to retry.',
-                '语音训练仍未能打开，请点击麦克风重试。'
-              )
-            : localize(
-                'Voice training could not be started. Click the microphone to retry.',
-                '语音训练启动失败，请点击麦克风重试。'
-              ),
-          { description: trainingConversationErrorMessage(error) }
-        )
-      })
-      .finally(() => setIsStartingVoiceTraining(false))
-  }, [
-    isStartingVoiceTraining,
-    localize,
-    navigate,
-    trainingApiBase,
-    trainingSession.sessionId,
-    voiceHandoffRetrySessionId,
-  ])
+  const handleCompleteTraining = useCallback(
+    (generateReport: boolean) => {
+      const selectedTail = treeProjection.selectedTailId?.trim()
+      if (
+        !selectedTail ||
+        isCompleting ||
+        trainingSession.status !== 'active'
+      ) {
+        return
+      }
 
-  const handleCompleteTraining = useCallback(() => {
-    const selectedTail = treeProjection.selectedTailId?.trim()
-    if (!selectedTail || isCompleting || trainingSession.status !== 'active') {
-      return
-    }
-
-    setIsCompleting(true)
-    setCompletionError(null)
-    void completeTrainingConversationSession(
-      trainingApiBase,
-      trainingSession,
-      conversationId,
-      selectedTail
-    )
-      .then(async (result) => {
-        setCompletionResult(result)
-        try {
-          await onCompletionConfirmed(result)
-        } catch {
-          toast.error(
-            localize(
-              'Training finished, but the latest session state could not be refreshed.',
-              '训练已结束，但暂时无法刷新最新会话状态。'
-            )
-          )
-        }
-
-        if (result.reportStatus === 'ready' && battlePlan) {
+      setIsCompleting(true)
+      setCompletionIntent(generateReport ? 'report' : 'direct')
+      setCompletionError(null)
+      void completeTrainingConversationSession(
+        trainingApiBase,
+        trainingSession,
+        conversationId,
+        selectedTail,
+        generateReport
+      )
+        .then(async (result) => {
+          setCompletionResult(result)
           try {
-            const report = await loadTrainingConversationReportSummary(
-              trainingApiBase,
-              trainingSession.sessionId
+            await onCompletionConfirmed(result)
+          } catch {
+            toast.error(
+              localize(
+                'Training finished, but the latest session state could not be refreshed.',
+                '训练已结束，但暂时无法刷新最新会话状态。'
+              )
             )
-            setBattleSheet(report)
+          }
+
+          if (result.reportStatus === 'ready' && battlePlan) {
+            try {
+              const report = await loadTrainingConversationReportSummary(
+                trainingApiBase,
+                trainingSession.sessionId
+              )
+              setBattleSheet(report)
+              toast.success(
+                localize(
+                  'Battle preparation finished. Your briefing card is ready.',
+                  '备战已结束，速记卡已生成。'
+                )
+              )
+            } catch (error: unknown) {
+              setBattleSheetError(error)
+            }
+          } else if (result.reportStatus === 'ready') {
             toast.success(
               localize(
-                'Battle preparation finished. Your briefing card is ready.',
-                '备战已结束，速记卡已生成。'
+                'Training finished. Opening the review.',
+                '训练已结束，正在打开复盘。'
               )
             )
-          } catch (error: unknown) {
-            setBattleSheetError(error)
-          }
-        } else if (result.reportStatus === 'ready') {
-          toast.success(
-            localize(
-              'Training finished. Opening the review.',
-              '训练已结束，正在打开复盘。'
+            openSessionReview()
+          } else if (result.reportStatus === 'skipped') {
+            toast.success(
+              localize(
+                'Training ended without generating a review.',
+                '训练已直接结束，未生成复盘。'
+              )
             )
-          )
-          openSessionReview()
-        }
-      })
-      .catch((error: unknown) => setCompletionError(error))
-      .finally(() => setIsCompleting(false))
-  }, [
-    conversationId,
-    battlePlan,
-    isCompleting,
-    localize,
-    onCompletionConfirmed,
-    openSessionReview,
-    trainingApiBase,
-    trainingSession,
-    treeProjection.selectedTailId,
-  ])
+          }
+        })
+        .catch((error: unknown) => setCompletionError(error))
+        .finally(() => {
+          setIsCompleting(false)
+          setCompletionIntent(null)
+        })
+    },
+    [
+      conversationId,
+      battlePlan,
+      isCompleting,
+      localize,
+      onCompletionConfirmed,
+      openSessionReview,
+      trainingApiBase,
+      trainingSession,
+      treeProjection.selectedTailId,
+    ]
+  )
 
   const renderMessageBranchSelector = useCallback(
     (message: Message) => {
@@ -1047,7 +1013,14 @@ export function TrainingConversationSurface({
   let completionDialogDescription = ''
   let completionAlertTitle = ''
   let completionReviewLabel = ''
-  if (completionResult?.reportStatus === 'pending') {
+  if (completionResult?.reportStatus === 'skipped') {
+    completionDialogTitle = localize('Training ended', '训练已结束')
+    completionDialogDescription = localize(
+      'The session and selected path were saved without generating a review.',
+      '会话和当前路径已保存，本次未生成复盘。'
+    )
+    completionAlertTitle = localize('Review skipped', '已跳过复盘')
+  } else if (completionResult?.reportStatus === 'pending') {
     completionDialogTitle = localize('Review is being prepared', '复盘正在生成')
     completionDialogDescription = localize(
       'The selected conversation path is saved. You can continue to the session page while the report is generated.',
@@ -1084,9 +1057,50 @@ export function TrainingConversationSurface({
 
   return (
     <div className='relative flex size-full min-h-0 flex-col overflow-hidden'>
-      <div className='flex min-h-10 shrink-0 flex-wrap items-center justify-end gap-2 border-b px-3 py-1.5'>
-        {battlePlan && (
-          <div className='mr-auto flex min-w-0 flex-wrap items-center gap-1.5'>
+      <TrainingConversationHeaderActions
+        desktopExpanded={isInsightsExpanded}
+        onDesktopExpandedChange={setIsInsightsExpanded}
+        onMobileOpenChange={setIsMobileInsightsOpen}
+        target={headerActionsTarget}
+      >
+        {isSessionReadOnly ? (
+          <Button size='sm' variant='outline' onClick={openSessionReview}>
+            <ClipboardCheck />
+            <span className='hidden sm:inline'>
+              {localize('Open review', '查看复盘')}
+            </span>
+            <span className='sr-only sm:hidden'>
+              {localize('Open review', '查看复盘')}
+            </span>
+          </Button>
+        ) : (
+          <Button
+            disabled={!canComplete}
+            size='sm'
+            variant='destructive'
+            onClick={() => {
+              setCompletionError(null)
+              setCompletionResult(null)
+              setIsCompletionDialogOpen(true)
+            }}
+          >
+            <Flag />
+            <span className='hidden sm:inline'>
+              {battlePlan
+                ? localize('Finish battle prep', '结束备战')
+                : localize('Finish training', '结束训练')}
+            </span>
+            <span className='sr-only sm:hidden'>
+              {battlePlan
+                ? localize('Finish battle prep', '结束备战')
+                : localize('Finish training', '结束训练')}
+            </span>
+          </Button>
+        )}
+      </TrainingConversationHeaderActions>
+      {battlePlan && (
+        <div className='flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b px-3 py-1.5'>
+          <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
             <Badge variant={battleTurnLimitReached ? 'default' : 'secondary'}>
               {battleTurnLimitReached
                 ? localize('Planned rounds complete', '计划轮次已完成')
@@ -1110,51 +1124,8 @@ export function TrainingConversationSurface({
               </Badge>
             )}
           </div>
-        )}
-        {isSessionReadOnly ? (
-          <Button size='sm' variant='outline' onClick={openSessionReview}>
-            <ClipboardCheck />
-            {localize('Open review', '查看复盘')}
-          </Button>
-        ) : (
-          <Button
-            disabled={!canComplete}
-            size='sm'
-            variant='outline'
-            onClick={() => {
-              setCompletionError(null)
-              setCompletionResult(null)
-              setIsCompletionDialogOpen(true)
-            }}
-          >
-            <Flag />
-            {battlePlan
-              ? localize('Finish battle prep', '结束备战')
-              : localize('Finish training', '结束训练')}
-          </Button>
-        )}
-        <Button
-          className='lg:hidden'
-          size='sm'
-          variant='ghost'
-          onClick={() => setIsMobileInsightsOpen(true)}
-        >
-          <PanelRightOpen />
-          {localize('Training insights', '训练洞察')}
-        </Button>
-        <Button
-          aria-expanded={isInsightsExpanded}
-          className='hidden lg:inline-flex'
-          size='sm'
-          variant='ghost'
-          onClick={() => setIsInsightsExpanded((current) => !current)}
-        >
-          {isInsightsExpanded ? <PanelRightClose /> : <PanelRightOpen />}
-          {isInsightsExpanded
-            ? localize('Collapse insights', '收起洞察')
-            : localize('Expand insights', '展开洞察')}
-        </Button>
-      </div>
+        </div>
+      )}
       <div className='flex min-h-0 flex-1 overflow-hidden'>
         <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>
           <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
@@ -1211,44 +1182,12 @@ export function TrainingConversationSurface({
             />
           </div>
 
-          <div className='mx-auto w-full max-w-4xl'>
+          <TrainingConversationComposer>
             <PlaygroundInput
               capabilities={TRAINING_INPUT_CAPABILITIES}
+              compact
               config={config}
               disabled={isBusy || isInputLocked}
-              extraTools={
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <PromptInputButton
-                        aria-label={localize(
-                          'Open voice training',
-                          '进入语音训练'
-                        )}
-                        className='text-muted-foreground hover:text-foreground hover:bg-muted/70 font-medium'
-                        disabled={isBusy || isStartingVoiceTraining}
-                        onClick={handleOpenVoiceTraining}
-                        type='button'
-                        variant='ghost'
-                      >
-                        {isStartingVoiceTraining ? (
-                          <LoaderCircle className='animate-spin' size={16} />
-                        ) : (
-                          <Mic size={16} />
-                        )}
-                      </PromptInputButton>
-                    }
-                  />
-                  <TooltipContent>
-                    {voiceHandoffRetrySessionId
-                      ? localize(
-                          'Retry opening voice training',
-                          '重试进入语音训练'
-                        )
-                      : localize('Open voice training', '进入语音训练')}
-                  </TooltipContent>
-                </Tooltip>
-              }
               groups={groups}
               groupValue={config.group}
               hasMessages={messages.length > 0}
@@ -1264,7 +1203,7 @@ export function TrainingConversationSurface({
               onSubmit={handleSendMessage}
               parameterEnabled={parameterEnabled}
             />
-          </div>
+          </TrainingConversationComposer>
         </div>
         <TrainingConversationInsights
           desktopExpanded={isInsightsExpanded}
@@ -1442,10 +1381,12 @@ export function TrainingConversationSurface({
                 >
                   {localize('Stay here', '留在当前页面')}
                 </Button>
-                <Button onClick={openSessionReview}>
-                  <ClipboardCheck />
-                  {completionReviewLabel}
-                </Button>
+                {completionResult.reportStatus !== 'skipped' && (
+                  <Button onClick={openSessionReview}>
+                    <ClipboardCheck />
+                    {completionReviewLabel}
+                  </Button>
+                )}
               </DialogFooter>
             </>
           ) : (
@@ -1458,8 +1399,8 @@ export function TrainingConversationSurface({
                 </DialogTitle>
                 <DialogDescription>
                   {localize(
-                    'The server will evaluate the selected conversation path and finish the session only after the report is ready.',
-                    '服务端将评估当前对话路径，并仅在复盘报告生成成功后结束训练。'
+                    'Choose whether to generate a review from the selected conversation path or end the session directly.',
+                    '你可以结束并生成当前对话路径的复盘，也可以直接结束本次训练。'
                   )}
                 </DialogDescription>
               </DialogHeader>
@@ -1489,16 +1430,28 @@ export function TrainingConversationSurface({
                 </Button>
                 <Button
                   disabled={!canComplete}
-                  onClick={handleCompleteTraining}
+                  variant='outline'
+                  onClick={() => handleCompleteTraining(false)}
                 >
-                  {isCompleting ? (
+                  {isCompleting && completionIntent === 'direct' ? (
+                    <LoaderCircle className='animate-spin' />
+                  ) : (
+                    <Flag />
+                  )}
+                  {localize('End without review', '直接结束')}
+                </Button>
+                <Button
+                  disabled={!canComplete}
+                  onClick={() => handleCompleteTraining(true)}
+                >
+                  {isCompleting && completionIntent === 'report' ? (
                     <LoaderCircle className='animate-spin' />
                   ) : (
                     <Flag />
                   )}
                   {battlePlan
-                    ? localize('Finish battle prep', '结束备战')
-                    : localize('Finish training', '结束训练')}
+                    ? localize('End and create briefing', '结束并生成备战速记')
+                    : localize('End and generate review', '结束并生成复盘')}
                 </Button>
               </DialogFooter>
             </>

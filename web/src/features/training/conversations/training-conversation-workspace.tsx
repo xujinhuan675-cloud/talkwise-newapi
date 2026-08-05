@@ -19,18 +19,15 @@ For commercial licensing, please contact support@quantumnous.com
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CircleAlert,
-  ClipboardList,
   LoaderCircle,
-  PanelLeftClose,
-  PanelLeftOpen,
+  PanelLeft,
   Plus,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -54,11 +51,16 @@ import {
   type TrainingConversationSessionContext,
 } from '../conversation-workspace/training-conversation-surface'
 import { TrainingHostProvider, useTrainingHost } from '../host'
+import { TrainingRoomConversationSurface } from '../studio/training-room-conversation-surface'
 import {
   deleteTrainingConversationSession,
   listTrainingConversationSessions,
   type TrainingConversationSession,
 } from './api'
+import {
+  loadTrainingConversationListExpanded,
+  saveTrainingConversationListExpanded,
+} from './conversation-list-preference'
 import { NewTrainingConversationDialog } from './new-training-conversation-dialog'
 import type { TrainingConversationWorkspaceSearch } from './workspace-handoff'
 
@@ -69,10 +71,18 @@ type TrainingConversationWorkspaceProps = {
   onSessionChange: (search: TrainingConversationWorkspaceSearch) => void
 }
 
+type TrainingSessionCompletionResult = Pick<
+  TrainingConversationCompletionResult,
+  'metadata' | 'reportId' | 'sessionId' | 'status'
+>
+
 function sessionSearch(
   session: TrainingConversationSession
 ): TrainingConversationWorkspaceSearch {
-  return { session: session.id, conversation: session.conversationId }
+  return {
+    session: session.id,
+    ...(session.conversationId ? { conversation: session.conversationId } : {}),
+  }
 }
 
 function selectedSession(
@@ -122,7 +132,14 @@ function TrainingConversationWorkspaceContent({
   })
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data])
   const [isNewConversationOpen, setIsNewConversationOpen] = useState(false)
-  const [isListCollapsed, setIsListCollapsed] = useState(false)
+  const [isListCollapsed, setIsListCollapsed] = useState(
+    () =>
+      !loadTrainingConversationListExpanded(
+        typeof window === 'undefined' ? null : window.localStorage
+      )
+  )
+  const [headerActionsTarget, setHeaderActionsTarget] =
+    useState<HTMLDivElement | null>(null)
   const [sessionPendingDelete, setSessionPendingDelete] =
     useState<TrainingConversationSession | null>(null)
   const selection = useMemo(
@@ -150,11 +167,74 @@ function TrainingConversationWorkspaceContent({
       setSessionPendingDelete(null)
     },
   })
+  const handleCompletionConfirmed = useCallback(
+    async (result: TrainingSessionCompletionResult) => {
+      const sessionsKey = ['training', 'conversation-sessions', host.apiBase]
+      queryClient.setQueryData<TrainingConversationSession[]>(
+        sessionsKey,
+        (current) =>
+          current?.map((session) =>
+            session.id === result.sessionId
+              ? {
+                  ...session,
+                  status: result.status,
+                  reportId: result.reportId,
+                  metadata: {
+                    ...session.metadata,
+                    ...result.metadata,
+                  },
+                }
+              : session
+          )
+      )
+      await Promise.all([
+        queryClient.refetchQueries({
+          queryKey: sessionsKey,
+          type: 'active',
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            'training',
+            'review-session',
+            host.apiBase,
+            result.sessionId,
+          ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [
+            'training',
+            'review-report',
+            host.apiBase,
+            result.sessionId,
+          ],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['training', 'review-sessions', host.apiBase],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['training', 'review-progress', host.apiBase],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['training', 'scenario-progress-summary', host.apiBase],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['training', 'competency-radar', host.apiBase],
+        }),
+      ])
+    },
+    [host.apiBase, queryClient]
+  )
+  useEffect(() => {
+    saveTrainingConversationListExpanded(
+      typeof window === 'undefined' ? null : window.localStorage,
+      !isListCollapsed
+    )
+  }, [isListCollapsed])
   useEffect(() => {
     if (!activeSession) return
     if (
       sessionId === activeSession.id &&
-      conversationId === activeSession.conversationId
+      conversationId === (activeSession.conversationId ?? undefined)
     ) {
       return
     }
@@ -178,136 +258,162 @@ function TrainingConversationWorkspaceContent({
 
   return (
     <div className='flex size-full min-h-0 overflow-hidden'>
-      {!isListCollapsed && (
-        <aside
-          className='bg-muted/20 hidden w-72 shrink-0 border-r md:flex md:flex-col'
-          id='training-conversation-list'
-        >
-          <div className='flex min-h-12 items-center gap-2 border-b px-3 py-2'>
-            <span className='min-w-0 flex-1 truncate text-sm font-semibold'>
-              {localize('Training conversations', '训练会话')}
-            </span>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-label={localize(
-                      'Start training session',
-                      '开始训练会话'
-                    )}
-                    size='icon-sm'
-                    variant='ghost'
-                    onClick={() => setIsNewConversationOpen(true)}
-                  />
-                }
-              >
-                <Plus />
-              </TooltipTrigger>
-              <TooltipContent>
-                {localize('Start training session', '开始训练会话')}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <ScrollArea className='min-h-0 flex-1 p-2'>
-            {sessionsQuery.isPending && (
-              <div className='text-muted-foreground flex items-center gap-2 px-2 py-3 text-sm'>
-                <LoaderCircle className='size-4 animate-spin' />
-                {localize('Loading conversations...', '正在加载会话...')}
-              </div>
-            )}
-            {sessionsQuery.isError && (
-              <div className='text-destructive px-2 py-3 text-sm'>
-                {localize('Unable to load conversations.', '无法加载会话。')}
-              </div>
-            )}
-            {!sessionsQuery.isPending &&
-              !sessionsQuery.isError &&
-              sessions.length === 0 && (
-                <div className='text-muted-foreground px-2 py-3 text-sm'>
-                  {localize(
-                    'Start a text training session to create a conversation.',
-                    '开始文本训练后，会话会显示在这里。'
-                  )}
+      <aside
+        className={cn(
+          'bg-muted/20 hidden shrink-0 overflow-hidden transition-[width,border-color] duration-200 md:flex md:flex-col',
+          isListCollapsed ? 'w-0 border-r-0' : 'w-72 border-r'
+        )}
+        id='training-conversation-list'
+      >
+        {!isListCollapsed && (
+          <div className='flex min-h-0 w-72 flex-1 flex-col'>
+            <div className='flex min-h-12 items-center gap-2 border-b px-3 py-2'>
+              <span className='min-w-0 flex-1 truncate text-sm font-semibold'>
+                {localize('Training conversations', '训练会话')}
+              </span>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      aria-label={localize(
+                        'Start training session',
+                        '开始训练会话'
+                      )}
+                      size='icon-sm'
+                      variant='ghost'
+                      onClick={() => setIsNewConversationOpen(true)}
+                    />
+                  }
+                >
+                  <Plus />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {localize('Start training session', '开始训练会话')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      aria-controls='training-conversation-list'
+                      aria-expanded
+                      aria-label={localize(
+                        'Collapse conversation list',
+                        '折叠会话列表'
+                      )}
+                      size='icon-sm'
+                      variant='ghost'
+                      onClick={() => setIsListCollapsed(true)}
+                    />
+                  }
+                >
+                  <PanelLeft />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {localize('Collapse conversation list', '折叠会话列表')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+            <ScrollArea className='min-h-0 flex-1 p-2'>
+              {sessionsQuery.isPending && (
+                <div className='text-muted-foreground flex items-center gap-2 px-2 py-3 text-sm'>
+                  <LoaderCircle className='size-4 animate-spin' />
+                  {localize('Loading conversations...', '正在加载会话...')}
                 </div>
               )}
-            <div className='space-y-1'>
-              {sessions.map((session) => (
-                <div
-                  className={cn(
-                    'group hover:bg-accent focus-within:ring-ring flex w-full items-start gap-1 rounded-md px-3 py-2 outline-none focus-within:ring-2',
-                    activeSession?.id === session.id && 'bg-accent'
-                  )}
-                  key={session.id}
-                >
-                  <button
-                    className='min-w-0 flex-1 text-left'
-                    onClick={() => onSessionChange(sessionSearch(session))}
-                    type='button'
-                  >
-                    <span className='block truncate text-sm font-medium'>
-                      {session.title}
-                    </span>
-                  </button>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          aria-label={localize(
-                            'Delete training session',
-                            '删除训练会话'
-                          )}
-                          className='opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100'
-                          size='icon-sm'
-                          variant='ghost'
-                          onClick={() => {
-                            deleteSessionMutation.reset()
-                            setSessionPendingDelete(session)
-                          }}
-                        />
-                      }
-                    >
-                      <Trash2 />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {localize('Delete training session', '删除训练会话')}
-                    </TooltipContent>
-                  </Tooltip>
+              {sessionsQuery.isError && (
+                <div className='text-destructive px-2 py-3 text-sm'>
+                  {localize('Unable to load conversations.', '无法加载会话。')}
                 </div>
-              ))}
-            </div>
-          </ScrollArea>
-        </aside>
-      )}
+              )}
+              {!sessionsQuery.isPending &&
+                !sessionsQuery.isError &&
+                sessions.length === 0 && (
+                  <div className='text-muted-foreground px-2 py-3 text-sm'>
+                    {localize(
+                      'Start a training session to create a conversation.',
+                      '开始训练后，会话会显示在这里。'
+                    )}
+                  </div>
+                )}
+              <div className='space-y-1'>
+                {sessions.map((session) => (
+                  <div
+                    className={cn(
+                      'group hover:bg-accent focus-within:ring-ring flex w-full items-start gap-1 rounded-md px-3 py-2 outline-none focus-within:ring-2 focus-within:ring-inset',
+                      activeSession?.id === session.id && 'bg-accent'
+                    )}
+                    key={session.id}
+                  >
+                    <button
+                      className='min-w-0 flex-1 text-left'
+                      onClick={() => onSessionChange(sessionSearch(session))}
+                      type='button'
+                    >
+                      <span className='block truncate text-sm font-medium'>
+                        {session.title}
+                      </span>
+                    </button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            aria-label={localize(
+                              'Delete training session',
+                              '删除训练会话'
+                            )}
+                            className='opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100'
+                            size='icon-sm'
+                            variant='ghost'
+                            onClick={() => {
+                              deleteSessionMutation.reset()
+                              setSessionPendingDelete(session)
+                            }}
+                          />
+                        }
+                      >
+                        <Trash2 />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {localize('Delete training session', '删除训练会话')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+      </aside>
 
       <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>
         <div className='flex min-h-12 items-center gap-2 border-b px-3 py-2 sm:px-4'>
           <div className='flex shrink-0 items-center gap-1'>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    aria-controls='training-conversation-list'
-                    aria-expanded={!isListCollapsed}
-                    aria-label={
-                      isListCollapsed
-                        ? localize('Expand conversation list', '展开会话列表')
-                        : localize('Collapse conversation list', '折叠会话列表')
-                    }
-                    className='hidden md:inline-flex'
-                    size='icon-sm'
-                    variant='ghost'
-                    onClick={() => setIsListCollapsed((current) => !current)}
-                  />
-                }
-              >
-                {isListCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-              </TooltipTrigger>
-              <TooltipContent>
-                {isListCollapsed
-                  ? localize('Expand conversation list', '展开会话列表')
-                  : localize('Collapse conversation list', '折叠会话列表')}
-              </TooltipContent>
-            </Tooltip>
+            {isListCollapsed && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      aria-controls='training-conversation-list'
+                      aria-expanded={false}
+                      aria-label={localize(
+                        'Expand conversation list',
+                        '展开会话列表'
+                      )}
+                      className='hidden md:inline-flex'
+                      size='icon-sm'
+                      variant='outline'
+                      onClick={() => setIsListCollapsed(false)}
+                    />
+                  }
+                >
+                  <PanelLeft />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {localize('Expand conversation list', '展开会话列表')}
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -330,7 +436,6 @@ function TrainingConversationWorkspaceContent({
               </TooltipContent>
             </Tooltip>
           </div>
-          <ClipboardList className='text-muted-foreground size-4 shrink-0' />
           <div className='min-w-0 flex-1'>
             {activeSession ? (
               <>
@@ -347,79 +452,16 @@ function TrainingConversationWorkspaceContent({
               </div>
             )}
           </div>
-          {activeSession && (
-            <Badge className='capitalize' variant='outline'>
-              {activeSession.difficulty}
-            </Badge>
-          )}
+          <div
+            className='flex shrink-0 items-center gap-2'
+            ref={setHeaderActionsTarget}
+          />
         </div>
-        {activeSession ? (
+        {activeSession?.mode === 'text' && activeSession.conversationId && (
           <TrainingConversationSurface
             conversationId={activeSession.conversationId}
-            onCompletionConfirmed={async (
-              result: TrainingConversationCompletionResult
-            ) => {
-              const sessionsKey = [
-                'training',
-                'conversation-sessions',
-                host.apiBase,
-              ]
-              queryClient.setQueryData<TrainingConversationSession[]>(
-                sessionsKey,
-                (current) =>
-                  current?.map((session) =>
-                    session.id === result.sessionId
-                      ? {
-                          ...session,
-                          status: result.status,
-                          reportId: result.reportId,
-                          metadata: {
-                            ...session.metadata,
-                            ...result.metadata,
-                          },
-                        }
-                      : session
-                  )
-              )
-              await Promise.all([
-                queryClient.refetchQueries({
-                  queryKey: sessionsKey,
-                  type: 'active',
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: [
-                    'training',
-                    'review-session',
-                    host.apiBase,
-                    result.sessionId,
-                  ],
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: [
-                    'training',
-                    'review-report',
-                    host.apiBase,
-                    result.sessionId,
-                  ],
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: ['training', 'review-sessions', host.apiBase],
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: ['training', 'review-progress', host.apiBase],
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: [
-                    'training',
-                    'scenario-progress-summary',
-                    host.apiBase,
-                  ],
-                }),
-                queryClient.invalidateQueries({
-                  queryKey: ['training', 'competency-radar', host.apiBase],
-                }),
-              ])
-            }}
+            headerActionsTarget={headerActionsTarget}
+            onCompletionConfirmed={handleCompletionConfirmed}
             onForkCreated={async (result) => {
               await queryClient.refetchQueries({
                 queryKey: ['training', 'conversation-sessions', host.apiBase],
@@ -451,7 +493,31 @@ function TrainingConversationWorkspaceContent({
               } satisfies TrainingConversationSessionContext
             }
           />
-        ) : null}
+        )}
+        {activeSession?.roomId && activeSession.mode !== 'text' && (
+          <TrainingRoomConversationSurface
+            apiBase={host.apiBase}
+            feedbackMode={activeSession.feedbackMode}
+            headerActionsTarget={headerActionsTarget}
+            mode={activeSession.mode}
+            onCompletionConfirmed={handleCompletionConfirmed}
+            realtimeProfile={activeSession.realtimeProfile}
+            realtimeProvider={activeSession.realtimeProvider}
+            roomId={activeSession.roomId}
+            trainingSession={
+              {
+                sessionId: activeSession.id,
+                scenarioId: activeSession.scenarioId,
+                title: activeSession.title,
+                description: activeSession.description,
+                difficulty: activeSession.difficulty,
+                status: activeSession.status,
+                reportId: activeSession.reportId,
+                metadata: activeSession.metadata,
+              } satisfies TrainingConversationSessionContext
+            }
+          />
+        )}
       </div>
       <NewTrainingConversationDialog
         apiBase={host.apiBase}

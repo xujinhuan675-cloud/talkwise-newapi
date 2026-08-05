@@ -25,7 +25,10 @@ import {
   buildRealtimeHandoffStartRequest,
   buildStudioSessionRequest,
   buildStudioStartRequest,
+  isRoomBackedTrainingSession,
+  normalizeTrainingSession,
   normalizeRealtimeReadiness,
+  realtimeProviderRuntime,
   type TrainingSessionDTO,
 } from '../api'
 
@@ -89,6 +92,7 @@ describe('training studio adapter', () => {
     assert.equal(request.mode, 'voice')
     assert.equal(request.task_config.metadata.source, 'newapi_training_studio')
     assert.equal(request.task_config.metadata.feedbackMode, 'assisted')
+    assert.equal(request.task_config.framework, 'prep')
     assert.equal(request.task_config.question_count, 12)
     assert.equal(request.task_config.difficulty, 'hard')
     assert.deepEqual(request.task_config.metadata.trainingPlan, {
@@ -148,6 +152,7 @@ describe('training studio adapter', () => {
       mode: 'realtime',
       feedbackMode: 'assisted',
       realtimeProfile: 'speech_to_speech',
+      realtimeProvider: 'doubao',
     })
 
     assert.equal(request.mode, 'realtime')
@@ -157,6 +162,48 @@ describe('training studio adapter', () => {
       'speech_to_speech'
     )
     assert.equal(request.task_config.metadata.latencyProfile, 'true_realtime')
+    assert.equal(request.task_config.metadata.realtimeProviderChoice, 'doubao')
+    assert.equal(
+      request.task_config.metadata.realtimeProvider,
+      'volcengine.doubao_realtime'
+    )
+    assert.equal(realtimeProviderRuntime('openai'), 'openai')
+    assert.throws(
+      () => realtimeProviderRuntime('hybrid'),
+      /Mixed Doubao and OpenAI realtime routing is not configured/
+    )
+  })
+
+  test('restores a started realtime room from persisted session metadata', () => {
+    const session = normalizeTrainingSession({
+      ...textSessionSource,
+      session_id: 'realtime-session-1',
+      room_id: 42,
+      mode: 'realtime',
+      task_config: {
+        ...textSessionSource.task_config,
+        metadata: {
+          feedbackMode: 'assisted',
+          realtimeProfile: 'speech_to_speech',
+          realtimeProvider: 'volcengine.doubao_realtime',
+        },
+      },
+    })
+
+    assert.equal(isRoomBackedTrainingSession(session), true)
+    assert.equal(session.roomId, '42')
+    assert.equal(session.feedbackMode, 'assisted')
+    assert.equal(session.realtimeProfile, 'speech_to_speech')
+    assert.equal(session.realtimeProvider, 'volcengine.doubao_realtime')
+    assert.equal(
+      isRoomBackedTrainingSession({
+        ...session,
+        conversationId: 'conversation-1',
+        mode: 'text',
+        roomId: null,
+      }),
+      false
+    )
   })
 
   test('creates a clean realtime session handoff from persisted text training context', () => {

@@ -107,7 +107,7 @@ export function PlaygroundInputTools({
 
   return (
     <>
-      <PromptInputTools className='bg-background/70 border-border/60 rounded-lg border p-1 shadow-xs'>
+      <PromptInputTools className='bg-card border-border rounded-lg border p-1 shadow-sm'>
         {extraTools}
 
         {resolvedCapabilities.attachments && (

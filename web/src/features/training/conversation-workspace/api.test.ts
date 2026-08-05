@@ -528,6 +528,14 @@ describe('training conversation workspace API', () => {
       report_generation: 'sync',
       selected_tail_message_id: 'msg-tail',
     })
+    assert.deepEqual(
+      buildTrainingConversationCompletionPayload('msg-tail', false),
+      {
+        generate_report: false,
+        report_generation: 'sync',
+        selected_tail_message_id: 'msg-tail',
+      }
+    )
     assert.throws(
       () => buildTrainingConversationCompletionPayload(' '),
       /selected training message tail cannot be empty/
@@ -587,6 +595,25 @@ describe('training conversation workspace API', () => {
         'conversation-1'
       ),
       null
+    )
+
+    assert.equal(
+      normalizeTrainingConversationCompletionResult(
+        {
+          data: {
+            session_id: 'session-1',
+            status: 'completed',
+            room_id: 'talkwise-conversation:conversation-1',
+            report_id: null,
+            task_config: {
+              metadata: { completionReport: { status: 'skipped' } },
+            },
+          },
+        },
+        'session-1',
+        'conversation-1'
+      )?.reportStatus,
+      'skipped'
     )
     assert.equal(
       normalizeTrainingConversationCompletionResult(
@@ -751,6 +778,9 @@ describe('training conversation workspace API', () => {
       'event: message_delta',
       'data: {"content":"Hello"}',
       '',
+      'event: error',
+      'data: {"message":"Model service is temporarily unavailable. Please retry.","retryable":true,"error_type":"TimeoutError"}',
+      '',
       'event: message_complete',
     ].join('\n')
     const parsed = parseTrainingConversationSse(source)
@@ -763,6 +793,13 @@ describe('training conversation workspace API', () => {
         branchId: 'main',
       },
       { type: 'message_delta', content: 'Hello' },
+      {
+        type: 'error',
+        message: 'Model service is temporarily unavailable. Please retry.',
+        retryable: true,
+        statusCode: null,
+        errorType: 'TimeoutError',
+      },
     ])
     assert.equal(parsed.remainder, 'event: message_complete')
   })

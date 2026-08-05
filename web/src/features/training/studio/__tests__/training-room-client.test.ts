@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  normalizeTrainingRoomCompletionResult,
   normalizeTrainingRoomMessages,
   parseTrainingRoomSse,
   parseTrainingRoomVideoAnswer,
@@ -167,6 +168,60 @@ describe('training room client', () => {
     )
     assert.equal(
       trainingRoomAudioChunk({ type: 'audio_chunk', data: {} }),
+      null
+    )
+  })
+
+  test('normalizes a completed room session with a ready review', () => {
+    const result = normalizeTrainingRoomCompletionResult(
+      {
+        data: {
+          session_id: 'session-1',
+          status: 'completed',
+          report_id: 'report-1',
+          task_config: {
+            metadata: {
+              completionReport: { status: 'ready', reportId: 'report-1' },
+            },
+          },
+        },
+      },
+      'session-1',
+      true
+    )
+
+    assert.equal(result?.reportId, 'report-1')
+    assert.equal(result?.reportStatus, 'ready')
+  })
+
+  test('marks direct room completion as review skipped', () => {
+    const result = normalizeTrainingRoomCompletionResult(
+      {
+        data: {
+          session_id: 'session-2',
+          status: 'completed',
+          task_config: { metadata: {} },
+        },
+      },
+      'session-2',
+      false
+    )
+
+    assert.equal(result?.reportStatus, 'skipped')
+  })
+
+  test('rejects a completion response for another session', () => {
+    assert.equal(
+      normalizeTrainingRoomCompletionResult(
+        {
+          data: {
+            session_id: 'session-other',
+            status: 'completed',
+          },
+        },
+        'session-3',
+        true
+      ),
       null
     )
   })

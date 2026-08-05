@@ -27,6 +27,7 @@ import { getInputControlState } from '../../lib'
 import type { GroupOption, ModelOption } from '../../types'
 
 type PlaygroundInputControlsProps = {
+  actions?: ReactNode
   disabled?: boolean
   groups: GroupOption[]
   groupValue: string
@@ -42,6 +43,7 @@ type PlaygroundInputControlsProps = {
 }
 
 export function PlaygroundInputControls({
+  actions,
   disabled,
   groups,
   groupValue,
@@ -92,7 +94,7 @@ export function PlaygroundInputControls({
       </PromptInputButton>
     ) : (
       <PromptInputButton
-        className='bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground h-8 px-3 font-medium shadow-sm'
+        className='border-primary bg-primary text-primary-foreground hover:bg-primary/90 disabled:border-border disabled:bg-muted/70 disabled:text-foreground/50 h-8 border px-3 font-medium shadow-sm disabled:opacity-100'
         disabled={!canSubmit}
         type='submit'
         variant='default'
@@ -112,12 +114,14 @@ export function PlaygroundInputControls({
       <div className='flex items-center justify-between gap-2 md:justify-start'>
         {tools}
         <div className='flex items-center gap-1.5 md:hidden'>
+          {actions}
           {renderSubmitButton()}
         </div>
       </div>
 
       <div className='hidden min-w-0 items-center gap-2 md:flex'>
         {renderSelector()}
+        {actions}
         {renderSubmitButton()}
       </div>
     </div>

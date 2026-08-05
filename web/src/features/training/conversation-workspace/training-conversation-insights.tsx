@@ -70,6 +70,7 @@ import {
 } from './guidance-refresh'
 
 type InsightTab = 'context' | 'guidance' | 'analysis'
+export type TrainingInsightsRuntime = 'legacy_room' | 'message_tree'
 
 type TrainingConversationInsightsProps = {
   readonly desktopExpanded: boolean
@@ -77,6 +78,7 @@ type TrainingConversationInsightsProps = {
   readonly onDesktopExpandedChange: (expanded: boolean) => void
   readonly onMobileOpenChange: (open: boolean) => void
   readonly initialTab?: InsightTab
+  readonly runtime?: TrainingInsightsRuntime
   readonly isGenerating: boolean
   readonly isLoadingConversation: boolean
   readonly trainingApiBase: string
@@ -214,10 +216,12 @@ function statusLabel(
 function ContextTab({
   messages,
   session,
+  runtime,
   localize,
 }: {
   readonly messages: readonly TrainingConversationMessage[]
   readonly session: TrainingConversationSessionContext
+  readonly runtime: TrainingInsightsRuntime
   readonly localize: (english: string, chinese: string) => string
 }) {
   const scenario = useMemo(
@@ -342,12 +346,18 @@ function ContextTab({
         <section className='space-y-2'>
           <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase'>
             <MessageSquareText className='size-3.5' />
-            {localize('Selected path', '当前路径')}
+            {runtime === 'legacy_room'
+              ? localize('Training turns', '训练回合')
+              : localize('Selected path', '当前路径')}
           </div>
           <p className='text-sm'>
             {localize(
-              `${visibleMessages.length} message${visibleMessages.length === 1 ? '' : 's'} in this path`,
-              `当前路径包含 ${visibleMessages.length} 条消息`
+              runtime === 'legacy_room'
+                ? `${visibleMessages.length} training turn${visibleMessages.length === 1 ? '' : 's'}`
+                : `${visibleMessages.length} message${visibleMessages.length === 1 ? '' : 's'} in this path`,
+              runtime === 'legacy_room'
+                ? `当前训练回合包含 ${visibleMessages.length} 条消息`
+                : `当前路径包含 ${visibleMessages.length} 条消息`
             )}
           </p>
         </section>
@@ -387,6 +397,7 @@ function GuidanceTab({
   pending,
   result,
   session,
+  runtime,
   localize,
 }: {
   readonly autoRefreshEnabled: boolean
@@ -402,6 +413,7 @@ function GuidanceTab({
   readonly pending: boolean
   readonly result: TrainingConversationGuidanceResult | null
   readonly session: TrainingConversationSessionContext
+  readonly runtime: TrainingInsightsRuntime
   readonly localize: (english: string, chinese: string) => string
 }) {
   const hasMessages =
@@ -417,8 +429,12 @@ function GuidanceTab({
           <div className='space-y-1'>
             <div className='text-muted-foreground text-sm'>
               {localize(
-                'Guidance uses the selected path only.',
-                '教练提示只使用当前选中的消息路径。'
+                runtime === 'legacy_room'
+                  ? 'Guidance uses persisted turns from this training room.'
+                  : 'Guidance uses the selected path only.',
+                runtime === 'legacy_room'
+                  ? '教练提示使用当前训练房间已保存的回合。'
+                  : '教练提示只使用当前选中的消息路径。'
               )}
             </div>
             {capabilities?.serverSelectedPath && (
@@ -565,8 +581,12 @@ function GuidanceTab({
                       '发送消息后再请求教练提示'
                     )
                   : localize(
-                      'No conversation path is available',
-                      '没有可查看的会话路径'
+                      runtime === 'legacy_room'
+                        ? 'No training turns are available'
+                        : 'No conversation path is available',
+                      runtime === 'legacy_room'
+                        ? '没有可查看的训练回合'
+                        : '没有可查看的会话路径'
                     )}
               </EmptyTitle>
             </EmptyHeader>
@@ -581,8 +601,12 @@ function GuidanceTab({
               </EmptyMedia>
               <EmptyTitle>
                 {localize(
-                  'No new guidance for this path',
-                  '当前路径暂无新的教练提示'
+                  runtime === 'legacy_room'
+                    ? 'No new guidance for these turns'
+                    : 'No new guidance for this path',
+                  runtime === 'legacy_room'
+                    ? '当前回合暂无新的教练提示'
+                    : '当前路径暂无新的教练提示'
                 )}
               </EmptyTitle>
               <EmptyDescription>
@@ -625,7 +649,7 @@ function GuidanceTab({
           </div>
         )}
 
-        {hasMessages && (
+        {runtime === 'message_tree' && hasMessages && (
           <section className='space-y-3 border-t pt-4'>
             <div className='flex items-center justify-between gap-2'>
               <h3 className='flex items-center gap-2 text-sm font-medium'>
@@ -904,6 +928,7 @@ export function TrainingConversationInsights({
   onDesktopExpandedChange,
   onMobileOpenChange,
   initialTab = 'context',
+  runtime = 'message_tree',
   isGenerating,
   isLoadingConversation,
   trainingApiBase,
@@ -943,7 +968,9 @@ export function TrainingConversationInsights({
     messages.some((message) => Boolean(message.content.trim()))
 
   const refreshGuidanceHistory = useCallback(async () => {
-    if (!selectedTail || !hasGuidanceMessages) return
+    if (runtime !== 'message_tree' || !selectedTail || !hasGuidanceMessages) {
+      return
+    }
     historyAbortRef.current?.abort()
     const controller = new AbortController()
     historyAbortRef.current = controller
@@ -973,6 +1000,7 @@ export function TrainingConversationInsights({
   }, [
     hasGuidanceMessages,
     localize,
+    runtime,
     selectedTail,
     trainingApiBase,
     trainingSession,
@@ -982,7 +1010,7 @@ export function TrainingConversationInsights({
     if (
       guidanceAbortRef.current ||
       !hasGuidanceMessages ||
-      !selectedTail ||
+      (runtime === 'message_tree' && !selectedTail) ||
       !sessionIsActive
     ) {
       return
@@ -997,7 +1025,7 @@ export function TrainingConversationInsights({
         trainingApiBase,
         trainingSession,
         messages,
-        selectedTail,
+        runtime === 'message_tree' ? selectedTail : null,
         controller.signal
       )
       if (
@@ -1010,7 +1038,7 @@ export function TrainingConversationInsights({
       }
       if (guidanceAbortRef.current !== controller) return
       setGuidanceResult(next)
-      if (next.history.length > 0) {
+      if (next.history.length > 0 && selectedTail) {
         setGuidanceHistory({
           status: 'ready',
           retryable: next.persistence.retryable,
@@ -1049,6 +1077,7 @@ export function TrainingConversationInsights({
     localize,
     messages,
     refreshGuidanceHistory,
+    runtime,
     selectedTail,
     sessionIsActive,
     trainingApiBase,
@@ -1066,12 +1095,13 @@ export function TrainingConversationInsights({
     setHistoryError(null)
     setGuidancePending(false)
     setHistoryPending(false)
-    if (selectedTail && hasGuidanceMessages) {
+    if (runtime === 'message_tree' && selectedTail && hasGuidanceMessages) {
       void refreshGuidanceHistory()
     }
   }, [
     hasGuidanceMessages,
     refreshGuidanceHistory,
+    runtime,
     selectedTail,
     sessionIsActive,
     trainingSession.sessionId,
@@ -1137,6 +1167,7 @@ export function TrainingConversationInsights({
         <ContextTab
           localize={localize}
           messages={messages}
+          runtime={runtime}
           session={trainingSession}
         />
       </TabsContent>
@@ -1152,6 +1183,7 @@ export function TrainingConversationInsights({
           messages={messages}
           pending={guidancePending}
           result={guidanceResult}
+          runtime={runtime}
           session={trainingSession}
           onAutoRefreshEnabledChange={setAutoRefreshEnabled}
           onRequestGuidance={() => void requestGuidance()}

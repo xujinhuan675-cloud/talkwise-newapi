@@ -170,6 +170,7 @@ export type TrainingConversationCompletionReportStatus =
   | 'failed'
   | 'pending'
   | 'ready'
+  | 'skipped'
 
 export interface TrainingConversationCompletionResult {
   readonly sessionId: string
@@ -206,7 +207,13 @@ export type TrainingConversationStreamEvent =
       readonly branchId: string | null
       readonly content: string
     }
-  | { readonly type: 'error'; readonly message: string }
+  | {
+      readonly type: 'error'
+      readonly message: string
+      readonly retryable: boolean
+      readonly statusCode: number | null
+      readonly errorType: string | null
+    }
   | { readonly type: 'done' }
 
 export interface TrainingConversationStreamOptions {
@@ -712,9 +719,10 @@ export function normalizeTrainingConversationReportSummary(
 }
 
 export function buildTrainingConversationCompletionPayload(
-  selectedTailMessageId: string
+  selectedTailMessageId: string,
+  generateReport = true
 ): {
-  generate_report: true
+  generate_report: boolean
   report_generation: 'sync'
   selected_tail_message_id: string
 } {
@@ -723,7 +731,7 @@ export function buildTrainingConversationCompletionPayload(
     throw new Error('selected training message tail cannot be empty')
   }
   return {
-    generate_report: true,
+    generate_report: generateReport,
     report_generation: 'sync',
     selected_tail_message_id: selectedTail,
   }
@@ -762,7 +770,11 @@ export function normalizeTrainingConversationCompletionResult(
   let reportStatus: TrainingConversationCompletionReportStatus | null = null
   if (reportId) {
     reportStatus = 'ready'
-  } else if (reportedStatus === 'pending' || reportedStatus === 'failed') {
+  } else if (
+    reportedStatus === 'pending' ||
+    reportedStatus === 'failed' ||
+    reportedStatus === 'skipped'
+  ) {
     reportStatus = reportedStatus
   }
   if (!reportStatus) return null
@@ -872,6 +884,9 @@ function normalizeStreamEvent(
     return {
       type,
       message: textValue(data.message) ?? 'Response generation failed.',
+      retryable: data.retryable === true,
+      statusCode: numberValue(data.status_code ?? data.statusCode),
+      errorType: textValue(data.error_type ?? data.errorType),
     }
   }
 
@@ -1148,6 +1163,7 @@ export async function completeTrainingConversationSession(
   session: TrainingConversationSessionContext,
   conversationId: string,
   selectedTailMessageId: string,
+  generateReport = true,
   signal?: AbortSignal
 ): Promise<TrainingConversationCompletionResult> {
   const sessionId = session.sessionId.trim()
@@ -1163,7 +1179,10 @@ export async function completeTrainingConversationSession(
       signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(
-        buildTrainingConversationCompletionPayload(selectedTailMessageId)
+        buildTrainingConversationCompletionPayload(
+          selectedTailMessageId,
+          generateReport
+        )
       ),
     }
   )
@@ -1178,7 +1197,7 @@ export async function completeTrainingConversationSession(
   )
   if (!result) {
     throw new Error(
-      'Unable to finish training session: response did not confirm completion and report scheduling'
+      'Unable to finish training session: response did not confirm the persisted completion state'
     )
   }
   return result
