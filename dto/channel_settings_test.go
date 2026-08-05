@@ -501,3 +501,32 @@ func TestValidateDoubaoVoiceSettings(t *testing.T) {
 
 	require.NoError(t, settings.ValidateDoubaoVoice())
 }
+
+func TestChannelEndpointTypeOverrideValidatesAndDeduplicates(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		SupportedEndpointTypes: []constant.EndpointType{
+			constant.EndpointTypeOpenAIVoice,
+			constant.EndpointTypeOpenAIVoice,
+		},
+	}
+
+	require.NoError(t, settings.ValidateSupportedEndpointTypes())
+	assert.Equal(
+		t,
+		[]constant.EndpointType{constant.EndpointTypeOpenAIVoice},
+		settings.EndpointTypeOverride(),
+	)
+}
+
+func TestChannelEndpointTypeOverrideRejectsUnknownType(t *testing.T) {
+	settings := &ChannelOtherSettings{
+		SupportedEndpointTypes: []constant.EndpointType{"unknown-endpoint"},
+	}
+
+	require.ErrorContains(
+		t,
+		settings.ValidateSupportedEndpointTypes(),
+		"unsupported endpoint type",
+	)
+	assert.Empty(t, settings.EndpointTypeOverride())
+}

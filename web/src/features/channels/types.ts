@@ -110,6 +110,18 @@ export interface ChannelOtherSettings {
   volcengine_service_mode?: 'ark' | 'speech_voice_v3'
   volcengine_resource_id?: string
   volcengine_voice?: string
+  supported_endpoint_types?: Array<
+    | 'openai'
+    | 'openai-response'
+    | 'openai-response-compact'
+    | 'anthropic'
+    | 'gemini'
+    | 'jina-rerank'
+    | 'image-generation'
+    | 'embeddings'
+    | 'openai-voice'
+    | 'openai-video'
+  >
 }
 
 export interface AdvancedCustomConfig {

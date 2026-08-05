@@ -989,6 +989,9 @@ func (channel *Channel) ValidateSettings() error {
 			return err
 		}
 	}
+	if err := channelOtherSettings.ValidateSupportedEndpointTypes(); err != nil {
+		return err
+	}
 	if channel.Type == constant.ChannelTypeVolcEngine {
 		if err := channelOtherSettings.ValidateVolcengineArk(); err != nil {
 			return err

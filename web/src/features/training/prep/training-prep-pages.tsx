@@ -110,9 +110,7 @@ const DEFENSE_SCENARIOS: Array<{
 function useLocalize(): Localize {
   const { i18n, t } = useTranslation()
   return (english, chinese) =>
-    t(english, {
-      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
-    })
+    i18n.language.startsWith('zh') ? chinese : t(english)
 }
 
 function PrepPageFrame({

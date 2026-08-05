@@ -26,7 +26,7 @@ interface TalkWiseResponse<T> {
   data: T | null
 }
 
-interface TrainingSessionDTO {
+export interface TrainingSessionDTO {
   session_id: string
   task_config: {
     role: string
@@ -47,7 +47,12 @@ interface TrainingSessionDTO {
 
 export type TrainingConversationSession = {
   readonly id: string
-  readonly conversationId: string
+  readonly conversationId: string | null
+  readonly roomId: string | null
+  readonly mode: TrainingSessionDTO['mode']
+  readonly feedbackMode: 'assisted' | 'drill' | 'simulation'
+  readonly realtimeProfile: 'cascade' | 'speech_to_speech'
+  readonly realtimeProvider: string | null
   readonly title: string
   readonly description: string
   readonly difficulty: string
@@ -72,6 +77,22 @@ function apiBase(value: string): string {
 
 function asText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function metadataFeedbackMode(
+  metadata: Record<string, unknown> | null | undefined
+): TrainingConversationSession['feedbackMode'] {
+  const value = asText(metadata?.feedbackMode)
+  if (value === 'assisted' || value === 'drill') return value
+  return 'simulation'
+}
+
+function metadataRealtimeProfile(
+  metadata: Record<string, unknown> | null | undefined
+): TrainingConversationSession['realtimeProfile'] {
+  return asText(metadata?.realtimeProfile) === 'speech_to_speech'
+    ? 'speech_to_speech'
+    : 'cascade'
 }
 
 function conversationIdForSession(session: TrainingSessionDTO): string | null {
@@ -113,20 +134,27 @@ function toTrainingConversationSession(
   session: TrainingSessionDTO
 ): TrainingConversationSession | null {
   const metadata = session.task_config.metadata
-  if (
-    session.mode !== 'text' ||
-    metadata?.runtime !== 'conversation_message_tree' ||
+  const isMessageTreeSession =
+    session.mode === 'text' && metadata?.runtime === 'conversation_message_tree'
+  const conversationId = isMessageTreeSession
+    ? conversationIdForSession(session)
+    : null
+  const roomId =
+    session.mode === 'text' ||
     session.room_id === null ||
     session.room_id === undefined
-  ) {
-    return null
-  }
-  const conversationId = conversationIdForSession(session)
-  if (!conversationId) return null
+      ? null
+      : asText(String(session.room_id))
+  if (!conversationId && !roomId) return null
 
   return {
     id: session.session_id,
     conversationId,
+    roomId,
+    mode: session.mode,
+    feedbackMode: metadataFeedbackMode(metadata),
+    realtimeProfile: metadataRealtimeProfile(metadata),
+    realtimeProvider: asText(metadata?.realtimeProvider),
     title: scenarioTitle(session),
     description: session.task_config.role || session.task_config.category,
     difficulty: session.task_config.difficulty,
@@ -142,6 +170,15 @@ function toTrainingConversationSession(
   }
 }
 
+export function normalizeTrainingConversationSessions(
+  value: unknown
+): TrainingConversationSession[] {
+  if (!Array.isArray(value)) return []
+  return (value as TrainingSessionDTO[])
+    .map(toTrainingConversationSession)
+    .filter((item): item is TrainingConversationSession => item !== null)
+}
+
 export async function listTrainingConversationSessions(
   trainingApiBase: string
 ): Promise<TrainingConversationSession[]> {
@@ -149,9 +186,7 @@ export async function listTrainingConversationSessions(
     `${apiBase(trainingApiBase)}/sessions?limit=100`,
     { skipBusinessError: true, skipErrorHandler: true }
   )
-  return requireData(response.data)
-    .map(toTrainingConversationSession)
-    .filter((item): item is TrainingConversationSession => item !== null)
+  return normalizeTrainingConversationSessions(requireData(response.data))
 }
 
 export async function deleteTrainingConversationSession(

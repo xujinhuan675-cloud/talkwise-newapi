@@ -258,6 +258,7 @@ export function buildTrainingSessionRequest(
   )
   const category =
     scenario.category === 'customer_service' ? 'workplace' : scenario.category
+  const interactionMode = mode === 'realtime' ? 'realtime' : 'turn_based'
 
   return {
     mode,
@@ -288,7 +289,13 @@ export function buildTrainingSessionRequest(
         feedbackMode: 'simulation',
         trainingFeedbackMode: 'simulation',
         trainingMode: mode,
-        interactionMode: 'turn_based',
+        interactionMode,
+        ...(mode === 'realtime'
+          ? {
+              realtimeProfile: 'cascade',
+              latencyProfile: 'near_realtime',
+            }
+          : {}),
         trainingPlan: trainingPlanMetadata(plan),
         scenario_training: {
           id: scenario.id,
@@ -304,7 +311,7 @@ export function buildTrainingSessionRequest(
           dimension_weights: scenario.dimensionWeights,
           feedbackMode: 'simulation',
           trainingMode: mode,
-          interactionMode: 'turn_based',
+          interactionMode,
         },
       },
     },

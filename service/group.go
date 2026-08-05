@@ -72,6 +72,14 @@ func GetGroupsEnabledModels(groups []string) []string {
 	return models
 }
 
+func endpointTypesForAbility(ability model.AbilityWithChannel) []constant.EndpointType {
+	endpointTypes := ability.GetEndpointTypeOverride()
+	if len(endpointTypes) > 0 {
+		return endpointTypes
+	}
+	return common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model)
+}
+
 func GetGroupsEnabledModelsForEndpoint(groups []string, endpointType constant.EndpointType) ([]string, error) {
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
@@ -84,7 +92,7 @@ func GetGroupsEnabledModelsForEndpoint(groups []string, endpointType constant.En
 			if _, ok := seen[ability.Model]; ok {
 				continue
 			}
-			if !slices.Contains(common.GetEndpointTypesByChannelType(ability.ChannelType, ability.Model), endpointType) {
+			if !slices.Contains(endpointTypesForAbility(ability), endpointType) {
 				continue
 			}
 			seen[ability.Model] = struct{}{}

@@ -151,6 +151,27 @@ describe('training scenario contract', () => {
     )
   })
 
+  test('marks realtime scenario sessions for the shared realtime room adapter', () => {
+    const request = buildTrainingSessionRequest(
+      toTrainingScenario(template),
+      'realtime'
+    )
+
+    assert.equal(request.mode, 'realtime')
+    assert.equal(request.task_config.metadata.trainingMode, 'realtime')
+    assert.equal(request.task_config.metadata.interactionMode, 'realtime')
+    assert.equal(request.task_config.metadata.realtimeProfile, 'cascade')
+    assert.equal(request.task_config.metadata.latencyProfile, 'near_realtime')
+    assert.equal(
+      (
+        request.task_config.metadata.scenario_training as {
+          interactionMode: string
+        }
+      ).interactionMode,
+      'realtime'
+    )
+  })
+
   test('uses the same persisted scenario opening for text training', () => {
     const request = buildScenarioStartRequest(
       toTrainingScenario(template),

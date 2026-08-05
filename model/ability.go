@@ -27,13 +27,25 @@ type Ability struct {
 
 type AbilityWithChannel struct {
 	Ability
-	ChannelType int `json:"channel_type"`
+	ChannelType     int    `json:"channel_type"`
+	ChannelSettings string `json:"-" gorm:"column:channel_settings"`
+}
+
+func (ability AbilityWithChannel) GetEndpointTypeOverride() []constant.EndpointType {
+	if strings.TrimSpace(ability.ChannelSettings) == "" {
+		return nil
+	}
+	settings := dto.ChannelOtherSettings{}
+	if err := common.UnmarshalJsonStr(ability.ChannelSettings, &settings); err != nil {
+		return nil
+	}
+	return settings.EndpointTypeOverride()
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
-		Select("abilities.*, channels.type as channel_type").
+		Select("abilities.*, channels.type as channel_type, channels.settings as channel_settings").
 		Joins("left join channels on abilities.channel_id = channels.id").
 		Where("abilities.enabled = ?", true).
 		Scan(&abilities).Error
@@ -43,7 +55,7 @@ func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {
 func GetGroupEnabledAbilityWithChannels(group string) ([]AbilityWithChannel, error) {
 	var abilities []AbilityWithChannel
 	err := DB.Table("abilities").
-		Select("abilities.*, channels.type as channel_type").
+		Select("abilities.*, channels.type as channel_type, channels.settings as channel_settings").
 		Joins("join channels on abilities.channel_id = channels.id").
 		Where("abilities."+commonGroupCol+" = ? and abilities.enabled = ? and channels.status = ?", group, true, common.ChannelStatusEnabled).
 		Order("abilities.model asc, abilities.channel_id asc").

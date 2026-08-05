@@ -26,6 +26,7 @@ import {
   MessagesSquare,
   Mic,
   Play,
+  Radio,
   RefreshCw,
   Search,
   Video,
@@ -126,6 +127,7 @@ const SESSION_MODES: Array<{
 }> = [
   { icon: MessageSquare, value: 'text' },
   { icon: Mic, value: 'voice' },
+  { icon: Radio, value: 'realtime' },
   { icon: Video, value: 'video' },
 ]
 const SKELETON_ROWS = Array.from(
@@ -423,9 +425,7 @@ export function TrainingScenarios() {
     defaultMode: 'table',
   })
   const localize = (english: string, chinese: string) =>
-    t(english, {
-      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
-    })
+    i18n.language.startsWith('zh') ? chinese : t(english)
 
   const scenariosQuery = useQuery({
     queryKey: ['training', 'scenarios', host.apiBase],
@@ -459,15 +459,8 @@ export function TrainingScenarios() {
     onSuccess: (session) => {
       setRetrySessionId(null)
       setSelectedScenario(null)
-      if (session.mode === 'text') {
-        void navigate({
-          to: '/training/conversations',
-          search: { session: session.sessionId },
-        })
-        return
-      }
       void navigate({
-        to: '/training/studio',
+        to: '/training/conversations',
         search: { session: session.sessionId },
       })
     },
@@ -526,7 +519,24 @@ export function TrainingScenarios() {
     const labels = {
       text: localize('Text', '文本'),
       voice: localize('Voice', '语音'),
+      realtime: localize('Realtime voice', '实时语音'),
       video: localize('Video', '视频'),
+    }
+    return labels[value]
+  }
+  const pressureLabel = (value: TrainingPressure) => {
+    const labels = {
+      easy: localize('Supportive', '温和'),
+      medium: localize('Realistic', '真实'),
+      hard: localize('Pressured', '高压'),
+    }
+    return labels[value]
+  }
+  const lengthProfileLabel = (value: TrainingLengthProfile) => {
+    const labels = {
+      quick: localize('Quick · 6 turns', '快速 · 6 轮'),
+      standard: localize('Standard · 9 turns', '标准 · 9 轮'),
+      complete: localize('Complete · 12 turns', '完整 · 12 轮'),
     }
     return labels[value]
   }
@@ -771,6 +781,31 @@ export function TrainingScenarios() {
                 {selectedScenario.trainingPoints.length > 0 && (
                   <div className='space-y-2'>
                     <Label>{localize('Training focus', '训练重点')}</Label>
+                    <div className='flex flex-wrap gap-1.5'>
+                      {selectedScenario.trainingPoints.map((point) => {
+                        const selected = selectedFocus.includes(point)
+                        return (
+                          <Button
+                            aria-pressed={selected}
+                            className='h-auto px-2 py-1 text-xs whitespace-normal'
+                            disabled={createSessionMutation.isPending}
+                            key={point}
+                            onClick={() => {
+                              setFocusScope('custom')
+                              setSelectedFocus((current) =>
+                                current.includes(point)
+                                  ? current.filter((item) => item !== point)
+                                  : [...current, point]
+                              )
+                            }}
+                            size='sm'
+                            variant='outline'
+                          >
+                            {point}
+                          </Button>
+                        )
+                      })}
+                    </div>
                     <ToggleGroup
                       aria-label={localize(
                         'Training focus scope',
@@ -806,31 +841,6 @@ export function TrainingScenarios() {
                         {localize('Custom', '自选')}
                       </ToggleGroupItem>
                     </ToggleGroup>
-                    <div className='flex flex-wrap gap-1.5'>
-                      {selectedScenario.trainingPoints.map((point) => (
-                        <Button
-                          className='h-auto px-2 py-1 text-xs whitespace-normal'
-                          disabled={createSessionMutation.isPending}
-                          key={point}
-                          onClick={() => {
-                            setFocusScope('custom')
-                            setSelectedFocus((current) =>
-                              current.includes(point)
-                                ? current.filter((item) => item !== point)
-                                : [...current, point]
-                            )
-                          }}
-                          size='sm'
-                          variant={
-                            selectedFocus.includes(point)
-                              ? 'secondary'
-                              : 'outline'
-                          }
-                        >
-                          {point}
-                        </Button>
-                      ))}
-                    </div>
                   </div>
                 )}
 
@@ -847,17 +857,17 @@ export function TrainingScenarios() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>{pressureLabel(pressure)}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value='easy'>
-                          {localize('Supportive', '温和')}
+                          {pressureLabel('easy')}
                         </SelectItem>
                         <SelectItem value='medium'>
-                          {localize('Realistic', '真实')}
+                          {pressureLabel('medium')}
                         </SelectItem>
                         <SelectItem value='hard'>
-                          {localize('Pressured', '高压')}
+                          {pressureLabel('hard')}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -873,17 +883,19 @@ export function TrainingScenarios() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>
+                          {lengthProfileLabel(lengthProfile)}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value='quick'>
-                          {localize('Quick · 6 turns', '快速 · 6 轮')}
+                          {lengthProfileLabel('quick')}
                         </SelectItem>
                         <SelectItem value='standard'>
-                          {localize('Standard · 9 turns', '标准 · 9 轮')}
+                          {lengthProfileLabel('standard')}
                         </SelectItem>
                         <SelectItem value='complete'>
-                          {localize('Complete · 12 turns', '完整 · 12 轮')}
+                          {lengthProfileLabel('complete')}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -899,7 +911,7 @@ export function TrainingScenarios() {
                       if (nextMode) setMode(nextMode as TrainingSessionMode)
                     }}
                     variant='outline'
-                    className='grid w-full grid-cols-3'
+                    className='grid w-full grid-cols-2 sm:grid-cols-4'
                     disabled={createSessionMutation.isPending}
                     aria-label={localize('Training mode', '训练模式')}
                   >

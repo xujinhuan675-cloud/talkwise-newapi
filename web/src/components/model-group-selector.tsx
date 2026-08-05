@@ -663,7 +663,7 @@ export const ModelGroupSelector: React.FC<ModelGroupSelectorProps> = ({
       aria-expanded={open}
       className={cn(
         'h-8 max-w-[15rem] justify-start gap-2 border px-2.5 font-medium shadow-none',
-        'bg-background/80 hover:bg-accent/70 text-foreground',
+        'border-border bg-background text-foreground hover:bg-accent',
         'focus:!ring-0 focus:!outline-none',
         className
       )}
@@ -672,14 +672,14 @@ export const ModelGroupSelector: React.FC<ModelGroupSelectorProps> = ({
       size='sm'
       variant='outline'
     >
-      <CpuIcon className='text-muted-foreground size-4 shrink-0' />
+      <CpuIcon className='text-foreground/70 size-4 shrink-0' />
       <span className='min-w-0 truncate text-xs'>
         {currentModel?.label || t('Model')}
       </span>
-      <span className='bg-muted text-muted-foreground hidden max-w-20 shrink-0 rounded px-1.5 py-0.5 text-[10px] sm:inline-flex'>
+      <span className='bg-secondary text-secondary-foreground hidden max-w-20 shrink-0 rounded px-1.5 py-0.5 text-[10px] sm:inline-flex'>
         {currentGroup?.label || t('Group')}
       </span>
-      <ChevronsUpDown className='text-muted-foreground ml-auto size-3.5 shrink-0 opacity-60' />
+      <ChevronsUpDown className='text-foreground/70 ml-auto size-3.5 shrink-0' />
     </Button>
   )
 

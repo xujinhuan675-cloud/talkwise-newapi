@@ -16,18 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CircleAlert,
-  CircleCheck,
-  LoaderCircle,
-  Mic,
-  Square,
-} from 'lucide-react'
+import { LoaderCircle, Mic, Square } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -68,19 +61,6 @@ function isMissingDeviceError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotFoundError'
 }
 
-function statusVariant(
-  status: TurnBasedVoiceStatus
-): 'destructive' | 'outline' | 'secondary' {
-  if (status === 'error') return 'destructive'
-  if (status === 'idle' || status === 'persisted') return 'outline'
-  return 'secondary'
-}
-
-function formatDuration(seconds: number): string {
-  const minutes = Math.floor(seconds / 60)
-  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`
-}
-
 export function TurnBasedVoicePanel({
   apiBase,
   disabled = false,
@@ -94,14 +74,11 @@ export function TurnBasedVoicePanel({
   const streamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const requestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
   const intentionalCloseRef = useRef(false)
   const transcriptRef = useRef('')
   const [status, setStatus] = useState<TurnBasedVoiceStatus>('idle')
-  const [duration, setDuration] = useState(0)
-  const [transcript, setTranscript] = useState('')
   const [error, setError] = useState<string | null>(null)
   const localize = useCallback(
     (english: string, chinese: string) =>
@@ -112,9 +89,7 @@ export function TurnBasedVoicePanel({
   )
 
   const clearTimers = useCallback(() => {
-    if (durationTimerRef.current) clearInterval(durationTimerRef.current)
     if (requestTimerRef.current) clearTimeout(requestTimerRef.current)
-    durationTimerRef.current = null
     requestTimerRef.current = null
   }, [])
 
@@ -159,7 +134,6 @@ export function TurnBasedVoicePanel({
       releaseRuntime()
       setError(message)
       setStatus('error')
-      setDuration(0)
     },
     [releaseRuntime]
   )
@@ -217,7 +191,6 @@ export function TurnBasedVoicePanel({
           return
         }
         transcriptRef.current = nextTranscript
-        setTranscript(nextTranscript)
         return
       }
 
@@ -226,12 +199,10 @@ export function TurnBasedVoicePanel({
       const confirmedText = persisted.content || transcriptRef.current
       if (confirmedText) {
         transcriptRef.current = confirmedText
-        setTranscript(confirmedText)
       }
       generationRef.current += 1
       releaseRuntime(false)
       setError(null)
-      setDuration(0)
       setStatus('persisted')
       onMessagePersisted?.(persisted)
     },
@@ -243,9 +214,7 @@ export function TurnBasedVoicePanel({
     releaseRuntime()
     intentionalCloseRef.current = false
     transcriptRef.current = ''
-    setTranscript('')
     setError(null)
-    setDuration(0)
     setStatus('requesting_permission')
     const generation = generationRef.current + 1
     generationRef.current = generation
@@ -385,10 +354,6 @@ export function TurnBasedVoicePanel({
           return
         }
         setStatus('recording')
-        durationTimerRef.current = setInterval(
-          () => setDuration((current) => current + 1),
-          1000
-        )
       })
       socket.addEventListener('message', (message) => {
         if (
@@ -496,9 +461,7 @@ export function TurnBasedVoicePanel({
     generationRef.current += 1
     releaseRuntime()
     transcriptRef.current = ''
-    setTranscript('')
     setError(null)
-    setDuration(0)
     setStatus('idle')
   }, [releaseRuntime, roomId, sessionId])
 
@@ -527,70 +490,37 @@ export function TurnBasedVoicePanel({
     actionLabel = localize('Record another', '\u518d\u5f55\u4e00\u6b21')
   }
 
+  useEffect(() => {
+    if (!error) return
+    toast.error(
+      localize(
+        'Microphone unavailable',
+        '\u9ea6\u514b\u98ce\u4e0d\u53ef\u7528'
+      ),
+      {
+        description: error,
+      }
+    )
+  }, [error, localize])
+
   return (
-    <section className='border-border border-t pt-4' aria-live='polite'>
-      <div className='flex flex-wrap items-center justify-between gap-3'>
-        <div className='min-w-0'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <h2 className='text-sm font-semibold'>
-              {localize('Voice turn', '\u8bed\u97f3\u56de\u5408')}
-            </h2>
-            <Badge variant={statusVariant(status)}>
-              {statusLabels[status]}
-            </Badge>
-            {status === 'recording' && (
-              <Badge variant='outline' className='tabular-nums'>
-                {formatDuration(duration)}
-              </Badge>
-            )}
-          </div>
-          <p className='text-muted-foreground mt-1 min-h-4 text-xs'>
-            {transcript ||
-              localize(
-                'No saved voice turn yet',
-                '\u5c1a\u65e0\u5df2\u5199\u5165\u7684\u8bed\u97f3\u56de\u5408'
-              )}
-          </p>
-        </div>
-        <Button
-          type='button'
-          size='sm'
-          variant={status === 'recording' ? 'destructive' : 'default'}
-          onClick={status === 'recording' ? stopRecording : startRecording}
-          disabled={
-            busy || ((disabled || !accessToken) && status !== 'recording')
-          }
-        >
-          {actionIcon}
-          {actionLabel}
-        </Button>
-      </div>
-
-      {error && (
-        <Alert variant='destructive' className='mt-3'>
-          <CircleAlert />
-          <AlertTitle>
-            {localize(
-              'Voice turn unavailable',
-              '\u8bed\u97f3\u56de\u5408\u4e0d\u53ef\u7528'
-            )}
-          </AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+    <Button
+      aria-label={localize(
+        `${actionLabel} microphone`,
+        `${actionLabel}\u9ea6\u514b\u98ce`
       )}
-
-      {status === 'persisted' && transcript && (
-        <Alert className='mt-3'>
-          <CircleCheck />
-          <AlertTitle>
-            {localize(
-              'Voice turn saved',
-              '\u8bed\u97f3\u56de\u5408\u5df2\u5199\u5165'
-            )}
-          </AlertTitle>
-          <AlertDescription>{transcript}</AlertDescription>
-        </Alert>
-      )}
-    </section>
+      aria-pressed={status === 'recording'}
+      disabled={busy || ((disabled || !accessToken) && status !== 'recording')}
+      size='icon-sm'
+      title={error || statusLabels[status]}
+      type='button'
+      variant={
+        status === 'error' || status === 'recording' ? 'destructive' : 'ghost'
+      }
+      onClick={status === 'recording' ? stopRecording : startRecording}
+    >
+      {actionIcon}
+      <span className='sr-only'>{actionLabel}</span>
+    </Button>
   )
 }

@@ -55,6 +55,26 @@ export interface TrainingRoomAudioChunk {
   sentenceIndex: number | null
 }
 
+export interface TrainingRoomMessageInput {
+  content: string
+  metadata?: Record<string, unknown>
+}
+
+export type TrainingRoomCompletionReportStatus =
+  | 'failed'
+  | 'pending'
+  | 'ready'
+  | 'skipped'
+
+export interface TrainingRoomCompletionResult {
+  readonly sessionId: string
+  readonly status: 'completed'
+  readonly reportId: string | null
+  readonly reportStatus: TrainingRoomCompletionReportStatus
+  readonly reportError: string | null
+  readonly metadata: Readonly<Record<string, unknown>>
+}
+
 interface TalkWiseResponse<T> {
   code: number
   data: T | null
@@ -75,6 +95,14 @@ function textValue(value: unknown): string | null {
 
 function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function completionReportMetadata(
+  metadata: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> {
+  return (
+    recordValue(metadata.completionReport ?? metadata.completion_report) ?? {}
+  )
 }
 
 function senderType(value: unknown): TrainingRoomSender {
@@ -170,6 +198,56 @@ export function normalizeTrainingRoomMessages(
   })
 }
 
+export function normalizeTrainingRoomCompletionResult(
+  value: unknown,
+  expectedSessionId: string,
+  generateReport: boolean
+): TrainingRoomCompletionResult | null {
+  const envelope = recordValue(value)
+  const session = recordValue(envelope?.data) ?? envelope
+  const normalizedSessionId = expectedSessionId.trim()
+  const returnedSessionId = textValue(session?.session_id)
+  const status = textValue(session?.status)?.toLowerCase()
+  if (
+    !normalizedSessionId ||
+    returnedSessionId !== normalizedSessionId ||
+    status !== 'completed'
+  ) {
+    return null
+  }
+
+  const taskConfig = recordValue(session?.task_config)
+  const metadata = recordValue(taskConfig?.metadata) ?? {}
+  const completion = completionReportMetadata(metadata)
+  const reportId =
+    textValue(session?.report_id) ??
+    textValue(completion.reportId ?? completion.report_id)
+  const reportedStatus = textValue(completion.status)?.toLowerCase()
+  let reportStatus: TrainingRoomCompletionReportStatus
+  if (reportId) {
+    reportStatus = 'ready'
+  } else if (
+    reportedStatus === 'pending' ||
+    reportedStatus === 'failed' ||
+    reportedStatus === 'skipped'
+  ) {
+    reportStatus = reportedStatus
+  } else {
+    reportStatus = generateReport ? 'pending' : 'skipped'
+  }
+
+  return {
+    sessionId: normalizedSessionId,
+    status: 'completed',
+    reportId,
+    reportStatus,
+    reportError: textValue(
+      completion.message ?? completion.error ?? completion.error_message
+    ),
+    metadata,
+  }
+}
+
 export function parseTrainingRoomSse(source: string): {
   events: TrainingRoomEvent[]
   remainder: string
@@ -240,6 +318,76 @@ export async function loadTrainingRoomMessages(
     }
   )
   return normalizeTrainingRoomMessages(response.data)
+}
+
+export async function sendTrainingRoomMessage(
+  roomId: string,
+  sessionId: string,
+  input: TrainingRoomMessageInput
+): Promise<TrainingRoomMessage> {
+  const content = input.content.trim()
+  if (!content) throw new Error('A training room message cannot be empty.')
+  const response = await api.post<TalkWiseResponse<unknown>>(
+    trainingRoomPath(roomId, sessionId).replace(/\?/, '/messages?'),
+    {
+      content,
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+    },
+    {
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  const messages = normalizeTrainingRoomMessages({
+    data: { messages: [response.data.data] },
+  })
+  const message = messages[0]
+  if (!message) {
+    throw new Error(
+      response.data.message || 'Training room message was not saved.'
+    )
+  }
+  return message
+}
+
+export async function completeTrainingRoomSession(
+  trainingApiBase: string,
+  sessionId: string,
+  generateReport: boolean,
+  signal?: AbortSignal
+): Promise<TrainingRoomCompletionResult> {
+  const normalizedApiBase = trainingApiBase.replace(/\/+$/, '')
+  const normalizedSessionId = sessionId.trim()
+  if (!normalizedApiBase || !normalizedSessionId) {
+    throw new Error('A training API base and session id are required.')
+  }
+
+  const response = await api.post<TalkWiseResponse<unknown>>(
+    `${normalizedApiBase}/sessions/${encodeURIComponent(normalizedSessionId)}/complete`,
+    {
+      generate_report: generateReport,
+      report_generation: 'sync',
+    },
+    {
+      signal,
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  const result = normalizeTrainingRoomCompletionResult(
+    response.data,
+    normalizedSessionId,
+    generateReport
+  )
+  if (!result) {
+    throw new Error(
+      response.data.message ||
+        'Unable to finish training session: response did not confirm completion.'
+    )
+  }
+  return result
 }
 
 export async function streamTrainingRoomEvents(
