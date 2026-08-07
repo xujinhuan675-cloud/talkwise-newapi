@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   AlertCircle,
+  Activity,
   BookOpen,
   CheckCircle2,
   CircleHelp,
@@ -30,10 +31,24 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from 'recharts'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 import {
   Empty,
   EmptyDescription,
@@ -53,6 +68,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
+import {
+  trainingDifficultyDisplayLabel,
+  trainingRoleDisplayLabel,
+  trainingSessionStatusDisplayLabel,
+} from '../training-display-labels'
 import {
   loadTrainingConversationGuidanceHistory,
   loadTrainingConversationReportSummary,
@@ -203,26 +223,112 @@ function guidanceTimestamp(value: string | null): string | null {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
-function statusLabel(
-  status: string | undefined,
-  localize: (e: string, c: string) => string
-): string {
-  if (status === 'active') return localize('Active', '进行中')
-  if (status === 'completed') return localize('Completed', '已完成')
-  if (status === 'failed') return localize('Failed', '失败')
-  return localize('Created', '已创建')
+function EmotionTrend({
+  localize,
+  messages,
+}: {
+  readonly localize: (english: string, chinese: string) => string
+  readonly messages: readonly TrainingConversationMessage[]
+}) {
+  const points = useMemo(
+    () =>
+      messages.flatMap((message, index) => {
+        const score = message.emotionScore
+        if (message.role !== 'assistant' || score == null) return []
+        return [
+          {
+            score,
+            turn: index + 1,
+          },
+        ]
+      }),
+    [messages]
+  )
+
+  return (
+    <section className='space-y-3 border-b pb-4'>
+      <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase'>
+        <Activity className='size-3.5' />
+        {localize('Emotion trend', '情绪趋势')}
+      </div>
+      {points.length === 0 ? (
+        <p className='text-muted-foreground text-sm'>
+          {localize(
+            'Emotion data will appear after the counterpart replies.',
+            '对方回复后，这里会显示真实情绪数据。'
+          )}
+        </p>
+      ) : (
+        <ChartContainer
+          className='aspect-auto h-48 w-full'
+          config={
+            {
+              score: {
+                color: 'var(--chart-1)',
+                label: localize('Emotion', '情绪'),
+              },
+            } satisfies ChartConfig
+          }
+        >
+          <LineChart
+            data={points}
+            margin={{ top: 8, right: 12, bottom: 8, left: 8 }}
+          >
+            <CartesianGrid vertical={false} />
+            <ReferenceLine y={0} stroke='var(--border)' strokeDasharray='4 4' />
+            <XAxis
+              dataKey='turn'
+              height={30}
+              label={{
+                value: localize('Reply', '回复'),
+                position: 'insideBottom',
+                offset: -4,
+              }}
+              tickLine
+              tickMargin={6}
+            />
+            <YAxis
+              domain={[-5, 5]}
+              label={{
+                value: localize('Emotion', '情绪'),
+                angle: -90,
+                position: 'insideLeft',
+                offset: 8,
+              }}
+              tickLine
+              ticks={[-5, 0, 5]}
+              tickMargin={4}
+              width={42}
+            />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent labelFormatter={(value) => `#${value}`} />
+              }
+            />
+            <Line
+              dataKey='score'
+              dot={{ r: 3 }}
+              isAnimationActive={false}
+              name={localize('Emotion', '情绪')}
+              stroke='var(--color-score)'
+              strokeWidth={2}
+              type='monotone'
+            />
+          </LineChart>
+        </ChartContainer>
+      )}
+    </section>
+  )
 }
 
 function ContextTab({
-  messages,
   session,
-  runtime,
   localize,
+  language,
 }: {
-  readonly messages: readonly TrainingConversationMessage[]
   readonly session: TrainingConversationSessionContext
-  readonly runtime: TrainingInsightsRuntime
   readonly localize: (english: string, chinese: string) => string
+  readonly language: string
 }) {
   const scenario = useMemo(
     () => scenarioMetadata(session.metadata),
@@ -233,7 +339,6 @@ function ContextTab({
     [session.metadata]
   )
   const completionStatus = textValue(completion?.status)
-  const visibleMessages = messages.filter((message) => message.content.trim())
   const title = session.title || scenario.title
   const description = session.description || scenario.description
   const hasDetails = Boolean(
@@ -277,11 +382,13 @@ function ContextTab({
       <div className='space-y-5 p-4'>
         <div className='flex flex-wrap items-center gap-2'>
           {session.difficulty && (
-            <Badge variant='outline'>{session.difficulty}</Badge>
+            <Badge variant='outline'>
+              {trainingDifficultyDisplayLabel(session.difficulty, language)}
+            </Badge>
           )}
           {session.status && (
             <Badge variant='secondary'>
-              {statusLabel(session.status, localize)}
+              {trainingSessionStatusDisplayLabel(session.status, language)}
             </Badge>
           )}
         </div>
@@ -308,7 +415,7 @@ function ContextTab({
             )}
             {scenario.personaRole && (
               <p className='text-muted-foreground text-sm'>
-                {scenario.personaRole}
+                {trainingRoleDisplayLabel(scenario.personaRole, language)}
               </p>
             )}
             {scenario.personaStyle && (
@@ -342,25 +449,6 @@ function ContextTab({
             </ul>
           </section>
         )}
-
-        <section className='space-y-2'>
-          <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase'>
-            <MessageSquareText className='size-3.5' />
-            {runtime === 'legacy_room'
-              ? localize('Training turns', '训练回合')
-              : localize('Selected path', '当前路径')}
-          </div>
-          <p className='text-sm'>
-            {localize(
-              runtime === 'legacy_room'
-                ? `${visibleMessages.length} training turn${visibleMessages.length === 1 ? '' : 's'}`
-                : `${visibleMessages.length} message${visibleMessages.length === 1 ? '' : 's'} in this path`,
-              runtime === 'legacy_room'
-                ? `当前训练回合包含 ${visibleMessages.length} 条消息`
-                : `当前路径包含 ${visibleMessages.length} 条消息`
-            )}
-          </p>
-        </section>
 
         {completionStatus && completionStatus !== 'ready' && (
           <Alert>
@@ -725,7 +813,7 @@ function GuidanceTab({
   )
 }
 
-function AnalysisTab({
+function AnalysisReport({
   session,
   trainingApiBase,
   localize,
@@ -778,7 +866,7 @@ function AnalysisTab({
   if (!reportId) {
     if (completionStatus === 'failed') {
       return (
-        <div className='p-4'>
+        <div>
           <Alert variant='destructive'>
             <AlertCircle />
             <AlertTitle>
@@ -826,97 +914,117 @@ function AnalysisTab({
   }
 
   return (
+    <div className='space-y-4'>
+      {error && (
+        <Alert variant='destructive'>
+          <AlertCircle />
+          <AlertTitle>
+            {localize('Report unavailable', '复盘报告不可用')}
+          </AlertTitle>
+          <AlertDescription className='space-y-2'>
+            <p>{error}</p>
+            <Button
+              disabled={pending}
+              size='sm'
+              variant='outline'
+              onClick={loadReport}
+            >
+              <RefreshCw />
+              {localize('Try again', '重试')}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {pending && !report && (
+        <div className='space-y-3'>
+          <Skeleton className='h-5 w-1/2' />
+          <Skeleton className='h-24 w-full' />
+        </div>
+      )}
+      {!pending && report && (
+        <>
+          <section className='space-y-2 border-b pb-4'>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <h3 className='font-medium'>
+                {localize('Analysis summary', '分析摘要')}
+              </h3>
+              {report.createdAt && (
+                <span className='text-muted-foreground text-xs'>
+                  {new Date(report.createdAt).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {report.summary ? (
+              <p className='text-sm leading-6'>{report.summary}</p>
+            ) : (
+              <p className='text-muted-foreground text-sm'>
+                {localize(
+                  'The report has no summary text.',
+                  '报告没有摘要正文。'
+                )}
+              </p>
+            )}
+          </section>
+          {report.suggestions.length > 0 ? (
+            <section className='space-y-3'>
+              <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase'>
+                <Lightbulb className='size-3.5' />
+                {localize('Communication suggestions', '沟通建议')}
+              </div>
+              {report.suggestions.map((suggestion) => (
+                <article
+                  key={`${suggestion.counterpart ?? ''}:${suggestion.priority ?? ''}:${suggestion.suggestion}`}
+                  className='space-y-1 border-b pb-3 last:border-b-0'
+                >
+                  <div className='flex flex-wrap items-center gap-2'>
+                    {suggestion.counterpart && (
+                      <span className='font-medium'>
+                        {suggestion.counterpart}
+                      </span>
+                    )}
+                    {suggestion.priority && (
+                      <Badge variant='outline'>{suggestion.priority}</Badge>
+                    )}
+                  </div>
+                  <p className='text-sm'>{suggestion.suggestion}</p>
+                </article>
+              ))}
+            </section>
+          ) : (
+            <Empty className='border-none py-8'>
+              <EmptyHeader>
+                <EmptyTitle>
+                  {localize('No structured suggestions', '没有结构化沟通建议')}
+                </EmptyTitle>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function AnalysisTab({
+  messages,
+  session,
+  trainingApiBase,
+  localize,
+}: {
+  readonly messages: readonly TrainingConversationMessage[]
+  readonly session: TrainingConversationSessionContext
+  readonly trainingApiBase: string
+  readonly localize: (english: string, chinese: string) => string
+}) {
+  return (
     <ScrollArea className='h-full'>
       <div className='space-y-4 p-4'>
-        {error && (
-          <Alert variant='destructive'>
-            <AlertCircle />
-            <AlertTitle>
-              {localize('Report unavailable', '复盘报告不可用')}
-            </AlertTitle>
-            <AlertDescription className='space-y-2'>
-              <p>{error}</p>
-              <Button
-                disabled={pending}
-                size='sm'
-                variant='outline'
-                onClick={loadReport}
-              >
-                <RefreshCw />
-                {localize('Try again', '重试')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-        {pending && !report && (
-          <div className='space-y-3'>
-            <Skeleton className='h-5 w-1/2' />
-            <Skeleton className='h-24 w-full' />
-          </div>
-        )}
-        {!pending && report && (
-          <>
-            <section className='space-y-2 border-b pb-4'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <h3 className='font-medium'>
-                  {localize('Analysis summary', '分析摘要')}
-                </h3>
-                {report.createdAt && (
-                  <span className='text-muted-foreground text-xs'>
-                    {new Date(report.createdAt).toLocaleString()}
-                  </span>
-                )}
-              </div>
-              {report.summary ? (
-                <p className='text-sm leading-6'>{report.summary}</p>
-              ) : (
-                <p className='text-muted-foreground text-sm'>
-                  {localize(
-                    'The report has no summary text.',
-                    '报告没有摘要正文。'
-                  )}
-                </p>
-              )}
-            </section>
-            {report.suggestions.length > 0 ? (
-              <section className='space-y-3'>
-                <div className='text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase'>
-                  <Lightbulb className='size-3.5' />
-                  {localize('Communication suggestions', '沟通建议')}
-                </div>
-                {report.suggestions.map((suggestion) => (
-                  <article
-                    key={`${suggestion.counterpart ?? ''}:${suggestion.priority ?? ''}:${suggestion.suggestion}`}
-                    className='space-y-1 border-b pb-3 last:border-b-0'
-                  >
-                    <div className='flex flex-wrap items-center gap-2'>
-                      {suggestion.counterpart && (
-                        <span className='font-medium'>
-                          {suggestion.counterpart}
-                        </span>
-                      )}
-                      {suggestion.priority && (
-                        <Badge variant='outline'>{suggestion.priority}</Badge>
-                      )}
-                    </div>
-                    <p className='text-sm'>{suggestion.suggestion}</p>
-                  </article>
-                ))}
-              </section>
-            ) : (
-              <Empty className='border-none py-8'>
-                <EmptyHeader>
-                  <EmptyTitle>
-                    {localize(
-                      'No structured suggestions',
-                      '没有结构化沟通建议'
-                    )}
-                  </EmptyTitle>
-                </EmptyHeader>
-              </Empty>
-            )}
-          </>
-        )}
+        <EmotionTrend localize={localize} messages={messages} />
+        <AnalysisReport
+          localize={localize}
+          session={session}
+          trainingApiBase={trainingApiBase}
+        />
       </div>
     </ScrollArea>
   )
@@ -1163,15 +1271,20 @@ export function TrainingConversationInsights({
           {localize('Analysis', '分析')}
         </TabsTrigger>
       </TabsList>
-      <TabsContent className='min-h-0' value='context'>
+      <TabsContent
+        className={tab === 'context' ? 'min-h-0' : 'hidden min-h-0'}
+        value='context'
+      >
         <ContextTab
+          language={i18n.resolvedLanguage ?? i18n.language}
           localize={localize}
-          messages={messages}
-          runtime={runtime}
           session={trainingSession}
         />
       </TabsContent>
-      <TabsContent className='min-h-0' value='guidance'>
+      <TabsContent
+        className={tab === 'guidance' ? 'min-h-0' : 'hidden min-h-0'}
+        value='guidance'
+      >
         <GuidanceTab
           autoRefreshEnabled={autoRefreshEnabled}
           error={guidanceError}
@@ -1190,10 +1303,14 @@ export function TrainingConversationInsights({
           onRetryHistory={() => void refreshGuidanceHistory()}
         />
       </TabsContent>
-      <TabsContent className='min-h-0' value='analysis'>
+      <TabsContent
+        className={tab === 'analysis' ? 'min-h-0' : 'hidden min-h-0'}
+        value='analysis'
+      >
         {(desktopExpanded || mobileOpen) && tab === 'analysis' && (
           <AnalysisTab
             localize={localize}
+            messages={messages}
             session={trainingSession}
             trainingApiBase={trainingApiBase}
           />

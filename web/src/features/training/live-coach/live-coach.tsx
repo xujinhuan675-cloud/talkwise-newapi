@@ -18,11 +18,9 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   CircleAlert,
-  CircleCheck,
   Headphones,
   LoaderCircle,
-  Mic,
-  Radio,
+  MessagesSquare,
   Send,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -58,15 +56,17 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
   buildLiveCoachSessionInput,
-  getRealtimeReadiness,
   launchTrainingSession,
   persistLiveGuidance,
   requestLiveGuidance,
   trainingStudioErrorMessage,
   type GuidanceSnapshot,
-  type RealtimeReadiness,
   type TrainingSession,
 } from '../studio/api'
+import {
+  CONVERSATION_ASSIST_COPY,
+  type ConversationAssistCopy,
+} from './product-copy'
 
 function severityVariant(
   severity: string
@@ -87,16 +87,16 @@ function LiveCoachContent() {
   const [speaker, setSpeaker] = useState<'user' | 'counterpart'>('user')
   const [session, setSession] = useState<TrainingSession | null>(null)
   const [guidance, setGuidance] = useState<GuidanceSnapshot | null>(null)
-  const [readiness, setReadiness] = useState<RealtimeReadiness | null>(null)
   const [isStarting, setIsStarting] = useState(false)
   const [isGuiding, setIsGuiding] = useState(false)
-  const [isCheckingReadiness, setIsCheckingReadiness] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const localize = (english: string, chinese: string) =>
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
     })
+  const localizeProductCopy = (copy: ConversationAssistCopy) =>
+    localize(copy.english, copy.chinese)
 
   const startCoach = async () => {
     setError(null)
@@ -115,31 +115,14 @@ function LiveCoachContent() {
       setError(
         trainingStudioErrorMessage(
           nextError,
-          localize('Failed to start live coaching.', '启动实时教练失败。')
-        )
-      )
-    } finally {
-      setIsStarting(false)
-    }
-  }
-
-  const checkReadiness = async () => {
-    setError(null)
-    setIsCheckingReadiness(true)
-    try {
-      setReadiness(await getRealtimeReadiness(apiBase))
-    } catch (nextError) {
-      setError(
-        trainingStudioErrorMessage(
-          nextError,
           localize(
-            'Failed to check realtime readiness.',
-            '检查实时链路就绪状态失败。'
+            'Failed to start in-conversation assistance.',
+            '启动临场辅助失败。'
           )
         )
       )
     } finally {
-      setIsCheckingReadiness(false)
+      setIsStarting(false)
     }
   }
 
@@ -164,7 +147,10 @@ function LiveCoachContent() {
       setError(
         trainingStudioErrorMessage(
           nextError,
-          localize('Failed to get live guidance.', '获取实时指导失败。')
+          localize(
+            'Failed to get in-conversation guidance.',
+            '获取临场建议失败。'
+          )
         )
       )
     } finally {
@@ -175,48 +161,20 @@ function LiveCoachContent() {
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>
-        {localize('Live coach', '实时教练')}
+        {localizeProductCopy(CONVERSATION_ASSIST_COPY.productName)}
       </SectionPageLayout.Title>
-      <SectionPageLayout.Actions>
-        <Button
-          variant='outline'
-          onClick={checkReadiness}
-          disabled={isCheckingReadiness}
-        >
-          {isCheckingReadiness ? (
-            <LoaderCircle className='animate-spin' />
-          ) : (
-            <Radio />
-          )}
-          {isCheckingReadiness
-            ? localize('Checking...', '检查中...')
-            : localize('Check runtime', '检查实时链路')}
-        </Button>
-      </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-5xl space-y-3'>
           {error && (
             <Alert variant='destructive'>
               <CircleAlert />
               <AlertTitle>
-                {localize('Live coach needs attention', '实时教练需要处理')}
+                {localize(
+                  'In-conversation assist needs attention',
+                  '临场辅助需要处理'
+                )}
               </AlertTitle>
               <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {readiness && (
-            <Alert variant={readiness.ready ? 'default' : 'destructive'}>
-              {readiness.ready ? <CircleCheck /> : <CircleAlert />}
-              <AlertTitle>
-                {readiness.ready
-                  ? localize('Realtime runtime ready', '实时运行时已就绪')
-                  : localize(
-                      'Realtime runtime unavailable',
-                      '实时运行时不可用'
-                    )}
-              </AlertTitle>
-              <AlertDescription>{readiness.message}</AlertDescription>
             </Alert>
           )}
 
@@ -228,46 +186,48 @@ function LiveCoachContent() {
             <TabsList>
               <TabsTrigger value='setup'>
                 <Headphones />
-                {localize('Setup', '设置')}
+                {localize('Prepare', '准备')}
               </TabsTrigger>
               <TabsTrigger value='coach' aria-disabled={!session}>
-                <Mic />
-                {localize('Coach', '教练')}
+                <MessagesSquare />
+                {localize('During conversation', '会话中')}
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value='setup'>
+            <TabsContent value='setup' hidden={activeTab !== 'setup'}>
               <Card>
                 <CardHeader>
                   <CardTitle>
-                    {localize('Coaching session', '教练会话')}
+                    {localize(
+                      'Prepare in-conversation assistance',
+                      '准备临场辅助'
+                    )}
                   </CardTitle>
                   <CardDescription>
-                    {localize(
-                      'Start a scoped voice training session before submitting practice turns.',
-                      '先启动受当前账户范围约束的语音训练会话，再提交练习片段。'
+                    {localizeProductCopy(
+                      CONVERSATION_ASSIST_COPY.setupDescription
                     )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className='grid gap-4 sm:grid-cols-2'>
                   <div className='space-y-2 sm:col-span-2'>
                     <Label htmlFor='live-coach-goal'>
-                      {localize('Training objective', '训练目标')}
+                      {localize('Conversation objective', '当前会话目标')}
                     </Label>
                     <Textarea
                       id='live-coach-goal'
                       value={goal}
                       onChange={(event) => setGoal(event.target.value)}
                       placeholder={localize(
-                        'Practice an interview answer and reduce unnecessary detail.',
-                        '练习面试回答，并减少不必要的细节。'
+                        'Keep the customer engaged, understand the real concern, and avoid conceding too early.',
+                        '稳住客户对涨价的异议，确认真实顾虑，并避免过早让步。'
                       )}
                       disabled={isStarting}
                     />
                   </div>
                   <div className='space-y-2'>
                     <Label htmlFor='live-coach-source'>
-                      {localize('Source language', '源语言')}
+                      {localize('Conversation language', '会话语言')}
                     </Label>
                     <Input
                       id='live-coach-source'
@@ -280,7 +240,7 @@ function LiveCoachContent() {
                   </div>
                   <div className='space-y-2'>
                     <Label htmlFor='live-coach-target'>
-                      {localize('Target language', '目标语言')}
+                      {localize('Suggested reply language', '建议语言')}
                     </Label>
                     <Input
                       id='live-coach-target'
@@ -312,23 +272,22 @@ function LiveCoachContent() {
                     )}
                     {isStarting
                       ? localize('Starting...', '正在启动...')
-                      : localize('Start live coach', '启动实时教练')}
+                      : localize('Start assistance', '开始辅助')}
                   </Button>
                 </CardFooter>
               </Card>
             </TabsContent>
 
-            <TabsContent value='coach'>
+            <TabsContent value='coach' hidden={activeTab !== 'coach'}>
               <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_19rem]'>
                 <Card>
                   <CardHeader>
                     <CardTitle>
-                      {localize('Practice turn', '练习片段')}
+                      {localize('Latest conversation turn', '最新会话片段')}
                     </CardTitle>
                     <CardDescription>
-                      {localize(
-                        'Submit the latest turn for a structured guidance response.',
-                        '提交最新练习片段，获取结构化指导。'
+                      {localizeProductCopy(
+                        CONVERSATION_ASSIST_COPY.turnDescription
                       )}
                     </CardDescription>
                   </CardHeader>
@@ -346,21 +305,29 @@ function LiveCoachContent() {
                       variant='outline'
                       className='grid w-full grid-cols-2 sm:w-64'
                       disabled={!session || isGuiding}
-                      aria-label={localize('Turn speaker', '片段说话者')}
+                      aria-label={localize('Current speaker', '当前说话者')}
                     >
                       <ToggleGroupItem value='user' className='w-full'>
-                        {localize('Learner', '练习者')}
+                        {localizeProductCopy(
+                          CONVERSATION_ASSIST_COPY.userSpeaker
+                        )}
                       </ToggleGroupItem>
                       <ToggleGroupItem value='counterpart' className='w-full'>
-                        {localize('Counterpart', '对练角色')}
+                        {localizeProductCopy(
+                          CONVERSATION_ASSIST_COPY.counterpartSpeaker
+                        )}
                       </ToggleGroupItem>
                     </ToggleGroup>
+                    <Label htmlFor='conversation-assist-turn'>
+                      {localize('Latest spoken turn', '刚刚说的话')}
+                    </Label>
                     <Textarea
+                      id='conversation-assist-turn'
                       value={turn}
                       onChange={(event) => setTurn(event.target.value)}
                       placeholder={localize(
-                        'Paste or type the latest spoken turn.',
-                        '输入或粘贴最新的口语片段。'
+                        'Manually enter or paste the latest thing either person said.',
+                        '手动输入或粘贴我或对方刚说的最新一句。'
                       )}
                       disabled={!session || isGuiding}
                     />
@@ -376,21 +343,23 @@ function LiveCoachContent() {
                         <Send />
                       )}
                       {isGuiding
-                        ? localize('Coaching...', '指导中...')
-                        : localize('Get guidance', '获取指导')}
+                        ? localize('Analyzing...', '正在分析...')
+                        : localize('Generate side guidance', '生成临场建议')}
                     </Button>
                   </CardFooter>
                 </Card>
 
                 <Card size='sm'>
                   <CardHeader>
-                    <CardTitle>{localize('Guidance', '指导')}</CardTitle>
+                    <CardTitle>
+                      {localize('Side guidance', '临场建议')}
+                    </CardTitle>
                     <CardDescription>
                       {guidance?.source
                         ? `${localize('Source', '来源')}: ${guidance.source}`
                         : localize(
-                            'No guidance received yet.',
-                            '尚未收到指导。'
+                            'Enter the latest turn to see suggested replies, follow-up questions, and risks here.',
+                            '提交最新一句后，这里会显示回应建议、追问和风险提醒。'
                           )}
                     </CardDescription>
                   </CardHeader>
@@ -417,8 +386,8 @@ function LiveCoachContent() {
                     {guidance && guidance.events.length === 0 && (
                       <p className='text-muted-foreground text-sm'>
                         {localize(
-                          'No coaching signal was generated for this turn.',
-                          '此片段没有生成新的指导信号。'
+                          'No new side guidance was generated for this turn.',
+                          '这一句没有生成新的临场建议。'
                         )}
                       </p>
                     )}
@@ -433,12 +402,12 @@ function LiveCoachContent() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                {localize('Live coach session', '实时教练会话')}
+                {localize('In-conversation assistance session', '临场辅助会话')}
               </DialogTitle>
               <DialogDescription>
                 {localize(
-                  'This session is scoped by the NewAPI host and backed by TalkWise training data.',
-                  '该会话由 NewAPI 宿主限定访问范围，并由 TalkWise 训练数据承载。'
+                  'This session is limited to the current account and saves guidance through the existing training data contract.',
+                  '该会话仅限当前账号访问，并通过现有训练数据契约保存辅助记录。'
                 )}
               </DialogDescription>
             </DialogHeader>
