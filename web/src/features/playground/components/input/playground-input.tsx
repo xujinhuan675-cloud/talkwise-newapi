@@ -44,6 +44,7 @@ interface PlaygroundInputProps {
   onSubmit: (text: string) => void
   onStop?: () => void
   disabled?: boolean
+  hideSubmitButton?: boolean
   extraTools?: ReactNode
   extraActions?: ReactNode
   isGenerating?: boolean
@@ -65,6 +66,7 @@ interface PlaygroundInputProps {
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
+  selectorPlacement?: 'end' | 'start'
 }
 
 export function PlaygroundInput({
@@ -74,6 +76,7 @@ export function PlaygroundInput({
   onSubmit,
   onStop,
   disabled,
+  hideSubmitButton = false,
   extraTools,
   extraActions,
   isGenerating,
@@ -89,6 +92,7 @@ export function PlaygroundInput({
   onClearMessages,
   onParameterEnabledChange,
   parameterEnabled,
+  selectorPlacement,
 }: PlaygroundInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
@@ -129,6 +133,7 @@ export function PlaygroundInput({
           <PlaygroundInputControls
             actions={extraActions}
             disabled={disabled}
+            hideSubmitButton={hideSubmitButton}
             groups={groups}
             groupValue={groupValue}
             isGenerating={isGenerating}
@@ -138,6 +143,7 @@ export function PlaygroundInput({
             onGroupChange={onGroupChange}
             onModelChange={onModelChange}
             onStop={onStop}
+            selectorPlacement={selectorPlacement}
             text={text}
             tools={
               <PlaygroundInputTools

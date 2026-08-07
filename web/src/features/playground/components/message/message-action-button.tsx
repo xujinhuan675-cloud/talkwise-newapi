@@ -29,6 +29,7 @@ import { MESSAGE_ACTION_BUTTON_STYLES } from '../../constants'
 
 interface MessageActionButtonProps {
   icon: LucideIcon
+  iconClassName?: string
   label: string
   onClick: () => void
   disabled?: boolean
@@ -38,6 +39,7 @@ interface MessageActionButtonProps {
 
 export function MessageActionButton({
   icon: Icon,
+  iconClassName = '',
   label,
   onClick,
   disabled = false,
@@ -63,7 +65,9 @@ export function MessageActionButton({
           />
         }
       >
-        <Icon className={MESSAGE_ACTION_BUTTON_STYLES.ICON} />
+        <Icon
+          className={`${MESSAGE_ACTION_BUTTON_STYLES.ICON} ${iconClassName}`}
+        />
       </TooltipTrigger>
       <TooltipContent>
         <p>{label}</p>

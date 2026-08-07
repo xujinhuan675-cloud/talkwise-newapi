@@ -50,6 +50,7 @@ import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_auth
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedTrainingIndexRouteImport } from './routes/_authenticated/training/index'
 import { Route as AuthenticatedTrainingSectionRouteImport } from './routes/_authenticated/training/$section'
+import { Route as AuthenticatedTrainingAssistRouteImport } from './routes/_authenticated/training/assist'
 import { Route as AuthenticatedTrainingConversationsRouteImport } from './routes/_authenticated/training/conversations'
 import { Route as AuthenticatedTrainingGrowthRouteImport } from './routes/_authenticated/training/growth'
 import { Route as AuthenticatedTrainingLiveCoachRouteImport } from './routes/_authenticated/training/live-coach'
@@ -305,6 +306,12 @@ const AuthenticatedTrainingSectionRoute =
   AuthenticatedTrainingSectionRouteImport.update({
     id: '/training/$section',
     path: '/training/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingAssistRoute =
+  AuthenticatedTrainingAssistRouteImport.update({
+    id: '/training/assist',
+    path: '/training/assist',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedTrainingConversationsRoute =
@@ -563,6 +570,7 @@ export interface FileRoutesByFullPath {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/training/assist': typeof AuthenticatedTrainingAssistRoute
   '/training/conversations': typeof AuthenticatedTrainingConversationsRoute
   '/training/growth': typeof AuthenticatedTrainingGrowthRouteWithChildren
   '/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
@@ -641,6 +649,7 @@ export interface FileRoutesByTo {
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
   '/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/training/assist': typeof AuthenticatedTrainingAssistRoute
   '/training/conversations': typeof AuthenticatedTrainingConversationsRoute
   '/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
   '/training/scenarios': typeof AuthenticatedTrainingScenariosRoute
@@ -722,6 +731,7 @@ export interface FileRoutesById {
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
   '/_authenticated/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/_authenticated/training/assist': typeof AuthenticatedTrainingAssistRoute
   '/_authenticated/training/conversations': typeof AuthenticatedTrainingConversationsRoute
   '/_authenticated/training/growth': typeof AuthenticatedTrainingGrowthRouteWithChildren
   '/_authenticated/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
@@ -803,6 +813,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/training/$section'
+    | '/training/assist'
     | '/training/conversations'
     | '/training/growth'
     | '/training/live-coach'
@@ -881,6 +892,7 @@ export interface FileRouteTypes {
     | '/errors/$error'
     | '/models/$section'
     | '/training/$section'
+    | '/training/assist'
     | '/training/conversations'
     | '/training/live-coach'
     | '/training/scenarios'
@@ -961,6 +973,7 @@ export interface FileRouteTypes {
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
     | '/_authenticated/training/$section'
+    | '/_authenticated/training/assist'
     | '/_authenticated/training/conversations'
     | '/_authenticated/training/growth'
     | '/_authenticated/training/live-coach'
@@ -1318,6 +1331,13 @@ declare module '@tanstack/react-router' {
       path: '/training/$section'
       fullPath: '/training/$section'
       preLoaderRoute: typeof AuthenticatedTrainingSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/assist': {
+      id: '/_authenticated/training/assist'
+      path: '/training/assist'
+      fullPath: '/training/assist'
+      preLoaderRoute: typeof AuthenticatedTrainingAssistRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/training/conversations': {
@@ -1716,6 +1736,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
   AuthenticatedTrainingSectionRoute: typeof AuthenticatedTrainingSectionRoute
+  AuthenticatedTrainingAssistRoute: typeof AuthenticatedTrainingAssistRoute
   AuthenticatedTrainingConversationsRoute: typeof AuthenticatedTrainingConversationsRoute
   AuthenticatedTrainingGrowthRoute: typeof AuthenticatedTrainingGrowthRouteWithChildren
   AuthenticatedTrainingLiveCoachRoute: typeof AuthenticatedTrainingLiveCoachRoute
@@ -1756,6 +1777,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
   AuthenticatedTrainingSectionRoute: AuthenticatedTrainingSectionRoute,
+  AuthenticatedTrainingAssistRoute: AuthenticatedTrainingAssistRoute,
   AuthenticatedTrainingConversationsRoute:
     AuthenticatedTrainingConversationsRoute,
   AuthenticatedTrainingGrowthRoute:

@@ -40,6 +40,9 @@ const (
 	talkWisePersonaUpstreamPath                 = "/api/v1/stakeholder/personas"
 	talkWisePersonaProxyUnavailable             = "TALKWISE_PERSONA_PROXY_UNAVAILABLE"
 	talkWisePersonaUpstreamUnavailable          = "TALKWISE_PERSONA_UPSTREAM_UNAVAILABLE"
+	talkWiseVoiceCatalogUpstreamPath            = "/api/v1/stakeholder/voice-catalog"
+	talkWiseVoiceCatalogProxyUnavailable        = "TALKWISE_VOICE_CATALOG_PROXY_UNAVAILABLE"
+	talkWiseVoiceCatalogUpstreamUnavailable     = "TALKWISE_VOICE_CATALOG_UPSTREAM_UNAVAILABLE"
 	talkWisePersonaDetectSpeakersUpstreamPath   = "/api/v1/stakeholder/persona/detect-speakers"
 	talkWisePersonaBuildUpstreamPath            = "/api/v1/stakeholder/persona/build"
 	talkWisePersonaBuilderProxyUnavailable      = "TALKWISE_PERSONA_BUILDER_PROXY_UNAVAILABLE"
@@ -742,6 +745,10 @@ func ProxyTalkWiseDefensePrep(c *gin.Context) {
 // The root route deliberately maps without a trailing slash to avoid a FastAPI
 // redirect that could obscure the original authorization header.
 func ProxyTalkWisePersonas(c *gin.Context) {
+	if c.Request.Method == http.MethodGet && c.Param("path") == "/voice-catalog" {
+		ProxyTalkWiseVoiceCatalog(c)
+		return
+	}
 	proxyTalkWiseScopedNamespace(
 		c,
 		"TALKWISE_PERSONA_PATH_INVALID",
@@ -750,6 +757,19 @@ func ProxyTalkWisePersonas(c *gin.Context) {
 		talkWisePersonaUpstreamPath,
 		"TalkWise persona",
 		true,
+	)
+}
+
+// ProxyTalkWiseVoiceCatalog exposes the provider-neutral voice catalog beside
+// the persona asset namespace. The backend route is a sibling of /personas,
+// so it must not be routed through the persona wildcard.
+func ProxyTalkWiseVoiceCatalog(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWiseVoiceCatalogUpstreamPath,
+		talkWiseVoiceCatalogProxyUnavailable,
+		talkWiseVoiceCatalogUpstreamUnavailable,
+		"TalkWise voice catalog",
 	)
 }
 

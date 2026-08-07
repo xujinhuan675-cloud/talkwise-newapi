@@ -40,6 +40,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/training/overview': { section: 'training', module: 'studio' },
   '/training/scenarios': { section: 'training', module: 'studio' },
   '/training/studio': { section: 'training', module: 'studio' },
+  '/training/assist': { section: 'training', module: 'studio' },
   '/training/live-coach': { section: 'training', module: 'studio' },
   '/training/conversations': { section: 'training', module: 'studio' },
   '/training/personas': { section: 'training', module: 'studio' },
