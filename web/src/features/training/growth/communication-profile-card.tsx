@@ -28,7 +28,7 @@ import type { TrainingProfileCard } from './profile-card'
 
 const PROFILE_SCORE_LABELS: Record<string, readonly [string, string]> = {
   attentiveness: ['Attentiveness', '\u503e\u542c\u5173\u6ce8'],
-  expression: ['Expression', '\u8868\u8fbe\u6e05\u6670'],
+  expression: ['Clear expression', '\u8868\u8fbe\u6e05\u6670'],
   coordination: ['Coordination', '\u4e92\u52a8\u534f\u8c03'],
   composure: ['Composure', '\u6c89\u7740\u5e94\u5bf9'],
 }

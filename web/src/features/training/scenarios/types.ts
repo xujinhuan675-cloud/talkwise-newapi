@@ -27,11 +27,27 @@ export type TrainingScenarioCategory =
 
 export type TrainingSessionMode = 'realtime' | 'text' | 'video' | 'voice'
 
+export type TrainingModality = Exclude<TrainingSessionMode, 'realtime'>
+
+export type TrainingInteractionMode = 'realtime' | 'turn_based'
+
+export interface TrainingModeSelection {
+  interactionMode: TrainingInteractionMode
+  modality: TrainingModality
+}
+
 export interface TrainingScenarioPersona {
   avatarUrl?: string | null
+  personaId?: string
   name: string
   role: string
   style: string
+  voiceId?: string | null
+  voiceSpeed?: number
+  voiceLoudness?: number
+  voiceEmotion?: string | null
+  voiceEmotionScale?: number
+  voiceStyle?: string | null
 }
 
 export interface TrainingScenarioDimensionWeight {

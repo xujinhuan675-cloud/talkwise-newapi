@@ -59,10 +59,17 @@ import { Textarea } from '@/components/ui/textarea'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import { trainingPrepWorkspaceHandoff } from '../prep/handoff'
 import {
+  DEFAULT_TRAINING_VOICE_ID,
+  TRAINING_VOICE_OPTIONS,
+  trainingVoiceDisplayName,
+  type TrainingVoiceProfile,
+} from '../training-voice'
+import {
   archivePersona,
   buildPersona,
   getPersona,
   getPersonaV2,
+  listTrainingVoiceCatalog,
   patchPersonaV2,
   personaRequestErrorMessage,
   startPersonaTraining,
@@ -90,6 +97,10 @@ function emptyPersonaV2(detail: PersonaDetail): PersonaV2 {
     id: detail.id,
     name: detail.name,
     role: detail.role,
+    voice_id: detail.voiceId,
+    voice_speed: detail.voiceSpeed,
+    voice_volume: detail.voiceVolume,
+    voice_style: detail.voiceStyle,
     visibility: detail.visibility,
     version: detail.version,
     can_manage: detail.canManage,
@@ -122,6 +133,10 @@ function draftPatch(draft: PersonaV2): PersonaV2Patch {
   return {
     name: draft.name.trim(),
     role: draft.role.trim(),
+    voice_id: draft.voice_id,
+    voice_speed: draft.voice_speed,
+    voice_volume: draft.voice_volume,
+    voice_style: draft.voice_style,
     hard_rules: draft.hard_rules,
     identity: draft.identity,
     expression: draft.expression,
@@ -422,6 +437,11 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
     queryFn: () => getPersonaV2(personaId),
     enabled: host.authStatus === 'authenticated' && isAsset,
   })
+  const voiceCatalogQuery = useQuery({
+    queryKey: ['training', 'voice-catalog'],
+    queryFn: listTrainingVoiceCatalog,
+    enabled: detailQuery.data !== undefined,
+  })
 
   useEffect(() => {
     const detail = detailQuery.data
@@ -465,7 +485,9 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
       setDraft(saved)
       setSavedState(serializedDraft(saved, visibility))
       queryClient.setQueryData(['training', 'personas', personaId, 'v2'], saved)
-      void queryClient.invalidateQueries({ queryKey: ['training', 'personas'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['training', 'personas'],
+      })
       toast.success(localize('Persona saved', '角色已保存'))
     },
     onError: (error) => toast.error(personaRequestErrorMessage(error)),
@@ -530,7 +552,9 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
         ['training', 'personas', personaId, 'v2'],
         updated
       )
-      void queryClient.invalidateQueries({ queryKey: ['training', 'personas'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['training', 'personas'],
+      })
       toast.success(localize('Persona enhanced', '角色已增强'))
     },
     onError: (error) => toast.error(personaRequestErrorMessage(error)),
@@ -556,7 +580,9 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
         ['training', 'personas', personaId, 'v2'],
         restored
       )
-      void queryClient.invalidateQueries({ queryKey: ['training', 'personas'] })
+      void queryClient.invalidateQueries({
+        queryKey: ['training', 'personas'],
+      })
       toast.success(localize('Previous profile restored', '已恢复增强前画像'))
     },
     onError: (error) => toast.error(personaRequestErrorMessage(error)),
@@ -613,6 +639,46 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
 
   const detail = detailQuery.data
   const readOnly = detail?.readOnly || draft.read_only
+  const voices: readonly TrainingVoiceProfile[] = voiceCatalogQuery.data?.length
+    ? voiceCatalogQuery.data
+    : TRAINING_VOICE_OPTIONS.map((option) => ({
+        id: option.id,
+        provider: 'volcengine',
+        service: 'tts_streaming',
+        model: 'doubao-bigtts',
+        englishLabel: option.englishLabel,
+        chineseLabel: option.chineseLabel,
+        language: 'zh-CN',
+        tags: [],
+        supportsEmotion: true,
+        supportsSpeed: true,
+        supportsLoudness: true,
+        supportsPitch: false,
+        supportsRealtimeS2s: false,
+      }))
+  const currentVoiceId = draft.voice_id?.trim() || DEFAULT_TRAINING_VOICE_ID
+  const voiceOptions: readonly TrainingVoiceProfile[] = voices.some(
+    (voice) => voice.id === currentVoiceId
+  )
+    ? voices
+    : [
+        ...voices,
+        {
+          id: currentVoiceId,
+          provider: 'unknown',
+          service: 'tts_streaming',
+          model: 'unknown',
+          englishLabel: currentVoiceId,
+          chineseLabel: `未验证音色（${currentVoiceId}）`,
+          language: 'unknown',
+          tags: [],
+          supportsEmotion: false,
+          supportsSpeed: true,
+          supportsLoudness: true,
+          supportsPitch: false,
+          supportsRealtimeS2s: false,
+        },
+      ]
   const identity = draft.identity ?? {
     background: '',
     core_values: [],
@@ -803,6 +869,73 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
               />
             </div>
             <div className='grid gap-2'>
+              <Label htmlFor='editor-voice-volume'>
+                {localize('Default loudness', '默认音量')}
+              </Label>
+              <Input
+                id='editor-voice-volume'
+                type='number'
+                min={0.5}
+                max={2}
+                step={0.1}
+                value={draft.voice_volume ?? 1}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    voice_volume: Number(event.target.value) || 1,
+                  })
+                }
+              />
+            </div>
+            <div className='grid gap-2'>
+              <Label htmlFor='editor-voice'>
+                {localize('Default voice', '默认音色')}
+              </Label>
+              <Select
+                value={currentVoiceId}
+                disabled={readOnly}
+                onValueChange={(value) =>
+                  setDraft({ ...draft, voice_id: value || null })
+                }
+              >
+                <SelectTrigger id='editor-voice' className='w-full'>
+                  <SelectValue
+                    placeholder={localize('Select a voice', '请选择音色')}
+                  >
+                    {trainingVoiceDisplayName(currentVoiceId, voiceOptions)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {voiceOptions.map((voice) => (
+                    <SelectItem key={voice.id} value={voice.id}>
+                      {voice.chineseLabel}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='grid gap-2'>
+              <Label htmlFor='editor-voice-speed'>
+                {localize('Default speed', '默认语速')}
+              </Label>
+              <Input
+                id='editor-voice-speed'
+                type='number'
+                min={0.1}
+                max={2}
+                step={0.1}
+                value={draft.voice_speed}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    voice_speed: Number(event.target.value) || 1,
+                  })
+                }
+              />
+            </div>
+            <div className='grid gap-2'>
               <Label htmlFor='editor-role'>
                 {localize('Role', '职位或身份')}
               </Label>
@@ -831,7 +964,11 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
                   }}
                 >
                   <SelectTrigger id='editor-visibility' className='w-full'>
-                    <SelectValue />
+                    <SelectValue>
+                      {visibility === 'team'
+                        ? localize('Team', '团队')
+                        : localize('Private', '仅自己')}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value='private'>
@@ -856,6 +993,23 @@ function PersonaEditorContent({ personaId }: { personaId: string }) {
               disabled={readOnly}
               onChange={(event) =>
                 setDraft({ ...draft, user_context: event.target.value })
+              }
+            />
+          </div>
+          <div className='grid gap-2 sm:col-span-2'>
+            <Label htmlFor='editor-voice-style'>
+              {localize('Voice style instruction', '音色表达提示')}
+            </Label>
+            <Input
+              id='editor-voice-style'
+              value={draft.voice_style ?? ''}
+              disabled={readOnly}
+              placeholder={localize(
+                'Optional: calm, concise, and confident',
+                '可选：沉稳、简洁、有信心'
+              )}
+              onChange={(event) =>
+                setDraft({ ...draft, voice_style: event.target.value || null })
               }
             />
           </div>

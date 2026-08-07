@@ -141,9 +141,17 @@ function normalizeScenario(value: unknown): TrainingScenarioConfigDraft | null {
     enabled: readBoolean(value.enabled, true),
     openingLine: readString(value.openingLine ?? value.opening_line),
     persona: {
+      personaId:
+        readString(persona.personaId ?? persona.persona_id).trim() || undefined,
       name: readString(persona.name),
       role: readString(persona.role),
       style: readString(persona.style),
+      voiceId: readString(persona.voiceId ?? persona.voice_id).trim() || null,
+      voiceSpeed: Math.max(0.1, Math.min(2, readNumber(persona.voiceSpeed ?? persona.voice_speed, 1))),
+      voiceLoudness: Math.max(0.5, Math.min(2, readNumber(persona.voiceLoudness ?? persona.voice_loudness, 1))),
+      voiceEmotion: readString(persona.voiceEmotion ?? persona.voice_emotion).trim() || null,
+      voiceEmotionScale: Math.max(0, Math.min(2, readNumber(persona.voiceEmotionScale ?? persona.voice_emotion_scale, 1))),
+      voiceStyle: readString(persona.voiceStyle ?? persona.voice_style).trim() || null,
     },
     learnerRole: readString(value.learnerRole ?? value.learner_role),
     framework: readString(value.framework, 'prep'),

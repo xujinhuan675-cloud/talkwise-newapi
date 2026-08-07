@@ -23,6 +23,7 @@ import type { AuthUser } from '@/stores/auth-store'
 
 import {
   resolveTrainingLegacySectionDestination,
+  TRAINING_ASSIST_AVAILABILITY,
   TRAINING_DIRECT_ROUTE_PATHS,
   TRAINING_LEGACY_SECTION_DESTINATIONS,
   TRAINING_SIDEBAR_ITEM,
@@ -137,6 +138,7 @@ describe('TrainingHostContext contract', () => {
       '/training',
       '/training/scenarios',
       '/training/studio',
+      '/training/assist',
       '/training/live-coach',
       '/training/conversations',
       '/training/personas',
@@ -156,6 +158,14 @@ describe('TrainingHostContext contract', () => {
       TRAINING_DIRECT_ROUTE_PATHS.every((path) => path.startsWith('/training')),
       true
     )
+  })
+
+  test('marks in-conversation assistance as coming soon with a muted badge', () => {
+    assert.deepEqual(TRAINING_ASSIST_AVAILABILITY, {
+      english: 'Coming soon',
+      chinese: '\u5373\u5c06\u5f00\u653e',
+      badgeVariant: 'secondary',
+    })
   })
 
   test('resolves the preserved legacy training sections to direct routes', () => {

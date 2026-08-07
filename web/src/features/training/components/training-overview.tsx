@@ -20,7 +20,6 @@ import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowRight,
-  BarChart3,
   Check,
   ChevronDown,
   ChevronUp,
@@ -68,7 +67,6 @@ import {
   ProgressValue,
 } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
-import { AnnouncementsPanel } from '@/features/dashboard/components/overview/announcements-panel'
 import { FAQPanel } from '@/features/dashboard/components/overview/faq-panel'
 import { useDashboardContentVisibility } from '@/features/dashboard/hooks/use-status-data'
 import { cn } from '@/lib/utils'
@@ -539,33 +537,6 @@ function TrainingSetupGuide({
       to: '/training/prep/defense',
       icon: ListChecks,
     },
-    {
-      title: localize('Scenarios', '场景训练'),
-      description: localize(
-        'Choose the next situation to practice.',
-        '选择下一次要练习的真实场景。'
-      ),
-      to: '/training/scenarios',
-      icon: MessagesSquare,
-    },
-    {
-      title: localize('Review', '复盘'),
-      description: localize(
-        'Return to sessions and selected conversation paths.',
-        '回看训练会话和已选择的对话路径。'
-      ),
-      to: '/training/sessions',
-      icon: ClipboardCheck,
-    },
-    {
-      title: localize('Growth', '成长'),
-      description: localize(
-        'Find recurring strengths and the next improvement area.',
-        '发现反复出现的优势和下一项改进重点。'
-      ),
-      to: '/training/growth',
-      icon: BarChart3,
-    },
   ]
   const completedStepCount = steps.filter((step) => step.completed).length
   const setupComplete = completedStepCount === steps.length
@@ -713,8 +684,7 @@ function TrainingSetupGuide({
 export function TrainingOverview() {
   const { i18n, t } = useTranslation()
   const host = useTrainingHost()
-  const { announcements: showAnnouncements, faq: showFAQ } =
-    useDashboardContentVisibility()
+  const { faq: showFAQ } = useDashboardContentVisibility()
   const localize: Localize = (english, chinese) =>
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
@@ -1043,12 +1013,7 @@ export function TrainingOverview() {
         )}
       </div>
 
-      {(showAnnouncements || showFAQ) && (
-        <div className='grid gap-3 xl:grid-cols-2'>
-          {showAnnouncements && <AnnouncementsPanel />}
-          {showFAQ && <FAQPanel />}
-        </div>
-      )}
+      {showFAQ && <FAQPanel />}
     </div>
   )
 }

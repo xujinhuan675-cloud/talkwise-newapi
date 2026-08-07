@@ -31,6 +31,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Volume2,
 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -70,8 +71,15 @@ import {
 
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import {
+  DEFAULT_TRAINING_VOICE_ID,
+  TRAINING_VOICE_OPTIONS,
+  trainingVoiceDisplayName,
+  type TrainingVoiceProfile,
+} from '../training-voice'
+import {
   archivePersona,
   createPersona,
+  listTrainingVoiceCatalog,
   listPersonas,
   personaRequestErrorMessage,
 } from './api'
@@ -90,6 +98,10 @@ const DEFAULT_PERSONA: CreatePersonaInput = {
   role: '',
   content: '',
   visibility: 'private',
+  voice_id: DEFAULT_TRAINING_VOICE_ID,
+  voice_speed: 1,
+  voice_volume: 1,
+  voice_style: '',
 }
 
 function PersonaActions({
@@ -155,10 +167,12 @@ function PersonaCreateDialog({
   open,
   onOpenChange,
   localize,
+  voices,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   localize: Localize
+  voices: readonly TrainingVoiceProfile[]
 }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -237,6 +251,71 @@ function PersonaCreateDialog({
             />
           </div>
           <div className='grid gap-2'>
+            <Label htmlFor='persona-voice'>
+              <span className='inline-flex items-center gap-1.5'>
+                <Volume2 className='size-4' />
+                {localize('Default voice', '默认音色')}
+              </span>
+            </Label>
+            <Select
+              value={form.voice_id ?? DEFAULT_TRAINING_VOICE_ID}
+              onValueChange={(value) => setForm({ ...form, voice_id: value })}
+            >
+              <SelectTrigger id='persona-voice' className='w-full'>
+                <SelectValue
+                  placeholder={localize('Select a voice', '请选择音色')}
+                >
+                  {trainingVoiceDisplayName(form.voice_id, voices)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {voices.map((voice) => (
+                  <SelectItem key={voice.id} value={voice.id}>
+                    {voice.chineseLabel}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className='grid gap-2'>
+            <Label htmlFor='persona-voice-speed'>
+              {localize('Default speed', '默认语速')}
+            </Label>
+            <Input
+              id='persona-voice-speed'
+              type='number'
+              min={0.1}
+              max={2}
+              step={0.1}
+              value={form.voice_speed ?? 1}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  voice_speed: Number(event.target.value) || 1,
+                })
+              }
+            />
+          </div>
+          <div className='grid gap-2'>
+            <Label htmlFor='persona-voice-volume'>
+              {localize('Default loudness', '默认音量')}
+            </Label>
+            <Input
+              id='persona-voice-volume'
+              type='number'
+              min={0.5}
+              max={2}
+              step={0.1}
+              value={form.voice_volume ?? 1}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  voice_volume: Number(event.target.value) || 1,
+                })
+              }
+            />
+          </div>
+          <div className='grid gap-2'>
             <Label htmlFor='persona-name'>{localize('Name', '名称')}</Label>
             <Input
               id='persona-name'
@@ -273,7 +352,11 @@ function PersonaCreateDialog({
               }}
             >
               <SelectTrigger id='persona-visibility' className='w-full'>
-                <SelectValue />
+                <SelectValue>
+                  {form.visibility === 'team'
+                    ? localize('Team', '团队')
+                    : localize('Private', '仅自己')}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value='private'>
@@ -341,6 +424,32 @@ function PersonaListContent() {
     queryFn: listPersonas,
     enabled: host.authStatus === 'authenticated',
   })
+  const voiceCatalogQuery = useQuery({
+    queryKey: ['training', 'voice-catalog'],
+    queryFn: listTrainingVoiceCatalog,
+    enabled: host.authStatus === 'authenticated',
+  })
+  const voices = useMemo<readonly TrainingVoiceProfile[]>(
+    () =>
+      voiceCatalogQuery.data?.length
+        ? voiceCatalogQuery.data
+        : TRAINING_VOICE_OPTIONS.map((option) => ({
+            id: option.id,
+            provider: 'volcengine',
+            service: 'tts_streaming',
+            model: 'doubao-bigtts',
+            englishLabel: option.englishLabel,
+            chineseLabel: option.chineseLabel,
+            language: 'zh-CN',
+            tags: [],
+            supportsEmotion: true,
+            supportsSpeed: true,
+            supportsLoudness: true,
+            supportsPitch: false,
+            supportsRealtimeS2s: false,
+          })),
+    [voiceCatalogQuery.data]
+  )
   const archiveMutation = useMutation({
     mutationFn: archivePersona,
     onSuccess: async () => {
@@ -362,11 +471,14 @@ function PersonaListContent() {
     const search = query.trim().toLocaleLowerCase()
     if (!search) return personasQuery.data ?? []
     return (personasQuery.data ?? []).filter((persona) =>
-      [persona.id, persona.name, persona.role].some((value) =>
-        value.toLocaleLowerCase().includes(search)
-      )
+      [
+        persona.id,
+        persona.name,
+        persona.role,
+        trainingVoiceDisplayName(persona.voiceId, voices),
+      ].some((value) => value.toLocaleLowerCase().includes(search))
     )
-  }, [personasQuery.data, query])
+  }, [personasQuery.data, query, voices])
   const columns = useMemo<ColumnDef<PersonaSummary>[]>(
     () => [
       {
@@ -415,6 +527,20 @@ function PersonaListContent() {
         },
       },
       {
+        id: 'voice',
+        header: localize('Voice', '音色'),
+        cell: ({ row }) => (
+          <div className='flex min-w-0 items-center gap-2'>
+            <Volume2 className='text-muted-foreground size-4 shrink-0' />
+            <div className='min-w-0'>
+              <span className='block truncate text-sm'>
+                {trainingVoiceDisplayName(row.original.voiceId, voices)}
+              </span>
+            </div>
+          </div>
+        ),
+      },
+      {
         id: 'profile',
         header: localize('Profile', '画像'),
         cell: ({ row }) => (
@@ -454,7 +580,7 @@ function PersonaListContent() {
         ),
       },
     ],
-    [localize]
+    [localize, voices]
   )
   const { table } = useDataTable({
     data: personas,
@@ -558,9 +684,10 @@ function PersonaListContent() {
             </Button>
           ) : undefined
         }
-        tableClassName='min-w-180'
+        tableClassName='min-w-220'
         getColumnClassName={(columnId) => {
           if (columnId === 'persona') return 'max-w-80 whitespace-normal'
+          if (columnId === 'voice') return 'max-w-64 whitespace-normal'
           if (columnId === 'actions') return 'w-24 text-right'
           return undefined
         }}
@@ -569,6 +696,7 @@ function PersonaListContent() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         localize={localize}
+        voices={voices}
       />
       <ConfirmDialog
         open={archiveTarget !== null}

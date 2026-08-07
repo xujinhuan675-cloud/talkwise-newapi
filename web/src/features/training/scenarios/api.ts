@@ -27,12 +27,15 @@ import {
   type TrainingPlanInput,
   type TrainingPressure,
 } from '../training-plan'
+import type { TrainingVoiceId } from '../training-voice'
+import type { RealtimeProfile } from '../studio/realtime-client'
 import type {
   CreateTrainingSessionRequest,
   TrainingScenario,
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
   TrainingScenarioFilters,
+  TrainingModeSelection,
   TrainingSession,
   TrainingSessionMode,
 } from './types'
@@ -57,9 +60,16 @@ interface ScenarioTemplateDTO {
   opening_line: string
   persona: {
     avatar_url?: string | null
+    persona_id?: string | null
     name: string
     role: string
     style: string
+    voice_id?: string | null
+    voice_speed?: number
+    voice_loudness?: number
+    voice_emotion?: string | null
+    voice_emotion_scale?: number
+    voice_style?: string | null
   }
   learner_role: string
   framework: string
@@ -91,13 +101,20 @@ type StartTrainingSessionRequest =
   | {
       room_name: string
       room_type: 'battle_prep'
-      runtime_persona: {
+      persona_ids?: string[]
+      runtime_persona?: {
         name: string
         role: string
         style: string
         scenario_context: string
         training_points: string[]
         difficulty: 'easy' | 'hard' | 'normal'
+        voice_id?: TrainingVoiceId
+        voice_speed?: number
+        voice_loudness?: number
+        voice_emotion?: string | null
+        voice_emotion_scale?: number
+        voice_style?: string | null
       }
       opening_message?: {
         content: string
@@ -186,6 +203,30 @@ export function trainingRequestErrorMessage(
 }
 
 export function toTrainingScenario(dto: ScenarioTemplateDTO): TrainingScenario {
+  const persona = {
+    avatarUrl: dto.persona.avatar_url ?? null,
+    name: dto.persona.name,
+    role: dto.persona.role,
+    style: dto.persona.style,
+    ...(dto.persona.persona_id
+      ? { personaId: dto.persona.persona_id }
+      : {}),
+    ...(dto.persona.voice_id ||
+    dto.persona.voice_speed !== undefined ||
+    dto.persona.voice_loudness !== undefined ||
+    dto.persona.voice_emotion !== undefined ||
+    dto.persona.voice_emotion_scale !== undefined ||
+    dto.persona.voice_style !== undefined
+      ? {
+          voiceId: dto.persona.voice_id ?? null,
+          voiceSpeed: dto.persona.voice_speed ?? 1,
+          voiceLoudness: dto.persona.voice_loudness ?? 1,
+          voiceEmotion: dto.persona.voice_emotion ?? null,
+          voiceEmotionScale: dto.persona.voice_emotion_scale ?? 1,
+          voiceStyle: dto.persona.voice_style ?? null,
+        }
+      : {}),
+  }
   return {
     id: dto.id,
     title: dto.title,
@@ -195,12 +236,7 @@ export function toTrainingScenario(dto: ScenarioTemplateDTO): TrainingScenario {
     category: normalizeCategory(dto.category),
     required: dto.required,
     openingLine: dto.opening_line,
-    persona: {
-      avatarUrl: dto.persona.avatar_url ?? null,
-      name: dto.persona.name,
-      role: dto.persona.role,
-      style: dto.persona.style,
-    },
+    persona,
     learnerRole: dto.learner_role,
     framework: dto.framework,
     trainingPoints: [...dto.training_points],
@@ -240,6 +276,31 @@ export function filterTrainingScenarios(
   })
 }
 
+export function isTrainingModeSelectionAvailable(
+  selection: TrainingModeSelection
+): boolean {
+  return (
+    selection.interactionMode === 'turn_based' || selection.modality === 'voice'
+  )
+}
+
+export function trainingSessionModeForSelection(
+  selection: TrainingModeSelection
+): TrainingSessionMode {
+  if (!isTrainingModeSelectionAvailable(selection)) {
+    throw new Error(
+      `${selection.modality} does not support ${selection.interactionMode} training`
+    )
+  }
+  if (
+    selection.modality === 'voice' &&
+    selection.interactionMode === 'realtime'
+  ) {
+    return 'realtime'
+  }
+  return selection.modality
+}
+
 export function buildTrainingSessionRequest(
   scenario: TrainingScenario,
   mode: TrainingSessionMode,
@@ -248,8 +309,11 @@ export function buildTrainingSessionRequest(
     selectedFocus: scenario.trainingPoints,
     pressure: scenarioPressure(scenario.difficulty),
     lengthProfile: 'standard',
-  }
+  },
+  voiceId?: TrainingVoiceId,
+  realtimeProfile: RealtimeProfile = 'cascade'
 ): CreateTrainingSessionRequest {
+  const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const rubricWeights = Object.fromEntries(
     scenario.dimensionWeights.map((item) => [
       item.dimensionId,
@@ -290,10 +354,23 @@ export function buildTrainingSessionRequest(
         trainingFeedbackMode: 'simulation',
         trainingMode: mode,
         interactionMode,
+        ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
+        ...(mode !== 'text'
+          ? {
+              trainingVoiceSpeed: scenario.persona.voiceSpeed,
+              trainingVoiceLoudness: scenario.persona.voiceLoudness,
+              trainingVoiceEmotion: scenario.persona.voiceEmotion,
+              trainingVoiceEmotionScale: scenario.persona.voiceEmotionScale,
+              trainingVoiceStyle: scenario.persona.voiceStyle,
+            }
+          : {}),
         ...(mode === 'realtime'
           ? {
-              realtimeProfile: 'cascade',
-              latencyProfile: 'near_realtime',
+              realtimeProfile,
+              latencyProfile:
+                realtimeProfile === 'speech_to_speech'
+                  ? 'true_realtime'
+                  : 'near_realtime',
             }
           : {}),
         trainingPlan: trainingPlanMetadata(plan),
@@ -312,6 +389,7 @@ export function buildTrainingSessionRequest(
           feedbackMode: 'simulation',
           trainingMode: mode,
           interactionMode,
+          ...(resolvedVoiceId ? { voice_id: resolvedVoiceId } : {}),
         },
       },
     },
@@ -348,8 +426,10 @@ export function buildScenarioStartRequest(
     selectedFocus: scenario.trainingPoints,
     pressure: scenarioPressure(scenario.difficulty),
     lengthProfile: 'standard',
-  }
+  },
+  voiceId?: TrainingVoiceId
 ): StartTrainingSessionRequest {
+  const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const trainingPoints =
     plan.selectedFocus.length > 0
       ? [...plan.selectedFocus]
@@ -369,6 +449,16 @@ export function buildScenarioStartRequest(
           source: 'scenario_training_opening',
           scenarioTrainingId: scenario.id,
           trainingMode: mode,
+          ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
+          ...(mode !== 'text'
+            ? {
+                trainingVoiceSpeed: scenario.persona.voiceSpeed,
+                trainingVoiceLoudness: scenario.persona.voiceLoudness,
+                trainingVoiceEmotion: scenario.persona.voiceEmotion,
+                trainingVoiceEmotionScale: scenario.persona.voiceEmotionScale,
+                trainingVoiceStyle: scenario.persona.voiceStyle,
+              }
+            : {}),
         },
       }
     : null
@@ -376,6 +466,15 @@ export function buildScenarioStartRequest(
   if (mode === 'text') {
     return {
       runtime: 'conversation_message_tree',
+      ...(openingMessage ? { opening_message: openingMessage } : {}),
+    }
+  }
+
+  if (scenario.persona.personaId?.trim()) {
+    return {
+      room_name: `Training: ${scenario.title}`,
+      room_type: 'battle_prep',
+      persona_ids: [scenario.persona.personaId.trim()],
       ...(openingMessage ? { opening_message: openingMessage } : {}),
     }
   }
@@ -392,6 +491,12 @@ export function buildScenarioStartRequest(
       scenario_context: context || scenario.title,
       training_points: trainingPoints,
       difficulty: runtimePersonaDifficulty(plan.pressure),
+      ...(resolvedVoiceId ? { voice_id: resolvedVoiceId } : {}),
+      voice_speed: scenario.persona.voiceSpeed,
+      voice_loudness: scenario.persona.voiceLoudness,
+      voice_emotion: scenario.persona.voiceEmotion,
+      voice_emotion_scale: scenario.persona.voiceEmotionScale,
+      voice_style: scenario.persona.voiceStyle,
     },
     ...(openingMessage ? { opening_message: openingMessage } : {}),
   }
@@ -426,14 +531,15 @@ export async function startScenarioTrainingSession(
   sessionId: string,
   scenario: TrainingScenario,
   mode: TrainingSessionMode,
-  plan?: TrainingPlanInput
+  plan?: TrainingPlanInput,
+  voiceId?: TrainingVoiceId
 ): Promise<TrainingSession> {
   const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
     trainingApiUrl(
       apiBase,
       `${TRAINING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/start`
     ),
-    buildScenarioStartRequest(scenario, mode, plan),
+    buildScenarioStartRequest(scenario, mode, plan, voiceId),
     { skipBusinessError: true, skipErrorHandler: true }
   )
   const session = requireTalkWiseData(response.data)
@@ -469,11 +575,19 @@ export async function launchScenarioTrainingSession(
   apiBase: string,
   scenario: TrainingScenario,
   mode: TrainingSessionMode,
-  plan?: TrainingPlanInput
+  plan?: TrainingPlanInput,
+  voiceId?: TrainingVoiceId,
+  realtimeProfile: RealtimeProfile = 'cascade'
 ): Promise<TrainingSession> {
   const created = await createTrainingSession(
     apiBase,
-    buildTrainingSessionRequest(scenario, mode, plan)
+    buildTrainingSessionRequest(
+      scenario,
+      mode,
+      plan,
+      voiceId,
+      realtimeProfile
+    )
   )
   try {
     return await startScenarioTrainingSession(
@@ -481,7 +595,8 @@ export async function launchScenarioTrainingSession(
       created.sessionId,
       scenario,
       mode,
-      plan
+      plan,
+      voiceId
     )
   } catch (error) {
     throw new ScenarioTrainingStartError(created.sessionId, error)

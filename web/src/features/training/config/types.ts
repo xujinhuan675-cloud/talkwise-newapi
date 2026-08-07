@@ -57,9 +57,16 @@ export interface TrainingScenarioConfigDraft {
   enabled: boolean
   openingLine: string
   persona: {
+    personaId?: string
     name: string
     role: string
     style: string
+    voiceId?: string | null
+    voiceSpeed?: number
+    voiceLoudness?: number
+    voiceEmotion?: string | null
+    voiceEmotionScale?: number
+    voiceStyle?: string | null
   }
   learnerRole: string
   framework: string
