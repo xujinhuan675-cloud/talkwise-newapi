@@ -21,6 +21,10 @@ import axios from 'axios'
 import { getFreshAuthHeaders } from '@/lib/api'
 import { api } from '@/lib/http-client'
 
+import {
+  TRAINING_VOICE_OPTIONS,
+  type TrainingVoiceProfile,
+} from '../training-voice'
 import type {
   BuildPersonaInput,
   CreatePersonaInput,
@@ -101,6 +105,10 @@ function normalizePersonaSummary(value: unknown): PersonaSummary | null {
     version: asNumber(raw.version, 1),
     canManage,
     readOnly: asBoolean(raw.read_only, !canManage),
+    voiceId: asText(raw.voice_id),
+    voiceSpeed: asNumber(raw.voice_speed, 1),
+    voiceVolume: asNumber(raw.voice_volume, 1),
+    voiceStyle: asText(raw.voice_style),
   }
 }
 
@@ -136,6 +144,10 @@ function normalizePersonaV2(value: unknown): PersonaV2 {
     id,
     name,
     role,
+    voice_id: asText(raw.voice_id),
+    voice_speed: asNumber(raw.voice_speed, 1),
+    voice_volume: asNumber(raw.voice_volume, 1),
+    voice_style: asText(raw.voice_style),
     visibility: personaVisibility(raw.visibility),
     version: asNumber(raw.version, 1),
     can_manage: asBoolean(raw.can_manage),
@@ -158,6 +170,41 @@ function normalizePersonaV2(value: unknown): PersonaV2 {
       : [],
     training_snapshot: asRecord(raw.training_snapshot) ?? {},
   }
+}
+
+export async function listTrainingVoiceCatalog(): Promise<
+  TrainingVoiceProfile[]
+> {
+  const response = await api.get<TalkWiseResponse<unknown[]>>(
+    `${TALKWISE_PERSONAS_API}/voice-catalog`,
+    requestConfig
+  )
+  const items = requireData(response.data)
+  return items.flatMap((item) => {
+    const raw = asRecord(item)
+    const id = asText(raw?.id)
+    if (!raw || !id) return []
+    const fallback = TRAINING_VOICE_OPTIONS.find((option) => option.id === id)
+    return [
+      {
+        id,
+        provider: asText(raw.provider) ?? 'volcengine',
+        service: asText(raw.service) ?? 'tts_streaming',
+        model: asText(raw.model) ?? 'doubao-bigtts',
+        englishLabel: fallback?.englishLabel ?? asText(raw.english_label) ?? id,
+        chineseLabel: fallback?.chineseLabel ?? asText(raw.chinese_label) ?? id,
+        language: asText(raw.language) ?? 'zh-CN',
+        tags: Array.isArray(raw.tags)
+          ? raw.tags.filter((tag): tag is string => typeof tag === 'string')
+          : [],
+        supportsEmotion: asBoolean(raw.supports_emotion),
+        supportsSpeed: asBoolean(raw.supports_speed, true),
+        supportsLoudness: asBoolean(raw.supports_loudness, true),
+        supportsPitch: asBoolean(raw.supports_pitch),
+        supportsRealtimeS2s: asBoolean(raw.supports_realtime_s2s),
+      },
+    ]
+  })
 }
 
 function personaPath(personaId: string, suffix = ''): string {

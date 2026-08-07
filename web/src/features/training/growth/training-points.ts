@@ -33,6 +33,19 @@ interface TrainingPointEventDTO {
   created_at: string
 }
 
+interface TrainingCareerPathStageDTO {
+  id: string
+  stage_number?: number
+  level?: number
+  title: string
+  status: string
+  required_scenario_ids?: string[]
+  completed_scenario_count?: number
+  required_scenario_count?: number
+  focus_ids: string[]
+  recommended_scenario_ids: string[]
+}
+
 interface TrainingPointsSummaryDTO {
   unit: string
   unit_name: string
@@ -44,6 +57,7 @@ interface TrainingPointsSummaryDTO {
   level_progress_percentage: number
   completed_sessions: number
   recent_events: TrainingPointEventDTO[]
+  career_path?: TrainingCareerPathStageDTO[]
 }
 
 export interface TrainingPointEvent {
@@ -53,6 +67,20 @@ export interface TrainingPointEvent {
   readonly sourceType: string
   readonly sourceId: string
   readonly createdAt: string
+}
+
+export type TrainingCareerPathStageStatus = 'completed' | 'current' | 'locked'
+
+export interface TrainingCareerPathStage {
+  readonly id: string
+  readonly stageNumber: number
+  readonly title: string
+  readonly status: TrainingCareerPathStageStatus
+  readonly requiredScenarioIds: readonly string[]
+  readonly completedScenarioCount: number
+  readonly requiredScenarioCount: number
+  readonly focusIds: readonly string[]
+  readonly recommendedScenarioIds: readonly string[]
 }
 
 export interface TrainingPointsSummary {
@@ -66,6 +94,7 @@ export interface TrainingPointsSummary {
   readonly levelProgressPercentage: number
   readonly completedSessions: number
   readonly recentEvents: readonly TrainingPointEvent[]
+  readonly careerPath: readonly TrainingCareerPathStage[]
 }
 
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
@@ -79,6 +108,46 @@ function nonNegativeInteger(value: unknown): number {
 function requiredText(value: unknown, field: string): string {
   if (typeof value === 'string' && value.trim()) return value.trim()
   throw new Error(`Invalid Training Points ${field}`)
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) =>
+    typeof item === 'string' && item.trim() ? [item.trim()] : []
+  )
+}
+
+function careerPathStatus(value: unknown): TrainingCareerPathStageStatus {
+  if (value === 'completed' || value === 'current' || value === 'locked') {
+    return value
+  }
+  throw new Error('Invalid Training Points career path status')
+}
+
+function normalizeCareerPathStage(
+  value: TrainingCareerPathStageDTO
+): TrainingCareerPathStage {
+  return {
+    id: requiredText(value.id, 'career path id'),
+    stageNumber: Math.max(
+      1,
+      nonNegativeInteger(value.stage_number ?? value.level)
+    ),
+    title: requiredText(value.title, 'career path title'),
+    status: careerPathStatus(value.status),
+    requiredScenarioIds: stringList(
+      value.required_scenario_ids ?? value.recommended_scenario_ids
+    ),
+    completedScenarioCount: nonNegativeInteger(value.completed_scenario_count),
+    requiredScenarioCount:
+      value.required_scenario_count === undefined
+        ? stringList(
+            value.required_scenario_ids ?? value.recommended_scenario_ids
+          ).length
+        : nonNegativeInteger(value.required_scenario_count),
+    focusIds: stringList(value.focus_ids),
+    recommendedScenarioIds: stringList(value.recommended_scenario_ids),
+  }
 }
 
 export function trainingPointsSummaryUrl(apiBase: string): string {
@@ -120,6 +189,9 @@ export function normalizeTrainingPointsSummary(
             return []
           }
         })
+      : [],
+    careerPath: Array.isArray(value.career_path)
+      ? value.career_path.map(normalizeCareerPathStage)
       : [],
   }
 }

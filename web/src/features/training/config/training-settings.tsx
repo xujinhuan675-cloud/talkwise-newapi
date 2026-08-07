@@ -24,6 +24,7 @@ import {
   Plus,
   RotateCcw,
   Trash2,
+  Volume2,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -61,6 +62,13 @@ import { SettingsPageFrame } from '@/features/system-settings/components/setting
 import { SettingsPageFormActions } from '@/features/system-settings/components/settings-page-context'
 
 import { useTrainingHost } from '../host'
+import { listPersonas, listTrainingVoiceCatalog } from '../personas/api'
+import type { PersonaSummary } from '../personas/types'
+import {
+  DEFAULT_TRAINING_VOICE_ID,
+  TRAINING_VOICE_OPTIONS,
+  type TrainingVoiceProfile,
+} from '../training-voice'
 import {
   getTrainingRubricDefaults,
   getTrainingScenarioConfig,
@@ -202,7 +210,17 @@ function newScenario(
     required: false,
     enabled: true,
     openingLine: '',
-    persona: { name: '', role: '', style: '' },
+    persona: {
+      name: '',
+      role: '',
+      style: '',
+      voiceId: DEFAULT_TRAINING_VOICE_ID,
+      voiceSpeed: 1,
+      voiceLoudness: 1,
+      voiceEmotion: null,
+      voiceEmotionScale: 1,
+      voiceStyle: null,
+    },
     learnerRole: '',
     framework: 'prep',
     trainingPoints: [],
@@ -306,6 +324,18 @@ export function TrainingSettings() {
   const configQuery = useQuery({
     queryKey: ['training', 'scenario-config', host.apiBase],
     queryFn: () => getTrainingScenarioConfig(host.apiBase),
+    enabled: host.authStatus === 'authenticated',
+  })
+
+  const personaAssetsQuery = useQuery({
+    queryKey: ['training', 'persona-assets', host.apiBase],
+    queryFn: listPersonas,
+    enabled: host.authStatus === 'authenticated',
+  })
+
+  const voiceCatalogQuery = useQuery({
+    queryKey: ['training', 'voice-catalog', host.apiBase],
+    queryFn: listTrainingVoiceCatalog,
     enabled: host.authStatus === 'authenticated',
   })
 
@@ -730,6 +760,8 @@ export function TrainingSettings() {
                 {selectedScenario ? (
                   <ScenarioForm
                     scenario={selectedScenario}
+                    personaAssets={personaAssetsQuery.data ?? []}
+                    voiceOptions={voiceCatalogQuery.data ?? TRAINING_VOICE_OPTIONS}
                     dimensions={draft.dimensions}
                     isWeightValid={isWeightValid}
                     readOnly={!canManage}
@@ -842,6 +874,10 @@ export function TrainingSettings() {
 
 type ScenarioFormProps = {
   scenario: TrainingScenarioConfigDraft
+  personaAssets: PersonaSummary[]
+  voiceOptions: ReadonlyArray<
+    Pick<TrainingVoiceProfile, 'id' | 'englishLabel' | 'chineseLabel'>
+  >
   dimensions: TrainingScenarioDimension[]
   isWeightValid: boolean
   readOnly: boolean
@@ -877,6 +913,29 @@ function ScenarioForm(props: ScenarioFormProps) {
       persona: { ...scenario.persona, [key]: value },
       updatedAt: nowIso(),
     }))
+  }
+  const selectPersonaAsset = (value: string | null) => {
+    if (!value) return
+    if (value === '__scenario_profile__') {
+      patch({
+        persona: { ...props.scenario.persona, personaId: undefined },
+      })
+      return
+    }
+    const asset = props.personaAssets.find((item) => item.id === value)
+    if (!asset) return
+    patch({
+      persona: {
+        ...props.scenario.persona,
+        personaId: asset.id,
+        name: asset.name,
+        role: asset.role,
+        voiceId: asset.voiceId ?? props.scenario.persona.voiceId,
+        voiceSpeed: asset.voiceSpeed ?? props.scenario.persona.voiceSpeed,
+        voiceLoudness: asset.voiceVolume ?? props.scenario.persona.voiceLoudness,
+        voiceStyle: asset.voiceStyle ?? props.scenario.persona.voiceStyle,
+      },
+    })
   }
   const toggleDimension = (dimensionId: string, checked: boolean) => {
     props.onChange((scenario) => ({
@@ -936,6 +995,36 @@ function ScenarioForm(props: ScenarioFormProps) {
       </div>
 
       <SettingsFormGrid>
+        <SettingsFormGridItem span='full'>
+          <Label htmlFor='training-scenario-persona-asset'>
+            {props.localize('Persona asset', '角色资产')}
+          </Label>
+          <Select
+            disabled={props.readOnly}
+            value={props.scenario.persona.personaId ?? '__scenario_profile__'}
+            onValueChange={selectPersonaAsset}
+          >
+            <SelectTrigger id='training-scenario-persona-asset' className='w-full'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='__scenario_profile__'>
+                {props.localize('Use scenario profile', '使用场景角色配置')}
+              </SelectItem>
+              {props.personaAssets.map((asset) => (
+                <SelectItem key={asset.id} value={asset.id}>
+                  {asset.name} · {asset.role}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className='text-muted-foreground mt-1 text-xs'>
+            {props.localize(
+              'Selecting an asset uses its saved voice defaults for this scenario.',
+              '选择角色资产后，场景会使用该资产保存的默认音色。'
+            )}
+          </p>
+        </SettingsFormGridItem>
         <SettingsFormGridItem>
           <Label htmlFor='training-scenario-title'>
             {props.localize('Scenario name', '场景名称')}
@@ -1056,6 +1145,154 @@ function ScenarioForm(props: ScenarioFormProps) {
             rows={3}
             value={props.scenario.description}
             onChange={(event) => patch({ description: event.target.value })}
+          />
+        </SettingsFormGridItem>
+        <SettingsFormGridItem>
+          <Label htmlFor='training-scenario-voice'>
+            <span className='inline-flex items-center gap-1.5'>
+              <Volume2 className='size-4' />
+              {props.localize('Scenario voice', '场景音色')}
+            </span>
+          </Label>
+          <Select
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceId ?? DEFAULT_TRAINING_VOICE_ID}
+            onValueChange={(value) =>
+              value &&
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: { ...scenario.persona, voiceId: value },
+                updatedAt: nowIso(),
+              }))
+            }
+          >
+            <SelectTrigger id='training-scenario-voice' className='w-full'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {props.voiceOptions.map((voice) => (
+                <SelectItem key={voice.id} value={voice.id}>
+                  {props.localize(voice.englishLabel, voice.chineseLabel)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsFormGridItem>
+        <SettingsFormGridItem>
+          <Label htmlFor='training-scenario-voice-speed'>
+            {props.localize('Voice speed', '语速')}
+          </Label>
+          <Input
+            id='training-scenario-voice-speed'
+            type='number'
+            min={0.1}
+            max={2}
+            step={0.1}
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceSpeed}
+            onChange={(event) =>
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: {
+                  ...scenario.persona,
+                  voiceSpeed: Number(event.target.value) || 1,
+                },
+                updatedAt: nowIso(),
+              }))
+            }
+          />
+        </SettingsFormGridItem>
+        <SettingsFormGridItem>
+          <Label htmlFor='training-scenario-voice-emotion'>
+            {props.localize('Emotion', '情绪')}
+          </Label>
+          <Input
+            id='training-scenario-voice-emotion'
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceEmotion ?? ''}
+            placeholder={props.localize('calm or firm', 'calm 或 firm')}
+            onChange={(event) =>
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: {
+                  ...scenario.persona,
+                  voiceEmotion: event.target.value || null,
+                },
+                updatedAt: nowIso(),
+              }))
+            }
+          />
+        </SettingsFormGridItem>
+        <SettingsFormGridItem>
+          <Label htmlFor='training-scenario-voice-loudness'>
+            {props.localize('Loudness', '音量')}
+          </Label>
+          <Input
+            id='training-scenario-voice-loudness'
+            type='number'
+            min={0.5}
+            max={2}
+            step={0.1}
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceLoudness}
+            onChange={(event) =>
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: {
+                  ...scenario.persona,
+                  voiceLoudness: Number(event.target.value) || 1,
+                },
+                updatedAt: nowIso(),
+              }))
+            }
+          />
+        </SettingsFormGridItem>
+        <SettingsFormGridItem>
+          <Label htmlFor='training-scenario-voice-emotion-scale'>
+            {props.localize('Emotion intensity', '情绪强度')}
+          </Label>
+          <Input
+            id='training-scenario-voice-emotion-scale'
+            type='number'
+            min={0}
+            max={2}
+            step={0.1}
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceEmotionScale ?? 1}
+            onChange={(event) =>
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: {
+                  ...scenario.persona,
+                  voiceEmotionScale: Number(event.target.value) || 1,
+                },
+                updatedAt: nowIso(),
+              }))
+            }
+          />
+        </SettingsFormGridItem>
+        <SettingsFormGridItem span='full'>
+          <Label htmlFor='training-scenario-voice-style'>
+            {props.localize('Voice style instruction', '音色表达提示')}
+          </Label>
+          <Input
+            id='training-scenario-voice-style'
+            disabled={props.readOnly}
+            value={props.scenario.persona.voiceStyle ?? ''}
+            placeholder={props.localize(
+              'Optional: concise, warm, and confident',
+              '可选：简洁、温暖、有信心'
+            )}
+            onChange={(event) =>
+              props.onChange((scenario) => ({
+                ...scenario,
+                persona: {
+                  ...scenario.persona,
+                  voiceStyle: event.target.value || null,
+                },
+                updatedAt: nowIso(),
+              }))
+            }
           />
         </SettingsFormGridItem>
         <SettingsFormGridItem span='full'>

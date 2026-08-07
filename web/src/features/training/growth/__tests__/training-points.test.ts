@@ -56,6 +56,53 @@ test('normalizes the Training Points ledger without deriving points in the brows
       next_level_points: 1500,
       level_progress_percentage: 10,
       completed_sessions: 6,
+      career_path: [
+        {
+          id: 'foundation',
+          stage_number: 1,
+          title: 'Workplace foundations',
+          status: 'completed',
+          required_scenario_ids: [
+            'new-customer-discount',
+            'recruiter-sales-interview',
+          ],
+          completed_scenario_count: 2,
+          required_scenario_count: 2,
+          focus_ids: ['attentiveness', 'expression'],
+          recommended_scenario_ids: [],
+        },
+        {
+          id: 'collaboration',
+          stage_number: 2,
+          title: 'Collaborative communication',
+          status: 'current',
+          required_scenario_ids: [
+            'enterprise-demo-objection',
+            'project-scope-creep-boundary',
+          ],
+          completed_scenario_count: 1,
+          required_scenario_count: 2,
+          focus_ids: ['expression', 'coordination'],
+          recommended_scenario_ids: ['project-scope-creep-boundary'],
+        },
+        {
+          id: 'upward-management',
+          stage_number: 3,
+          title: 'Upward management',
+          status: 'locked',
+          required_scenario_ids: [
+            'daily-upward-results-report',
+            'budget-freeze-expansion',
+          ],
+          completed_scenario_count: 0,
+          required_scenario_count: 2,
+          focus_ids: ['attentiveness', 'expression', 'coordination'],
+          recommended_scenario_ids: [
+            'daily-upward-results-report',
+            'budget-freeze-expansion',
+          ],
+        },
+      ],
       recent_events: [
         {
           id: 7,
@@ -77,6 +124,53 @@ test('normalizes the Training Points ledger without deriving points in the brows
       nextLevelPoints: 1500,
       levelProgressPercentage: 10,
       completedSessions: 6,
+      careerPath: [
+        {
+          id: 'foundation',
+          stageNumber: 1,
+          title: 'Workplace foundations',
+          status: 'completed',
+          requiredScenarioIds: [
+            'new-customer-discount',
+            'recruiter-sales-interview',
+          ],
+          completedScenarioCount: 2,
+          requiredScenarioCount: 2,
+          focusIds: ['attentiveness', 'expression'],
+          recommendedScenarioIds: [],
+        },
+        {
+          id: 'collaboration',
+          stageNumber: 2,
+          title: 'Collaborative communication',
+          status: 'current',
+          requiredScenarioIds: [
+            'enterprise-demo-objection',
+            'project-scope-creep-boundary',
+          ],
+          completedScenarioCount: 1,
+          requiredScenarioCount: 2,
+          focusIds: ['expression', 'coordination'],
+          recommendedScenarioIds: ['project-scope-creep-boundary'],
+        },
+        {
+          id: 'upward-management',
+          stageNumber: 3,
+          title: 'Upward management',
+          status: 'locked',
+          requiredScenarioIds: [
+            'daily-upward-results-report',
+            'budget-freeze-expansion',
+          ],
+          completedScenarioCount: 0,
+          requiredScenarioCount: 2,
+          focusIds: ['attentiveness', 'expression', 'coordination'],
+          recommendedScenarioIds: [
+            'daily-upward-results-report',
+            'budget-freeze-expansion',
+          ],
+        },
+      ],
       recentEvents: [
         {
           id: 7,
@@ -109,6 +203,25 @@ test('loads Training Points through the authenticated host training base', async
           next_level_points: 500,
           level_progress_percentage: 20,
           completed_sessions: 1,
+          career_path: [
+            {
+              id: 'foundation',
+              stage_number: 1,
+              title: 'Workplace foundations',
+              status: 'current',
+              required_scenario_ids: [
+                'new-customer-discount',
+                'recruiter-sales-interview',
+              ],
+              completed_scenario_count: 0,
+              required_scenario_count: 2,
+              focus_ids: ['attentiveness', 'expression'],
+              recommended_scenario_ids: [
+                'new-customer-discount',
+                'recruiter-sales-interview',
+              ],
+            },
+          ],
           recent_events: [],
         },
       },
@@ -122,4 +235,22 @@ test('loads Training Points through the authenticated host training base', async
   const summary = await getTrainingPointsSummary('/api/talkwise/training')
   assert.equal(summary.totalPoints, 100)
   assert.equal(summary.levelProgressPercentage, 20)
+  assert.equal(summary.careerPath[0]?.status, 'current')
+})
+
+test('does not invent a career path when an older backend omits the contract', () => {
+  const summary = normalizeTrainingPointsSummary({
+    unit: 'TP',
+    unit_name: 'Training Points',
+    total_points: 0,
+    level: 1,
+    level_title: 'Foundation',
+    current_level_points: 0,
+    next_level_points: 500,
+    level_progress_percentage: 0,
+    completed_sessions: 0,
+    recent_events: [],
+  })
+
+  assert.deepEqual(summary.careerPath, [])
 })

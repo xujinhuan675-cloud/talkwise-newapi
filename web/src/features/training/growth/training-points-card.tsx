@@ -71,8 +71,8 @@ export function TrainingPointsCard(props: TrainingPointsCardProps) {
         </CardTitle>
         <CardDescription>
           {localize(
-            'Persistent progress from completed training sessions',
-            '\u5b8c\u6210\u8bad\u7ec3\u540e\u6301\u7eed\u7d2f\u79ef\u7684\u6210\u957f\u8bb0\u5f55'
+            'Training Points track practice effort; they do not unlock career stages.',
+            '\u8bad\u7ec3\u79ef\u5206\u53ea\u8bb0\u5f55\u8bad\u7ec3\u6295\u5165\uff0c\u4e0d\u7528\u4e8e\u89e3\u9501\u804c\u573a\u6210\u957f\u9636\u6bb5'
           )}
         </CardDescription>
         {summary && (

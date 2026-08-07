@@ -30,6 +30,10 @@ export interface PersonaSummary {
   readonly version: number
   readonly canManage: boolean
   readonly readOnly: boolean
+  readonly voiceId: string | null
+  readonly voiceSpeed: number
+  readonly voiceVolume: number
+  readonly voiceStyle: string | null
 }
 
 export interface PersonaDetail extends PersonaSummary {
@@ -87,6 +91,10 @@ export interface PersonaV2 {
   id: string
   name: string
   role: string
+  voice_id?: string | null
+  voice_speed?: number
+  voice_volume?: number
+  voice_style?: string | null
   visibility: PersonaVisibility
   version: number
   can_manage: boolean
@@ -107,6 +115,10 @@ export type PersonaV2Patch = Pick<
   PersonaV2,
   | 'name'
   | 'role'
+  | 'voice_id'
+  | 'voice_speed'
+  | 'voice_volume'
+  | 'voice_style'
   | 'hard_rules'
   | 'identity'
   | 'expression'
@@ -122,6 +134,10 @@ export interface CreatePersonaInput {
   readonly role: string
   readonly content: string
   readonly visibility: Exclude<PersonaVisibility, 'system'>
+  readonly voice_id?: string | null
+  readonly voice_speed?: number
+  readonly voice_volume?: number
+  readonly voice_style?: string | null
 }
 
 export interface UpdatePersonaInput {
@@ -129,6 +145,9 @@ export interface UpdatePersonaInput {
   readonly role?: string
   readonly content?: string
   readonly visibility?: Exclude<PersonaVisibility, 'system'>
+  readonly voice_id?: string | null
+  readonly voice_speed?: number
+  readonly voice_style?: string | null
 }
 
 export interface DetectedSpeaker {

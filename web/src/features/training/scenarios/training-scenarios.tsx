@@ -21,6 +21,7 @@ import { useNavigate } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
 import {
   CircleAlert,
+  ListRestart,
   LoaderCircle,
   MessageSquare,
   MessagesSquare,
@@ -84,22 +85,26 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 import { useTrainingHost } from '../host'
+import type { RealtimeProfile } from '../studio/realtime-client'
 import {
   scenarioPressure,
-  type TrainingFocusScope,
   type TrainingLengthProfile,
   type TrainingPressure,
 } from '../training-plan'
 import {
   type buildTrainingSessionRequest,
   filterTrainingScenarios,
+  isTrainingModeSelectionAvailable,
   launchScenarioTrainingSession,
   listTrainingScenarios,
   ScenarioTrainingStartError,
   startScenarioTrainingSession,
   trainingRequestErrorMessage,
+  trainingSessionModeForSelection,
 } from './api'
 import type {
+  TrainingInteractionMode,
+  TrainingModality,
   TrainingScenario,
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
@@ -121,14 +126,20 @@ const CATEGORY_OPTIONS: Array<TrainingScenarioCategory | 'all'> = [
   'interview',
   'workplace',
 ]
-const SESSION_MODES: Array<{
+const SESSION_MODALITIES: Array<{
   icon: typeof MessageSquare
-  value: TrainingSessionMode
+  value: TrainingModality
 }> = [
   { icon: MessageSquare, value: 'text' },
   { icon: Mic, value: 'voice' },
-  { icon: Radio, value: 'realtime' },
   { icon: Video, value: 'video' },
+]
+const INTERACTION_MODES: Array<{
+  icon: typeof MessageSquare
+  value: TrainingInteractionMode
+}> = [
+  { icon: ListRestart, value: 'turn_based' },
+  { icon: Radio, value: 'realtime' },
 ]
 const SKELETON_ROWS = Array.from(
   { length: 5 },
@@ -412,13 +423,15 @@ export function TrainingScenarios() {
   )
   const [selectedScenario, setSelectedScenario] =
     useState<TrainingScenario | null>(null)
-  const [mode, setMode] = useState<TrainingSessionMode>('text')
-  const [focusScope, setFocusScope] =
-    useState<TrainingFocusScope>('recommended')
+  const [modality, setModality] = useState<TrainingModality>('text')
+  const [interactionMode, setInteractionMode] =
+    useState<TrainingInteractionMode>('turn_based')
   const [selectedFocus, setSelectedFocus] = useState<readonly string[]>([])
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
   const [lengthProfile, setLengthProfile] =
     useState<TrainingLengthProfile>('standard')
+  const [realtimeProfile, setRealtimeProfile] =
+    useState<RealtimeProfile>('cascade')
   const [retrySessionId, setRetrySessionId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useDataTableViewMode({
     storageKey: 'talkwise.training-scenarios.view-mode',
@@ -438,6 +451,7 @@ export function TrainingScenarios() {
       mode: TrainingSessionMode
       plan: Parameters<typeof buildTrainingSessionRequest>[2]
       retrySessionId: string | null
+      realtimeProfile?: RealtimeProfile
       scenario: TrainingScenario
     }) => {
       if (request.retrySessionId) {
@@ -446,14 +460,16 @@ export function TrainingScenarios() {
           request.retrySessionId,
           request.scenario,
           request.mode,
-          request.plan
+          request.plan,
         )
       }
       return launchScenarioTrainingSession(
         host.apiBase,
         request.scenario,
         request.mode,
-        request.plan
+        request.plan,
+        undefined,
+        request.realtimeProfile
       )
     },
     onSuccess: (session) => {
@@ -515,12 +531,18 @@ export function TrainingScenarios() {
     }
     return labels[value]
   }
-  const modeLabel = (value: TrainingSessionMode) => {
+  const modalityLabel = (value: TrainingModality) => {
     const labels = {
       text: localize('Text', '文本'),
       voice: localize('Voice', '语音'),
-      realtime: localize('Realtime voice', '实时语音'),
       video: localize('Video', '视频'),
+    }
+    return labels[value]
+  }
+  const interactionModeLabel = (value: TrainingInteractionMode) => {
+    const labels = {
+      turn_based: localize('Turn based', '回合制'),
+      realtime: localize('Realtime', '实时'),
     }
     return labels[value]
   }
@@ -549,11 +571,12 @@ export function TrainingScenarios() {
   const openScenario = (scenario: TrainingScenario) => {
     createSessionMutation.reset()
     setRetrySessionId(null)
-    setMode('text')
-    setFocusScope('recommended')
-    setSelectedFocus(scenario.trainingPoints.slice(0, 3))
+    setModality('text')
+    setInteractionMode('turn_based')
+    setSelectedFocus(scenario.trainingPoints)
     setPressure(scenarioPressure(scenario.difficulty))
     setLengthProfile('standard')
+    setRealtimeProfile('cascade')
     setSelectedScenario(scenario)
   }
   const closeScenario = () => {
@@ -563,17 +586,25 @@ export function TrainingScenarios() {
     setSelectedScenario(null)
   }
   const createSelectedSession = () => {
-    if (!selectedScenario) return
+    if (!selectedScenario || modality === 'video') return
+    const mode = trainingSessionModeForSelection({
+      modality,
+      interactionMode,
+    })
     createSessionMutation.mutate({
       mode,
       scenario: selectedScenario,
       plan: {
-        focusScope,
+        focusScope:
+          selectedFocus.length === selectedScenario.trainingPoints.length
+            ? 'all'
+            : 'custom',
         selectedFocus,
         pressure,
         lengthProfile,
       },
       retrySessionId,
+      ...(mode === 'realtime' ? { realtimeProfile } : {}),
     })
   }
   let startButtonLabel = localize('Start training', '开始训练')
@@ -736,47 +767,26 @@ export function TrainingScenarios() {
           {selectedScenario && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedScenario.title}</DialogTitle>
+                <DialogTitle>
+                  {localize('Training settings', '训练设置')}
+                </DialogTitle>
                 <DialogDescription>
-                  {selectedScenario.description}
+                  {localize(
+                    'Configure this practice session before starting.',
+                    '开始前配置本次练习。'
+                  )}
                 </DialogDescription>
               </DialogHeader>
 
               <div className='space-y-4'>
-                <dl className='grid grid-cols-2 gap-x-4 gap-y-3 text-sm'>
-                  <div>
-                    <dt className='text-muted-foreground text-xs'>
-                      {localize('Counterpart', '对练角色')}
-                    </dt>
-                    <dd className='mt-1 font-medium'>
-                      {selectedScenario.persona.name}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-muted-foreground text-xs'>
-                      {localize('Learner role', '练习者角色')}
-                    </dt>
-                    <dd className='mt-1 font-medium'>
-                      {selectedScenario.learnerRole}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-muted-foreground text-xs'>
-                      {localize('Category', '类型')}
-                    </dt>
-                    <dd className='mt-1'>
-                      {categoryLabel(selectedScenario.category)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className='text-muted-foreground text-xs'>
-                      {localize('Difficulty', '难度')}
-                    </dt>
-                    <dd className='mt-1'>
-                      {difficultyLabel(selectedScenario.difficulty)}
-                    </dd>
-                  </div>
-                </dl>
+                <div className='flex items-baseline gap-3 text-sm'>
+                  <span className='text-muted-foreground'>
+                    {localize('Learner role', '练习者角色')}
+                  </span>
+                  <span className='font-medium'>
+                    {selectedScenario.learnerRole}
+                  </span>
+                </div>
 
                 {selectedScenario.trainingPoints.length > 0 && (
                   <div className='space-y-2'>
@@ -791,7 +801,6 @@ export function TrainingScenarios() {
                             disabled={createSessionMutation.isPending}
                             key={point}
                             onClick={() => {
-                              setFocusScope('custom')
                               setSelectedFocus((current) =>
                                 current.includes(point)
                                   ? current.filter((item) => item !== point)
@@ -806,41 +815,6 @@ export function TrainingScenarios() {
                         )
                       })}
                     </div>
-                    <ToggleGroup
-                      aria-label={localize(
-                        'Training focus scope',
-                        '训练重点范围'
-                      )}
-                      className='grid w-full grid-cols-3'
-                      disabled={createSessionMutation.isPending}
-                      onValueChange={(values) => {
-                        const next = values.find(
-                          (value) => value !== focusScope
-                        )
-                        if (!next) return
-                        const scope = next as TrainingFocusScope
-                        setFocusScope(scope)
-                        if (scope === 'recommended') {
-                          setSelectedFocus(
-                            selectedScenario.trainingPoints.slice(0, 3)
-                          )
-                        } else if (scope === 'all') {
-                          setSelectedFocus(selectedScenario.trainingPoints)
-                        }
-                      }}
-                      value={[focusScope]}
-                      variant='outline'
-                    >
-                      <ToggleGroupItem value='recommended'>
-                        {localize('Recommended', '推荐')}
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value='all'>
-                        {localize('All', '全部')}
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value='custom'>
-                        {localize('Custom', '自选')}
-                      </ToggleGroupItem>
-                    </ToggleGroup>
                   </div>
                 )}
 
@@ -903,33 +877,174 @@ export function TrainingScenarios() {
                 </div>
 
                 <div className='space-y-2'>
-                  <Label>{localize('Training mode', '训练模式')}</Label>
+                  <Label>{localize('Training modality', '训练媒介')}</Label>
                   <ToggleGroup
-                    value={[mode]}
+                    value={[modality]}
                     onValueChange={(values) => {
-                      const nextMode = values.find((value) => value !== mode)
-                      if (nextMode) setMode(nextMode as TrainingSessionMode)
+                      const nextModality = values.find(
+                        (value) => value !== modality
+                      ) as TrainingModality | undefined
+                      if (!nextModality) return
+                      setModality(nextModality)
+                      if (
+                        !isTrainingModeSelectionAvailable({
+                          modality: nextModality,
+                          interactionMode,
+                        })
+                      ) {
+                        setInteractionMode('turn_based')
+                      }
                     }}
                     variant='outline'
-                    className='grid w-full grid-cols-2 sm:grid-cols-4'
+                    className='grid w-full grid-cols-3'
                     disabled={createSessionMutation.isPending}
-                    aria-label={localize('Training mode', '训练模式')}
+                    aria-label={localize('Training modality', '训练媒介')}
                   >
-                    {SESSION_MODES.map((option) => {
+                    {SESSION_MODALITIES.map((option) => {
                       const Icon = option.icon
+                      const available = option.value !== 'video'
                       return (
                         <ToggleGroupItem
                           key={option.value}
                           value={option.value}
-                          className='w-full'
+                          className='h-auto min-h-9 w-full flex-wrap gap-1 py-1'
+                          disabled={!available}
+                          title={
+                            available
+                              ? undefined
+                              : localize(
+                                  'Video training is coming soon',
+                                  '视频训练即将开放'
+                                )
+                          }
                         >
                           <Icon />
-                          {modeLabel(option.value)}
+                          {modalityLabel(option.value)}
+                          {!available && (
+                            <Badge
+                              variant='secondary'
+                              className='px-1.5 text-[10px]'
+                            >
+                              {localize('Coming soon', '即将开放')}
+                            </Badge>
+                          )}
                         </ToggleGroupItem>
                       )
                     })}
                   </ToggleGroup>
                 </div>
+
+                {modality !== 'text' && (
+                  <div className='space-y-2'>
+                    <Label>{localize('Interaction mode', '交互方式')}</Label>
+                    <ToggleGroup
+                      value={[interactionMode]}
+                      onValueChange={(values) => {
+                        const nextInteractionMode = values.find(
+                          (value) => value !== interactionMode
+                        ) as TrainingInteractionMode | undefined
+                        if (nextInteractionMode) {
+                          setInteractionMode(nextInteractionMode)
+                        }
+                      }}
+                      variant='outline'
+                      className='grid w-full grid-cols-2'
+                      disabled={createSessionMutation.isPending}
+                      aria-label={localize('Interaction mode', '交互方式')}
+                    >
+                      {INTERACTION_MODES.map((option) => {
+                        const Icon = option.icon
+                        const available = isTrainingModeSelectionAvailable({
+                          modality,
+                          interactionMode: option.value,
+                        })
+                        return (
+                          <ToggleGroupItem
+                            key={option.value}
+                            value={option.value}
+                            className='w-full'
+                            disabled={!available}
+                            title={
+                              available
+                                ? undefined
+                                : localize(
+                                    'Realtime video is coming soon',
+                                    '实时视频即将开放'
+                                  )
+                            }
+                          >
+                            <Icon />
+                            {interactionModeLabel(option.value)}
+                            {!available && (
+                              <Badge
+                                variant='secondary'
+                                className='ml-1 px-1.5 text-[10px]'
+                              >
+                                {localize('Coming soon', '即将开放')}
+                              </Badge>
+                            )}
+                          </ToggleGroupItem>
+                        )
+                      })}
+                    </ToggleGroup>
+                  </div>
+                )}
+
+                {modality === 'voice' && interactionMode === 'realtime' && (
+                  <div className='space-y-2'>
+                    <Label className='flex items-center gap-1.5'>
+                      <Radio className='size-4' />
+                      {localize(
+                        'Realtime voice pipeline',
+                        '\u5b9e\u65f6\u8bed\u97f3\u94fe\u8def'
+                      )}
+                    </Label>
+                    <Select
+                      disabled={
+                        createSessionMutation.isPending ||
+                        retrySessionId !== null
+                      }
+                      value={realtimeProfile}
+                      onValueChange={(value) =>
+                        value && setRealtimeProfile(value as RealtimeProfile)
+                      }
+                    >
+                      <SelectTrigger
+                        aria-label={localize(
+                          'Realtime voice pipeline',
+                          '\u5b9e\u65f6\u8bed\u97f3\u94fe\u8def'
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value='cascade'>
+                          {localize(
+                            'Cascaded: STT + LLM + TTS',
+                            '\u7ea7\u8054\uff1aSTT + LLM + TTS'
+                          )}
+                        </SelectItem>
+                        <SelectItem value='speech_to_speech'>
+                          {localize(
+                            'Native speech-to-speech model',
+                            '\u539f\u751f\u5b9e\u65f6\u8bed\u97f3\u6a21\u578b'
+                          )}
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className='text-muted-foreground text-xs leading-relaxed'>
+                      {realtimeProfile === 'cascade'
+                        ? localize(
+                            'Uses the configured STT, LLM, and TTS services.',
+                            '\u4f7f\u7528\u540e\u7aef\u5df2\u914d\u7f6e\u7684 STT\u3001LLM \u548c TTS \u670d\u52a1\u3002'
+                          )
+                        : localize(
+                            'Uses one configured realtime audio model without separate STT or TTS selection.',
+                            '\u4f7f\u7528\u4e00\u4e2a\u5df2\u914d\u7f6e\u7684\u5b9e\u65f6\u97f3\u9891\u6a21\u578b\uff0c\u4e0d\u5355\u72ec\u9009\u62e9 STT \u6216 TTS\u3002'
+                          )}
+                    </p>
+                  </div>
+                )}
 
                 {createSessionMutation.isError && (
                   <Alert variant='destructive'>
@@ -963,6 +1078,7 @@ export function TrainingScenarios() {
                   onClick={createSelectedSession}
                   disabled={
                     createSessionMutation.isPending ||
+                    modality === 'video' ||
                     selectedFocus.length === 0
                   }
                 >
