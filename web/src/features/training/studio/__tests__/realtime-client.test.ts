@@ -25,6 +25,7 @@ import {
   pcm16ToBase64,
   realtimeAudioContract,
   realtimeEventAudio,
+  realtimeEventError,
   realtimeEventText,
   talkWiseBearerProtocol,
   trainingRealtimeWebSocketUrl,
@@ -139,5 +140,17 @@ describe('training realtime client contract', () => {
     const decodedAudio = realtimeEventAudio(audio)
     assert.ok(decodedAudio)
     assert.deepEqual([...decodedAudio.bytes], [0, 1, 2, 3])
+  })
+
+  test('normalizes realtime failures for the native error notification', () => {
+    const error = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: { message: 'Realtime provider is unavailable.' },
+      })
+    )
+
+    assert.ok(error)
+    assert.equal(realtimeEventError(error), 'Realtime provider is unavailable.')
   })
 })

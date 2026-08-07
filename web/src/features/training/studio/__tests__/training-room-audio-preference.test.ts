@@ -25,7 +25,6 @@ import {
   loadTrainingRoomAudioEnabled,
   markTrainingOpeningPlayed,
   saveTrainingRoomAudioEnabled,
-  trainingOpeningSpeechLanguage,
 } from '../training-room-audio-preference'
 import type { TrainingRoomMessage } from '../training-room-client'
 
@@ -75,9 +74,4 @@ test('finds the persisted scenario opening and records one playback', () => {
 
 test('does not treat ordinary persona replies as the opening', () => {
   assert.equal(findTrainingOpeningMessage([message('reply-1', {})]), null)
-})
-
-test('uses Mandarin for Chinese opening text', () => {
-  assert.equal(trainingOpeningSpeechLanguage('你好', 'en-US'), 'zh-CN')
-  assert.equal(trainingOpeningSpeechLanguage('Welcome', 'en-US'), 'en-US')
 })

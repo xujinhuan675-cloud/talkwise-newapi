@@ -19,9 +19,14 @@ For commercial licensing, please contact support@quantumnous.com
 import { api } from '@/lib/http-client'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { trainingApiUrl } from '../scenarios/api'
+import { trainingMessagePresentation } from '../training-message-presentation'
+
 export type TrainingRoomSender = 'persona' | 'system' | 'user'
 
 export interface TrainingRoomMessage {
+  audioReplay?: TrainingRoomAudioReplay | null
+  audioSynthesisAvailable?: boolean
   content: string
   emotionLabel: string | null
   emotionScore: number | null
@@ -32,6 +37,31 @@ export interface TrainingRoomMessage {
   senderType: TrainingRoomSender
   timestamp: string | null
   videoAnswer: TrainingRoomVideoAnswer | null
+}
+
+export interface TrainingRoomAudioReplay {
+  available: true
+  original: boolean
+  provenance: string | null
+  segmentCount: number
+  trainingMode: string | null
+}
+
+export interface TrainingRoomAudioSegment {
+  index: number
+  mimeType: string
+  size: number
+}
+
+export interface TrainingRoomAudioManifest {
+  available: true
+  messageId: string
+  original: boolean
+  provenance: string | null
+  roomId: string
+  segmentCount: number
+  segments: TrainingRoomAudioSegment[]
+  trainingSessionId: string
 }
 
 export interface TrainingRoomVideoAnswer {
@@ -112,6 +142,32 @@ function senderType(value: unknown): TrainingRoomSender {
   return 'system'
 }
 
+function trainingRoomAudioReplay(
+  metadata: Record<string, unknown>
+): TrainingRoomAudioReplay | null {
+  const replay = recordValue(metadata.aiAudio)
+  const segmentCount = numberValue(replay?.segmentCount)
+  const trainingMode = textValue(replay?.trainingMode)?.toLowerCase() ?? null
+  if (
+    replay?.available !== true ||
+    typeof replay.original !== 'boolean' ||
+    segmentCount == null ||
+    !Number.isSafeInteger(segmentCount) ||
+    segmentCount < 1 ||
+    !trainingMode ||
+    !['voice', 'realtime', 'realtime_voice', 'video'].includes(trainingMode)
+  ) {
+    return null
+  }
+  return {
+    available: true,
+    original: replay.original,
+    provenance: textValue(replay.provenance),
+    segmentCount,
+    trainingMode,
+  }
+}
+
 export function trainingRoomPath(roomId: string, sessionId: string): string {
   const normalizedRoomId = roomId.trim()
   const normalizedSessionId = sessionId.trim()
@@ -178,12 +234,30 @@ export function normalizeTrainingRoomMessages(
         ? rawEmotionScore
         : null
     const rawMetadata = recordValue(message.metadata) ?? {}
+    const presentation = trainingMessagePresentation(
+      parsedContent.caption,
+      rawMetadata,
+      emotionScore,
+      textValue(message.emotion_label)
+    )
 
+    const audioReplay = trainingRoomAudioReplay(rawMetadata)
+    const trainingMode = textValue(rawMetadata.trainingMode)?.toLowerCase()
+    const isHistoricalVoiceOpening =
+      senderType(message.sender_type) === 'persona' &&
+      !audioReplay &&
+      trainingMode === 'voice' &&
+      (textValue(rawMetadata.eventKind) === 'scenario_opening' ||
+        ['training_opening_message', 'scenario_training_opening'].includes(
+          textValue(rawMetadata.source) ?? ''
+        ))
     return [
       {
-        content: parsedContent.caption,
-        emotionLabel: textValue(message.emotion_label),
-        emotionScore,
+        ...(audioReplay ? { audioReplay } : {}),
+        ...(isHistoricalVoiceOpening ? { audioSynthesisAvailable: true } : {}),
+        content: presentation.content,
+        emotionLabel: presentation.emotion.label,
+        emotionScore: presentation.emotion.score,
         id: String(
           message.id ?? `${message.sender_type ?? 'message'}-${index}`
         ),
@@ -320,6 +394,165 @@ export async function loadTrainingRoomMessages(
   return normalizeTrainingRoomMessages(response.data)
 }
 
+export function trainingRoomMessageAudioPath(
+  roomId: string,
+  sessionId: string,
+  messageId: string,
+  segmentIndex?: number
+): string {
+  const normalizedRoomId = roomId.trim()
+  const normalizedSessionId = sessionId.trim()
+  const normalizedMessageId = messageId.trim()
+  if (!normalizedRoomId || !normalizedSessionId || !normalizedMessageId) {
+    throw new Error('A training session, room, and message are required.')
+  }
+  const suffix =
+    segmentIndex === undefined
+      ? ''
+      : `/${encodeURIComponent(String(segmentIndex))}`
+  const params = new URLSearchParams({
+    trainingSessionId: normalizedSessionId,
+  })
+  return `${ROOM_PROXY_BASE}/rooms/${encodeURIComponent(normalizedRoomId)}/messages/${encodeURIComponent(normalizedMessageId)}/audio${suffix}?${params.toString()}`
+}
+
+export async function loadTrainingRoomMessageAudioManifest(
+  roomId: string,
+  sessionId: string,
+  messageId: string,
+  signal?: AbortSignal
+): Promise<TrainingRoomAudioManifest> {
+  const response = await api.get<TalkWiseResponse<unknown>>(
+    trainingRoomMessageAudioPath(roomId, sessionId, messageId),
+    {
+      signal,
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  const envelope = recordValue(response.data)
+  const value = recordValue(envelope?.data)
+  const segments = Array.isArray(value?.segments)
+    ? value.segments.flatMap((item) => {
+        const segment = recordValue(item)
+        const index = numberValue(segment?.index)
+        if (index == null || !Number.isSafeInteger(index) || index < 0) {
+          return []
+        }
+        return [
+          {
+            index,
+            mimeType:
+              textValue(segment?.mimeType) ?? 'application/octet-stream',
+            size: numberValue(segment?.size) ?? 0,
+          },
+        ]
+      })
+    : []
+  if (
+    value?.available !== true ||
+    typeof value.original !== 'boolean' ||
+    segments.length === 0
+  ) {
+    throw new Error('AI audio is not available for this message.')
+  }
+  return {
+    available: true,
+    messageId: String(value.messageId ?? messageId),
+    original: value.original,
+    provenance: textValue(value.provenance),
+    roomId: String(value.roomId ?? roomId),
+    segmentCount: segments.length,
+    segments,
+    trainingSessionId: String(value.trainingSessionId ?? sessionId),
+  }
+}
+
+export async function synthesizeTrainingRoomMessageAudio(
+  roomId: string,
+  sessionId: string,
+  messageId: string,
+  signal?: AbortSignal
+): Promise<TrainingRoomAudioManifest> {
+  const manifestPath = trainingRoomMessageAudioPath(
+    roomId,
+    sessionId,
+    messageId
+  )
+  const queryIndex = manifestPath.indexOf('?')
+  const synthesisPath =
+    queryIndex < 0
+      ? `${manifestPath}/synthesize`
+      : `${manifestPath.slice(0, queryIndex)}/synthesize${manifestPath.slice(queryIndex)}`
+  const response = await api.post<TalkWiseResponse<unknown>>(
+    synthesisPath,
+    undefined,
+    {
+      signal,
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  const envelope = recordValue(response.data)
+  const value = recordValue(envelope?.data)
+  const segments = Array.isArray(value?.segments)
+    ? value.segments.flatMap((item) => {
+        const segment = recordValue(item)
+        const index = numberValue(segment?.index)
+        if (index == null || !Number.isSafeInteger(index) || index < 0) {
+          return []
+        }
+        return [
+          {
+            index,
+            mimeType:
+              textValue(segment?.mimeType) ?? 'application/octet-stream',
+            size: numberValue(segment?.size) ?? 0,
+          },
+        ]
+      })
+    : []
+  if (
+    value?.available !== true ||
+    typeof value.original !== 'boolean' ||
+    segments.length === 0
+  ) {
+    throw new Error('Synthesized AI audio is not available for this message.')
+  }
+  return {
+    available: true,
+    messageId: String(value.messageId ?? messageId),
+    original: value.original,
+    provenance: textValue(value.provenance),
+    roomId: String(value.roomId ?? roomId),
+    segmentCount: segments.length,
+    segments,
+    trainingSessionId: String(value.trainingSessionId ?? sessionId),
+  }
+}
+
+export async function loadTrainingRoomMessageAudioSegment(
+  roomId: string,
+  sessionId: string,
+  messageId: string,
+  segmentIndex: number,
+  signal?: AbortSignal
+): Promise<ArrayBuffer> {
+  const response = await api.get<ArrayBuffer>(
+    trainingRoomMessageAudioPath(roomId, sessionId, messageId, segmentIndex),
+    {
+      signal,
+      responseType: 'arraybuffer',
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
+  return response.data
+}
+
 export async function sendTrainingRoomMessage(
   roomId: string,
   sessionId: string,
@@ -357,14 +590,11 @@ export async function completeTrainingRoomSession(
   generateReport: boolean,
   signal?: AbortSignal
 ): Promise<TrainingRoomCompletionResult> {
-  const normalizedApiBase = trainingApiBase.replace(/\/+$/, '')
+  const completionPath = trainingRoomCompletionPath(trainingApiBase, sessionId)
   const normalizedSessionId = sessionId.trim()
-  if (!normalizedApiBase || !normalizedSessionId) {
-    throw new Error('A training API base and session id are required.')
-  }
 
   const response = await api.post<TalkWiseResponse<unknown>>(
-    `${normalizedApiBase}/sessions/${encodeURIComponent(normalizedSessionId)}/complete`,
+    completionPath,
     {
       generate_report: generateReport,
       report_generation: 'sync',
@@ -388,6 +618,20 @@ export async function completeTrainingRoomSession(
     )
   }
   return result
+}
+
+export function trainingRoomCompletionPath(
+  trainingApiBase: string,
+  sessionId: string
+): string {
+  const normalizedSessionId = sessionId.trim()
+  if (!normalizedSessionId) {
+    throw new Error('A training session id is required.')
+  }
+  return trainingApiUrl(
+    trainingApiBase,
+    `/sessions/${encodeURIComponent(normalizedSessionId)}/complete`
+  )
 }
 
 export async function streamTrainingRoomEvents(

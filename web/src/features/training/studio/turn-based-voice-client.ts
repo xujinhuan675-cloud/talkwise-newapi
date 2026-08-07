@@ -34,6 +34,12 @@ export type TurnBasedVoiceStatus =
   | 'requesting_permission'
   | 'transcribing'
 
+export function isTurnBasedVoiceInputActive(
+  status: TurnBasedVoiceStatus
+): boolean {
+  return !['error', 'idle', 'persisted'].includes(status)
+}
+
 export interface TurnBasedVoiceServerEvent {
   code?: string
   details?: string
@@ -46,6 +52,20 @@ export interface TurnBasedVoiceServerEvent {
 export interface PersistedVoiceMessage {
   content: string | null
   id: number | string | null
+}
+
+export function abortTurnBasedVoiceRecorder(
+  recorder: MediaRecorder | null
+): void {
+  if (!recorder) return
+  recorder.ondataavailable = null
+  recorder.onstop = null
+  if (recorder.state === 'inactive') return
+  try {
+    recorder.stop()
+  } catch {
+    // The browser may finish the recorder between the state check and stop.
+  }
 }
 
 interface VoiceLocation {
@@ -67,6 +87,9 @@ interface VoiceSpeechEndFrame {
   format: 'wav'
   metadata: {
     interactionMode: 'turn_based'
+    llm?: {
+      model: string
+    }
     media: {
       channels: 1
       mimeType: 'audio/wav'
@@ -75,6 +98,12 @@ interface VoiceSpeechEndFrame {
     modality: 'voice'
     source: 'voice_transcription'
     trainingMode: 'voice'
+    trainingVoiceId?: string
+    trainingVoiceSpeed?: number
+    trainingVoiceLoudness?: number
+    trainingVoiceEmotion?: string
+    trainingVoiceEmotionScale?: number
+    trainingVoiceStyle?: string
   }
   type: 'speech_end'
 }
@@ -82,6 +111,11 @@ interface VoiceSpeechEndFrame {
 export type TurnBasedVoiceClientFrame =
   | VoiceAudioChunkFrame
   | VoiceSpeechEndFrame
+
+export interface TurnBasedVoiceFrameOptions {
+  llmModel?: string
+  voiceMetadata?: Readonly<Record<string, unknown>>
+}
 
 export function turnBasedVoiceProtocols(accessToken: string): string[] {
   return [
@@ -199,7 +233,8 @@ export function voiceServerError(
 
 export function buildTurnBasedVoiceFrames(
   wavBytes: Uint8Array,
-  maxChunkBytes = TURN_BASED_VOICE_CHUNK_BYTES
+  maxChunkBytes = TURN_BASED_VOICE_CHUNK_BYTES,
+  options: TurnBasedVoiceFrameOptions = {}
 ): TurnBasedVoiceClientFrame[] {
   if (!Number.isSafeInteger(maxChunkBytes) || maxChunkBytes <= 0) {
     throw new Error('Voice chunk size must be a positive integer.')
@@ -208,6 +243,7 @@ export function buildTurnBasedVoiceFrames(
     throw new Error('No audio data was recorded.')
   }
 
+  const llmModel = options.llmModel?.trim()
   const frames: TurnBasedVoiceClientFrame[] = []
   for (let offset = 0; offset < wavBytes.length; offset += maxChunkBytes) {
     frames.push({
@@ -215,10 +251,26 @@ export function buildTurnBasedVoiceFrames(
       type: 'audio_chunk',
     })
   }
+  const voiceMetadata = options.voiceMetadata ?? {}
+  const trainingVoiceFields = Object.fromEntries(
+    [
+      'trainingVoiceId',
+      'trainingVoiceSpeed',
+      'trainingVoiceLoudness',
+      'trainingVoiceEmotion',
+      'trainingVoiceEmotionScale',
+      'trainingVoiceStyle',
+    ].flatMap((key) =>
+      voiceMetadata[key] === undefined || voiceMetadata[key] === null
+        ? []
+        : [[key, voiceMetadata[key]]]
+    )
+  )
   frames.push({
     format: TURN_BASED_VOICE_FORMAT,
     metadata: {
       interactionMode: 'turn_based',
+      ...(llmModel ? { llm: { model: llmModel } } : {}),
       media: {
         channels: 1,
         mimeType: TURN_BASED_VOICE_MIME_TYPE,
@@ -227,6 +279,7 @@ export function buildTurnBasedVoiceFrames(
       modality: 'voice',
       source: 'voice_transcription',
       trainingMode: 'voice',
+      ...trainingVoiceFields,
     },
     type: 'speech_end',
   })

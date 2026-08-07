@@ -83,11 +83,3 @@ export function findTrainingOpeningMessage(
     }) ?? null
   )
 }
-
-export function trainingOpeningSpeechLanguage(
-  content: string,
-  interfaceLanguage: string
-): string {
-  if (/\p{Script=Han}/u.test(content)) return 'zh-CN'
-  return interfaceLanguage.trim() || 'en-US'
-}

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Flag, LoaderCircle, Radio, ShieldAlert, Video } from 'lucide-react'
+import { Check, Flag, LoaderCircle, ShieldAlert, Video } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -50,13 +50,14 @@ import { TrainingConversationComposer } from '../conversation-workspace/training
 import { TrainingConversationHeaderActions } from '../conversation-workspace/training-conversation-header-actions'
 import { TrainingConversationInsights } from '../conversation-workspace/training-conversation-insights'
 import type { TrainingConversationSession } from '../conversations/api'
-import { RealtimeTrainingPanel } from './realtime-training-panel'
+import { RealtimeVoiceControl } from './realtime-training-panel'
 import {
   completeTrainingRoomSession,
   sendTrainingRoomMessage,
   type TrainingRoomCompletionResult,
   type TrainingRoomMessage,
 } from './training-room-client'
+import { notifyTrainingRoomError } from './training-room-error-notification'
 import { trainingRoomConversationMessages } from './training-room-message-adapter'
 import { TrainingRoomTimeline } from './training-room-timeline'
 import { TurnBasedVoicePanel } from './turn-based-voice-panel'
@@ -70,8 +71,6 @@ const ROOM_INPUT_CAPABILITIES = {
   parameters: false,
   clearMessages: false,
 } as const
-
-type RoomModePanel = Exclude<RoomMode, 'voice'> | null
 
 interface TrainingRoomConversationSurfaceProps {
   readonly apiBase: string
@@ -104,13 +103,13 @@ export function TrainingRoomConversationSurface({
   const [isLoadingMessages, setIsLoadingMessages] = useState(true)
   const [isReplying, setIsReplying] = useState(false)
   const [isSendingText, setIsSendingText] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
+  const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
   const [completionError, setCompletionError] = useState<string | null>(null)
   const [completionIntent, setCompletionIntent] = useState<
     'direct' | 'report' | null
   >(null)
   const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false)
-  const [openModePanel, setOpenModePanel] = useState<RoomModePanel>(null)
+  const [isVideoPanelOpen, setIsVideoPanelOpen] = useState(false)
   const [isMobileInsightsOpen, setIsMobileInsightsOpen] = useState(false)
   const [isInsightsExpanded, setIsInsightsExpanded] = useState(() =>
     loadTrainingInsightsExpanded(
@@ -166,34 +165,49 @@ export function TrainingRoomConversationSurface({
     [localize, roomMessages]
   )
   const selectedTailId = insightMessages.at(-1)?.publicId ?? null
-  let modeActionEnglish = 'Open realtime voice controls'
-  let modeActionChinese = '打开实时语音控制'
-  if (mode === 'video') {
-    modeActionEnglish = 'Open camera controls'
-    modeActionChinese = '打开摄像头控制'
-  }
   const refreshMessages = useCallback(() => {
     setRefreshVersion((current) => current + 1)
   }, [])
+  const notifyComposerError = useCallback(
+    (error: string | null) => {
+      notifyTrainingRoomError(error, localize)
+    },
+    [localize]
+  )
 
   const handleSendText = useCallback(
     async (content: string) => {
-      if (trainingSession.status !== 'active' || isSendingText) return
+      if (
+        trainingSession.status !== 'active' ||
+        isSendingText ||
+        isVoiceInputActive
+      ) {
+        return
+      }
       setIsSendingText(true)
-      setSendError(null)
       try {
         await sendTrainingRoomMessage(roomId, trainingSession.sessionId, {
           content,
           metadata: {
             interactionMode: 'turn_based',
+            llm: { model: config.model },
             source: 'shared_training_composer',
             trainingMode: mode,
             trainingSessionId: trainingSession.sessionId,
+            trainingVoiceId: trainingSession.metadata?.trainingVoiceId,
+            trainingVoiceSpeed: trainingSession.metadata?.trainingVoiceSpeed,
+            trainingVoiceLoudness:
+              trainingSession.metadata?.trainingVoiceLoudness,
+            trainingVoiceEmotion:
+              trainingSession.metadata?.trainingVoiceEmotion,
+            trainingVoiceEmotionScale:
+              trainingSession.metadata?.trainingVoiceEmotionScale,
+            trainingVoiceStyle: trainingSession.metadata?.trainingVoiceStyle,
           },
         })
         refreshMessages()
       } catch (error) {
-        setSendError(
+        notifyComposerError(
           error instanceof Error
             ? error.message
             : localize('Message could not be sent.', '消息发送失败，请重试。')
@@ -202,7 +216,17 @@ export function TrainingRoomConversationSurface({
         setIsSendingText(false)
       }
     },
-    [isSendingText, localize, mode, refreshMessages, roomId, trainingSession]
+    [
+      config.model,
+      isSendingText,
+      isVoiceInputActive,
+      localize,
+      mode,
+      notifyComposerError,
+      refreshMessages,
+      roomId,
+      trainingSession,
+    ]
   )
 
   const handleCompleteTraining = useCallback(
@@ -239,8 +263,8 @@ export function TrainingRoomConversationSurface({
   )
 
   useEffect(() => {
-    setOpenModePanel(null)
-    setSendError(null)
+    setIsVideoPanelOpen(false)
+    setIsVoiceInputActive(false)
   }, [mode, roomId, trainingSession.sessionId])
 
   useEffect(() => {
@@ -249,6 +273,51 @@ export function TrainingRoomConversationSurface({
       isInsightsExpanded
     )
   }, [isInsightsExpanded])
+
+  const renderModeAction = () => {
+    if (mode === 'voice') {
+      return (
+        <TurnBasedVoicePanel
+          apiBase={apiBase}
+          disabled={trainingSession.status !== 'active'}
+          model={config.model}
+          onErrorChange={notifyComposerError}
+          onMessagePersisted={refreshMessages}
+          onVoiceInputStateChange={setIsVoiceInputActive}
+          roomId={roomId}
+          sessionId={trainingSession.sessionId}
+          voiceMetadata={trainingSession.metadata}
+        />
+      )
+    }
+    if (mode === 'realtime') {
+      return (
+        <RealtimeVoiceControl
+          apiBase={apiBase}
+          disabled={trainingSession.status !== 'active'}
+          onErrorChange={notifyComposerError}
+          onMessagePersisted={refreshMessages}
+          profile={realtimeProfile}
+          provider={realtimeProvider || 'configured'}
+          roomId={roomId}
+          sessionId={trainingSession.sessionId}
+        />
+      )
+    }
+    return (
+      <Button
+        aria-label={localize('Open camera controls', '打开摄像头控制')}
+        aria-pressed={isVideoPanelOpen}
+        disabled={trainingSession.status !== 'active'}
+        size='icon-sm'
+        type='button'
+        variant={isVideoPanelOpen ? 'secondary' : 'ghost'}
+        onClick={() => setIsVideoPanelOpen((current) => !current)}
+      >
+        <Video />
+      </Button>
+    )
+  }
 
   return (
     <div className='flex min-h-0 flex-1 overflow-hidden'>
@@ -278,10 +347,27 @@ export function TrainingRoomConversationSurface({
               </span>
             </Button>
           )}
+          {trainingSession.status === 'completed' && (
+            <Button
+              aria-label={localize('Training completed', '训练已结束')}
+              disabled
+              size='sm'
+              variant='outline'
+            >
+              <Check />
+              <span className='hidden sm:inline'>
+                {localize('Completed', '已结束')}
+              </span>
+              <span className='sr-only sm:hidden'>
+                {localize('Completed', '已结束')}
+              </span>
+            </Button>
+          )}
         </TrainingConversationHeaderActions>
         <TrainingRoomTimeline
           assistantParticipant={assistantParticipant}
           enableAudioOutput={mode === 'voice'}
+          sessionActive={trainingSession.status === 'active'}
           onLoadingChange={setIsLoadingMessages}
           onMessagesChange={setRoomMessages}
           onReplyingChange={setIsReplying}
@@ -297,7 +383,10 @@ export function TrainingRoomConversationSurface({
             compact
             config={config}
             disabled={
-              trainingSession.status !== 'active' || isSendingText || isReplying
+              trainingSession.status !== 'active' ||
+              isSendingText ||
+              isReplying ||
+              isVoiceInputActive
             }
             groups={groups}
             groupValue={config.group}
@@ -312,61 +401,20 @@ export function TrainingRoomConversationSurface({
             onParameterEnabledChange={updateParameterEnabled}
             onSubmit={handleSendText}
             parameterEnabled={parameterEnabled}
-            extraActions={
-              mode === 'voice' ? (
-                <TurnBasedVoicePanel
-                  apiBase={apiBase}
-                  disabled={trainingSession.status !== 'active'}
-                  onMessagePersisted={refreshMessages}
-                  roomId={roomId}
-                  sessionId={trainingSession.sessionId}
-                />
-              ) : (
-                <Button
-                  aria-label={localize(modeActionEnglish, modeActionChinese)}
-                  aria-pressed={openModePanel === mode}
-                  disabled={trainingSession.status !== 'active'}
-                  size='icon-sm'
-                  type='button'
-                  variant={openModePanel === mode ? 'secondary' : 'ghost'}
-                  onClick={() =>
-                    setOpenModePanel((current) =>
-                      current === mode ? null : mode
-                    )
-                  }
-                >
-                  {mode === 'video' && <Video />}
-                  {mode === 'realtime' && <Radio />}
-                </Button>
-              )
-            }
+            extraActions={renderModeAction()}
+            hideSubmitButton={isVoiceInputActive}
+            selectorPlacement='start'
           />
-          {sendError && (
-            <Alert className='mt-3' variant='destructive'>
-              <AlertDescription>{sendError}</AlertDescription>
-            </Alert>
-          )}
-          {openModePanel && (
+          {mode === 'video' && isVideoPanelOpen && (
             <div className='mt-3 [&>section]:border-t-0'>
-              {mode === 'video' && (
-                <VideoAnswerPanel
-                  apiBase={apiBase}
-                  disabled={trainingSession.status !== 'active'}
-                  feedbackMode={feedbackMode}
-                  onPersisted={refreshMessages}
-                  roomId={roomId}
-                  sessionId={trainingSession.sessionId}
-                />
-              )}
-              {mode === 'realtime' && (
-                <RealtimeTrainingPanel
-                  apiBase={apiBase}
-                  profile={realtimeProfile}
-                  provider={realtimeProvider || 'configured'}
-                  roomId={roomId}
-                  sessionId={trainingSession.sessionId}
-                />
-              )}
+              <VideoAnswerPanel
+                apiBase={apiBase}
+                disabled={trainingSession.status !== 'active'}
+                feedbackMode={feedbackMode}
+                onPersisted={refreshMessages}
+                roomId={roomId}
+                sessionId={trainingSession.sessionId}
+              />
             </div>
           )}
         </TrainingConversationComposer>
@@ -412,13 +460,6 @@ export function TrainingRoomConversationSurface({
             </Alert>
           )}
           <DialogFooter>
-            <Button
-              disabled={completionIntent !== null}
-              variant='outline'
-              onClick={() => setIsCompletionDialogOpen(false)}
-            >
-              {localize('Cancel', '取消')}
-            </Button>
             <Button
               disabled={completionIntent !== null}
               variant='outline'

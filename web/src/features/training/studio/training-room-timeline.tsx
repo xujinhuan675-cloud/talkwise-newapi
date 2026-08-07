@@ -16,28 +16,42 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Activity, CircleAlert, Video, Volume2, VolumeX } from 'lucide-react'
+import {
+  Activity,
+  CircleAlert,
+  LoaderCircle,
+  Pause,
+  Video,
+  Volume2,
+  VolumeX,
+} from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PlaygroundChat } from '@/features/playground/components/chat/playground-chat'
+import type { MessageActionItem } from '@/features/playground/components/message/message-actions'
+import type { Message } from '@/features/playground/types'
 import { cn } from '@/lib/utils'
 
 import type { TrainingMessageParticipant } from '../conversation-workspace/participant-identity'
+import { trainingEmotionDisplayLabel } from '../training-display-labels'
 import {
   findTrainingOpeningMessage,
   hasPlayedTrainingOpening,
   loadTrainingRoomAudioEnabled,
   markTrainingOpeningPlayed,
   saveTrainingRoomAudioEnabled,
-  trainingOpeningSpeechLanguage,
 } from './training-room-audio-preference'
 import {
   loadTrainingRoomMessages,
+  loadTrainingRoomMessageAudioManifest,
+  loadTrainingRoomMessageAudioSegment,
+  synthesizeTrainingRoomMessageAudio,
   streamTrainingRoomEvents,
   trainingRoomAudioChunk,
   type TrainingRoomAudioChunk,
@@ -56,6 +70,7 @@ interface TrainingRoomTimelineProps {
   onReplyingChange?: (replying: boolean) => void
   refreshVersion?: number
   roomId: string
+  sessionActive?: boolean
   sessionId: string
   userParticipant?: TrainingMessageParticipant
 }
@@ -69,14 +84,19 @@ function nestedText(value: unknown, key: string): string | null {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message
-  if (!error || typeof error !== 'object') return fallback
-  const response = (error as Record<string, unknown>).response
-  const data =
-    response && typeof response === 'object'
-      ? (response as Record<string, unknown>).data
-      : null
-  return nestedText(data, 'detail') || nestedText(data, 'message') || fallback
+  if (error && typeof error === 'object') {
+    const response = (error as Record<string, unknown>).response
+    const data =
+      response && typeof response === 'object'
+        ? (response as Record<string, unknown>).data
+        : null
+    const responseMessage =
+      nestedText(data, 'detail') || nestedText(data, 'message')
+    if (responseMessage) return responseMessage
+  }
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback
 }
 
 function isAbort(error: unknown): boolean {
@@ -93,6 +113,7 @@ export function TrainingRoomTimeline({
   onReplyingChange,
   refreshVersion = 0,
   roomId,
+  sessionActive = true,
   sessionId,
   userParticipant,
 }: TrainingRoomTimelineProps) {
@@ -102,8 +123,12 @@ export function TrainingRoomTimeline({
   const audioQueueRef = useRef<Promise<void>>(Promise.resolve())
   const audioGenerationRef = useRef(0)
   const playedAudioRef = useRef(new Set<string>())
-  const openingSpeechRef = useRef<SpeechSynthesisUtterance | null>(null)
   const openingPlaybackAttemptRef = useRef<string | null>(null)
+  const replayAbortRef = useRef<AbortController | null>(null)
+  const replayAudioRef = useRef<HTMLAudioElement | null>(null)
+  const replayGenerationRef = useRef(0)
+  const replayObjectUrlRef = useRef<string | null>(null)
+  const replayResolveRef = useRef<(() => void) | null>(null)
   const [messages, setMessages] = useState<TrainingRoomMessage[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isReplying, setIsReplying] = useState(false)
@@ -116,6 +141,10 @@ export function TrainingRoomTimeline({
   const [audioWarning, setAudioWarning] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [streamWarning, setStreamWarning] = useState<string | null>(null)
+  const [replayState, setReplayState] = useState<{
+    messageId: string | null
+    status: 'error' | 'idle' | 'loading' | 'paused' | 'playing'
+  }>({ messageId: null, status: 'idle' })
   const updateReplying = useCallback(
     (replying: boolean) => {
       setIsReplying(replying)
@@ -152,20 +181,184 @@ export function TrainingRoomTimeline({
 
   const stopAudio = useCallback(() => {
     audioGenerationRef.current += 1
-    if (
-      typeof window !== 'undefined' &&
-      'speechSynthesis' in window &&
-      openingSpeechRef.current
-    ) {
-      window.speechSynthesis.cancel()
-      openingSpeechRef.current = null
-    }
     audioElementRef.current?.pause()
     audioElementRef.current = null
     audioResolveRef.current?.()
     audioResolveRef.current = null
     audioQueueRef.current = Promise.resolve()
   }, [])
+
+  const stopReplay = useCallback((resetState = true) => {
+    replayGenerationRef.current += 1
+    replayAbortRef.current?.abort()
+    replayAbortRef.current = null
+    replayAudioRef.current?.pause()
+    replayAudioRef.current = null
+    replayResolveRef.current?.()
+    replayResolveRef.current = null
+    if (replayObjectUrlRef.current) {
+      URL.revokeObjectURL(replayObjectUrlRef.current)
+      replayObjectUrlRef.current = null
+    }
+    if (resetState) setReplayState({ messageId: null, status: 'idle' })
+  }, [])
+
+  const playReplaySegment = useCallback(
+    async (
+      messageId: string,
+      segmentIndex: number,
+      mimeType: string,
+      generation: number,
+      signal: AbortSignal
+    ) => {
+      const bytes = await loadTrainingRoomMessageAudioSegment(
+        roomId,
+        sessionId,
+        messageId,
+        segmentIndex,
+        signal
+      )
+      if (generation !== replayGenerationRef.current || signal.aborted) return
+      const objectUrl = URL.createObjectURL(
+        new Blob([bytes], { type: mimeType })
+      )
+      replayObjectUrlRef.current = objectUrl
+      const audio = new Audio(objectUrl)
+      replayAudioRef.current = audio
+      setReplayState({ messageId, status: 'playing' })
+      try {
+        await new Promise<void>((resolve, reject) => {
+          replayResolveRef.current = resolve
+          audio.addEventListener('ended', () => resolve(), { once: true })
+          audio.addEventListener(
+            'error',
+            () => reject(new Error('AI audio playback failed.')),
+            { once: true }
+          )
+          void audio.play().catch(reject)
+        })
+      } finally {
+        if (replayAudioRef.current === audio) replayAudioRef.current = null
+        replayResolveRef.current = null
+        if (replayObjectUrlRef.current === objectUrl) {
+          URL.revokeObjectURL(objectUrl)
+          replayObjectUrlRef.current = null
+        }
+      }
+    },
+    [roomId, sessionId]
+  )
+
+  const startReplay = useCallback(
+    async (messageId: string, synthesizeMissing = false) => {
+      stopAudio()
+      stopReplay(false)
+      const generation = replayGenerationRef.current
+      const controller = new AbortController()
+      replayAbortRef.current = controller
+      setReplayState({ messageId, status: 'loading' })
+      try {
+        const manifest = synthesizeMissing
+          ? await synthesizeTrainingRoomMessageAudio(
+              roomId,
+              sessionId,
+              messageId,
+              controller.signal
+            )
+          : await loadTrainingRoomMessageAudioManifest(
+              roomId,
+              sessionId,
+              messageId,
+              controller.signal
+            )
+        if (synthesizeMissing) {
+          toast.info(
+            localize(
+              'Historical audio was recreated with the current voice configuration; it is not the original playback.',
+              '历史音频已按当前语音配置重新合成并保存，不是此前播放的原始音频。'
+            )
+          )
+          await loadMessages()
+        }
+        for (const segment of manifest.segments) {
+          if (
+            controller.signal.aborted ||
+            generation !== replayGenerationRef.current
+          ) {
+            return
+          }
+          setReplayState({ messageId, status: 'loading' })
+          await playReplaySegment(
+            messageId,
+            segment.index,
+            segment.mimeType,
+            generation,
+            controller.signal
+          )
+        }
+        if (generation === replayGenerationRef.current) {
+          setReplayState({ messageId: null, status: 'idle' })
+        }
+      } catch (error) {
+        if (controller.signal.aborted || isAbort(error)) return
+        setReplayState({ messageId, status: 'error' })
+        toast.error(
+          errorMessage(
+            error,
+            localize(
+              'AI audio could not be played.',
+              'AI \u8bed\u97f3\u65e0\u6cd5\u64ad\u653e\u3002'
+            )
+          )
+        )
+      } finally {
+        if (replayAbortRef.current === controller) replayAbortRef.current = null
+      }
+    },
+    [
+      loadMessages,
+      localize,
+      playReplaySegment,
+      roomId,
+      sessionId,
+      stopAudio,
+      stopReplay,
+    ]
+  )
+
+  const toggleReplay = useCallback(
+    (messageId: string, synthesizeMissing = false) => {
+      if (replayState.messageId === messageId) {
+        if (replayState.status === 'playing') {
+          replayAudioRef.current?.pause()
+          setReplayState({ messageId, status: 'paused' })
+          return
+        }
+        if (replayState.status === 'paused' && replayAudioRef.current) {
+          setReplayState({ messageId, status: 'loading' })
+          void replayAudioRef.current
+            .play()
+            .then(() => setReplayState({ messageId, status: 'playing' }))
+            .catch((error) => {
+              setReplayState({ messageId, status: 'error' })
+              toast.error(
+                errorMessage(
+                  error,
+                  localize(
+                    'AI audio could not resume.',
+                    'AI \u8bed\u97f3\u65e0\u6cd5\u7ee7\u7eed\u64ad\u653e\u3002'
+                  )
+                )
+              )
+            })
+          return
+        }
+        if (replayState.status === 'loading') return
+      }
+      void startReplay(messageId, synthesizeMissing)
+    },
+    [localize, replayState, startReplay]
+  )
 
   const playAudioChunk = useCallback(
     async (chunk: TrainingRoomAudioChunk, generation: number) => {
@@ -215,6 +408,7 @@ export function TrainingRoomTimeline({
 
   const enqueueAudio = useCallback(
     (chunk: TrainingRoomAudioChunk) => {
+      stopReplay()
       const key =
         chunk.replyId != null && chunk.sentenceIndex != null
           ? `${chunk.replyId}:${chunk.sentenceIndex}`
@@ -237,7 +431,7 @@ export function TrainingRoomTimeline({
           )
         })
     },
-    [localize, playAudioChunk]
+    [localize, playAudioChunk, stopReplay]
   )
 
   useEffect(() => {
@@ -249,6 +443,11 @@ export function TrainingRoomTimeline({
   }, [loadMessages, onLoadingChange, refreshVersion])
 
   useEffect(() => {
+    if (!sessionActive) {
+      setStreamWarning(null)
+      updateReplying(false)
+      return
+    }
     const controller = new AbortController()
     setStreamWarning(null)
     const onEvent = (event: TrainingRoomEvent) => {
@@ -293,8 +492,17 @@ export function TrainingRoomTimeline({
     localize,
     updateReplying,
     roomId,
+    sessionActive,
     sessionId,
   ])
+
+  useEffect(() => {
+    if (!sessionActive) {
+      stopAudio()
+      stopReplay()
+      updateReplying(false)
+    }
+  }, [sessionActive, stopAudio, stopReplay, updateReplying])
 
   useEffect(() => {
     setIsAudioEnabled(
@@ -307,14 +515,23 @@ export function TrainingRoomTimeline({
     playedAudioRef.current.clear()
     openingPlaybackAttemptRef.current = null
     stopAudio()
-  }, [enableAudioOutput, roomId, sessionId, stopAudio])
+    stopReplay()
+  }, [enableAudioOutput, roomId, sessionId, stopAudio, stopReplay])
 
-  useEffect(() => () => stopAudio(), [stopAudio])
+  useEffect(
+    () => () => {
+      stopAudio()
+      stopReplay(false)
+    },
+    [stopAudio, stopReplay]
+  )
 
   useEffect(() => {
-    if (!enableAudioOutput || !isAudioEnabled || isLoading) return
+    if (!sessionActive || !enableAudioOutput || !isAudioEnabled || isLoading) {
+      return
+    }
     const opening = findTrainingOpeningMessage(messages)
-    if (!opening) return
+    if (!opening?.audioReplay) return
 
     const playbackId = `${sessionId}:${opening.id}`
     if (openingPlaybackAttemptRef.current === playbackId) return
@@ -323,69 +540,16 @@ export function TrainingRoomTimeline({
     if (hasPlayedTrainingOpening(sessionStorage, sessionId, opening.id)) return
     openingPlaybackAttemptRef.current = playbackId
 
-    if (
-      typeof window === 'undefined' ||
-      !('speechSynthesis' in window) ||
-      typeof SpeechSynthesisUtterance === 'undefined'
-    ) {
-      setAudioWarning(
-        localize(
-          'Opening voice playback is unavailable in this browser.',
-          '当前浏览器无法播放开场语音。'
-        )
-      )
-      return
-    }
-
-    let cancelled = false
-    const utterance = new SpeechSynthesisUtterance(opening.content)
-    utterance.lang = trainingOpeningSpeechLanguage(
-      opening.content,
-      i18n.language
-    )
-    const finish = () => {
-      if (openingSpeechRef.current === utterance) {
-        openingSpeechRef.current = null
-      }
-    }
-    utterance.addEventListener('start', () => {
-      if (cancelled) return
-      markTrainingOpeningPlayed(sessionStorage, sessionId, opening.id)
-    })
-    utterance.addEventListener('end', finish)
-    utterance.addEventListener('error', (event) => {
-      finish()
-      if (
-        !cancelled &&
-        event.error !== 'canceled' &&
-        event.error !== 'interrupted'
-      ) {
-        setAudioWarning(
-          localize(
-            'Opening voice playback is unavailable.',
-            '开场语音暂时无法播放。'
-          )
-        )
-      }
-    })
-    openingSpeechRef.current = utterance
-    window.speechSynthesis.speak(utterance)
-
-    return () => {
-      cancelled = true
-      if (openingSpeechRef.current === utterance) {
-        window.speechSynthesis.cancel()
-        openingSpeechRef.current = null
-      }
-    }
+    markTrainingOpeningPlayed(sessionStorage, sessionId, opening.id)
+    void startReplay(opening.id)
   }, [
     enableAudioOutput,
-    i18n.language,
     isAudioEnabled,
     isLoading,
-    localize,
     messages,
+    sessionActive,
     sessionId,
+    startReplay,
   ])
 
   const playgroundMessages = useMemo(
@@ -400,6 +564,77 @@ export function TrainingRoomTimeline({
   const roomMessagesById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages]
+  )
+  const getMessageActions = useCallback(
+    (message: Message): readonly MessageActionItem[] => {
+      const roomMessage = roomMessagesById.get(message.key)
+      if (
+        roomMessage?.senderType !== 'persona' ||
+        (roomMessage.audioReplay?.available !== true &&
+          roomMessage.audioSynthesisAvailable !== true)
+      ) {
+        return []
+      }
+      const isActive = replayState.messageId === message.key
+      const status = isActive ? replayState.status : 'idle'
+      const synthesizeMissing = roomMessage.audioSynthesisAvailable === true
+      const isOriginal = roomMessage.audioReplay?.original === true
+      if (status === 'loading') {
+        return [
+          {
+            disabled: true,
+            icon: LoaderCircle,
+            iconClassName: 'animate-spin',
+            label: localize(
+              synthesizeMissing
+                ? 'Recreating historical AI audio with the current voice'
+                : 'Loading AI audio',
+              synthesizeMissing
+                ? '正在按当前语音配置补建历史 AI 语音（非原始音频）'
+                : '正在加载 AI 语音'
+            ),
+            onClick: () => undefined,
+          },
+        ]
+      }
+      if (status === 'playing') {
+        return [
+          {
+            icon: Pause,
+            label: localize('Pause AI audio', '暂停 AI 语音'),
+            onClick: () => toggleReplay(message.key, synthesizeMissing),
+          },
+        ]
+      }
+      let label: string
+      if (synthesizeMissing) {
+        label = localize(
+          'Recreate and play with the current voice (not original audio)',
+          '按当前语音配置重新合成并播放（非原始音频）'
+        )
+      } else if (isOriginal) {
+        label = localize('Replay original AI audio', '重新播放原始 AI 语音')
+      } else {
+        label = localize(
+          'Play recreated AI audio (not original audio)',
+          '播放补建的 AI 语音（非原始音频）'
+        )
+      }
+      if (status === 'paused') {
+        label = localize('Resume AI audio', '继续播放 AI 语音')
+      } else if (status === 'error') {
+        label = localize('Retry AI audio', '重试 AI 语音')
+      }
+      return [
+        {
+          className: status === 'error' ? 'text-destructive' : '',
+          icon: Volume2,
+          label,
+          onClick: () => toggleReplay(message.key, synthesizeMissing),
+        },
+      ]
+    },
+    [localize, replayState, roomMessagesById, toggleReplay]
   )
 
   return (
@@ -481,41 +716,51 @@ export function TrainingRoomTimeline({
         </Alert>
       )}
 
-      <div className='relative min-h-0 flex-1'>
+      <div className='relative flex min-h-0 flex-1 flex-col overflow-hidden'>
         <PlaygroundChat
           assistantParticipant={assistantParticipant}
           contentClassName='max-w-none'
           isGenerating={isReplying}
           isLoadingMessages={isLoading}
+          getMessageActions={getMessageActions}
           messages={playgroundMessages}
-          renderMessageFooter={(message) => {
+          renderMessageHeader={(message) => {
             const roomMessage = roomMessagesById.get(message.key)
-            if (
-              !roomMessage?.videoAnswer &&
-              roomMessage?.emotionScore == null
-            ) {
+            const emotionLabel = trainingEmotionDisplayLabel(
+              roomMessage?.emotionLabel,
+              roomMessage?.emotionScore,
+              i18n.resolvedLanguage ?? i18n.language
+            )
+            if (roomMessage?.emotionScore == null && !emotionLabel) {
               return null
             }
             return (
-              <div className='mt-1.5 flex flex-wrap items-center gap-1.5'>
-                {roomMessage.videoAnswer && (
-                  <Badge variant='outline'>
-                    <Video />
-                    {localize('Video answer', '视频回答')}
-                  </Badge>
+              <div
+                className={cn(
+                  'mb-1.5 flex flex-wrap items-center gap-1.5',
+                  message.from === 'user' ? 'justify-end' : 'justify-start'
                 )}
-                {roomMessage.emotionScore != null && (
-                  <Badge variant='outline'>
-                    <Activity />
-                    {roomMessage.emotionLabel ||
-                      localize('Emotion', '情绪')}{' '}
-                    {roomMessage.emotionScore > 0 ? '+' : ''}
-                    {roomMessage.emotionScore}
-                  </Badge>
-                )}
+              >
+                <Badge variant='outline'>
+                  <Activity />
+                  {emotionLabel || localize('Emotion', '情绪')}
+                </Badge>
               </div>
             )
           }}
+          renderMessageFooter={(message) => {
+            const roomMessage = roomMessagesById.get(message.key)
+            if (!roomMessage?.videoAnswer) return null
+            return (
+              <div className='mt-1.5 flex flex-wrap items-center gap-1.5'>
+                <Badge variant='outline'>
+                  <Video />
+                  {localize('Video answer', '视频回答')}
+                </Badge>
+              </div>
+            )
+          }}
+          showSourceAction={false}
           userParticipant={userParticipant}
         />
         {!isLoading && messages.length === 0 && !loadError && (
