@@ -72,8 +72,14 @@ import {
   processStreamingContent,
 } from '@/features/playground/lib'
 import type { Message } from '@/features/playground/types'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { trainingEmotionDisplayLabel } from '../training-display-labels'
+import {
+  formatTrainingMessageForDisplay,
+  trainingMessagePresentation,
+} from '../training-message-presentation'
 import { resolveBattlePrepPlan } from '../training-plan'
 import {
   completeTrainingConversationSession,
@@ -230,7 +236,15 @@ function toPlaygroundMessage(message: TrainingConversationMessage): Message {
   return {
     key: message.publicId,
     from: message.role,
-    versions: [{ id: message.publicId, content: message.content }],
+    versions: [
+      {
+        id: message.publicId,
+        content: formatTrainingMessageForDisplay(
+          message.content,
+          message.metadata
+        ),
+      },
+    ],
     createdAt: createdAtToMillis(message.createdAt),
     completedAt: createdAtToMillis(message.createdAt),
     isContentComplete: true,
@@ -585,6 +599,10 @@ export function TrainingConversationSurface({
                   publicId: event.publicId,
                   role: 'user',
                   content,
+                  contentParts: [],
+                  metadata: {},
+                  emotionLabel: null,
+                  emotionScore: null,
                   parentMessageId: event.parentMessageId,
                   branchId: event.branchId,
                   createdAt: null,
@@ -620,10 +638,18 @@ export function TrainingConversationSurface({
 
               if (event.type === 'message_complete') {
                 didComplete = true
+                const presentation = trainingMessagePresentation(
+                  event.content,
+                  event.metadata
+                )
                 const message: TrainingConversationMessage = {
                   publicId: event.publicId,
                   role: 'assistant',
-                  content: event.content,
+                  content: presentation.content,
+                  contentParts: event.contentParts ?? [],
+                  metadata: event.metadata ?? {},
+                  emotionLabel: presentation.emotion.label,
+                  emotionScore: presentation.emotion.score,
                   parentMessageId: event.parentMessageId,
                   branchId: event.branchId,
                   createdAt: null,
@@ -641,7 +667,13 @@ export function TrainingConversationSurface({
                   current.map((item) =>
                     item.key === event.publicId
                       ? completeAssistantMessage(
-                          updateMessageContent(item, event.content)
+                          updateMessageContent(
+                            item,
+                            formatTrainingMessageForDisplay(
+                              event.content,
+                              event.metadata
+                            )
+                          )
                         )
                       : item
                   )
@@ -950,22 +982,27 @@ export function TrainingConversationSurface({
       const step = treeProjection.branchSteps.find(
         (candidate) => candidate.selectedMessageId === message.key
       )
-      if (!step || step.options.length <= 1) return null
+      const hasBranchSelector = Boolean(step && step.options.length > 1)
+      if (!hasBranchSelector) return null
       return (
-        <TrainingMessageBranchSelector
-          disabled={
-            trainingSession.status !== 'active' ||
-            Boolean(pendingBranchMessageId) ||
-            isGenerating ||
-            isSavingEdit
-          }
-          messageRole={message.from}
-          onSelect={handleSelectBranch}
-          pending={step.options.some(
-            (option) => option.message.publicId === pendingBranchMessageId
+        <div className='mt-1.5 flex flex-wrap items-center gap-1.5'>
+          {step && step.options.length > 1 && (
+            <TrainingMessageBranchSelector
+              disabled={
+                trainingSession.status !== 'active' ||
+                Boolean(pendingBranchMessageId) ||
+                isGenerating ||
+                isSavingEdit
+              }
+              messageRole={message.from}
+              onSelect={handleSelectBranch}
+              pending={step.options.some(
+                (option) => option.message.publicId === pendingBranchMessageId
+              )}
+              step={step}
+            />
           )}
-          step={step}
-        />
+        </div>
       )
     },
     [
@@ -976,6 +1013,33 @@ export function TrainingConversationSurface({
       trainingSession.status,
       treeProjection.branchSteps,
     ]
+  )
+
+  const renderMessageEmotion = useCallback(
+    (message: Message) => {
+      const persisted = messageRecordsRef.current.get(message.key)?.message
+      const emotionLabel = trainingEmotionDisplayLabel(
+        persisted?.emotionLabel,
+        persisted?.emotionScore,
+        i18n.resolvedLanguage ?? i18n.language
+      )
+      if (!emotionLabel && persisted?.emotionScore == null) {
+        return null
+      }
+      return (
+        <div
+          className={cn(
+            'mb-1.5 flex flex-wrap items-center gap-1.5',
+            message.from === 'user' ? 'justify-end' : 'justify-start'
+          )}
+        >
+          <Badge variant='outline'>
+            {emotionLabel || localize('Emotion', '情绪')}
+          </Badge>
+        </div>
+      )
+    },
+    [i18n.language, i18n.resolvedLanguage, localize]
   )
 
   const handleSaveEditAndSubmit = useCallback(
@@ -1177,7 +1241,9 @@ export function TrainingConversationSurface({
               onSaveEdit={handleSaveEdit}
               onSaveEditAndSubmit={handleSaveEditAndSubmit}
               onSelectPrompt={handleSendMessage}
+              renderMessageHeader={renderMessageEmotion}
               renderMessageFooter={renderMessageBranchSelector}
+              showSourceAction={false}
               userParticipant={userParticipant}
             />
           </div>
@@ -1421,13 +1487,6 @@ export function TrainingConversationSurface({
                 </Alert>
               )}
               <DialogFooter>
-                <Button
-                  disabled={isCompleting}
-                  variant='outline'
-                  onClick={() => setIsCompletionDialogOpen(false)}
-                >
-                  {localize('Cancel', '取消')}
-                </Button>
                 <Button
                   disabled={!canComplete}
                   variant='outline'

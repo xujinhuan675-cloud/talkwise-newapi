@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getFreshAuthHeaders } from '@/lib/api'
 
+import { trainingMessagePresentation } from '../training-message-presentation'
+
 export const TRAINING_CONVERSATION_API_BASE = '/api/talkwise/conversation-tree'
 const DEFAULT_TRAINING_API_BASE = '/api/talkwise/training'
 
@@ -38,6 +40,10 @@ export interface TrainingConversationMessage {
   readonly publicId: string
   readonly role: TrainingConversationMessageRole
   readonly content: string
+  readonly contentParts?: readonly Record<string, unknown>[]
+  readonly metadata?: Readonly<Record<string, unknown>>
+  readonly emotionLabel?: string | null
+  readonly emotionScore?: number | null
   readonly parentMessageId: string | null
   readonly branchId: string | null
   readonly createdAt: string | null
@@ -206,6 +212,8 @@ export type TrainingConversationStreamEvent =
       readonly parentMessageId: string | null
       readonly branchId: string | null
       readonly content: string
+      readonly metadata?: Readonly<Record<string, unknown>>
+      readonly contentParts?: readonly Record<string, unknown>[]
     }
   | {
       readonly type: 'error'
@@ -236,6 +244,13 @@ type RawConversationMessage = {
   content?: unknown
   text?: unknown
   message?: unknown
+  content_parts?: unknown
+  contentParts?: unknown
+  metadata?: unknown
+  emotion_score?: unknown
+  emotionScore?: unknown
+  emotion_label?: unknown
+  emotionLabel?: unknown
   parent_message_id?: unknown
   parentMessageId?: unknown
   branch_id?: unknown
@@ -317,6 +332,15 @@ function recordValue(value: unknown): Record<string, unknown> | null {
     : null
 }
 
+function recordList(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => {
+        const record = recordValue(item)
+        return record ? [record] : []
+      })
+    : []
+}
+
 function responseData(value: unknown): unknown {
   const root = recordValue(value)
   return root && 'data' in root ? root.data : value
@@ -381,10 +405,29 @@ export function normalizeTrainingConversationMessage(
   const publicId = textValue(raw.publicId ?? raw.public_id)
   if (!publicId) return null
 
+  const metadata = recordValue(raw.metadata) ?? {}
+  const rawContent = textValue(raw.content ?? raw.text ?? raw.message) ?? ''
+  const presentation = trainingMessagePresentation(
+    rawContent,
+    metadata,
+    numberValue(raw.emotionScore ?? raw.emotion_score),
+    textValue(raw.emotionLabel ?? raw.emotion_label)
+  )
+  const rawContentParts = raw.contentParts ?? raw.content_parts
+  const contentParts = recordList(rawContentParts)
+
   return {
     publicId,
     role: roleValue(raw.role),
-    content: textValue(raw.content ?? raw.text ?? raw.message) ?? '',
+    content: presentation.content,
+    ...(contentParts.length > 0 ? { contentParts } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(presentation.emotion.label
+      ? { emotionLabel: presentation.emotion.label }
+      : {}),
+    ...(presentation.emotion.score != null
+      ? { emotionScore: presentation.emotion.score }
+      : {}),
     parentMessageId: textValue(raw.parentMessageId ?? raw.parent_message_id),
     branchId: textValue(raw.branchId ?? raw.branch_id),
     createdAt: textValue(raw.createdAt ?? raw.created_at),
@@ -876,6 +919,8 @@ function normalizeStreamEvent(
           ),
           branchId: textValue(data.branch_id ?? data.branchId),
           content: textValue(data.content) ?? '',
+          metadata: recordValue(data.metadata) ?? {},
+          contentParts: recordList(data.content_parts ?? data.contentParts),
         }
       : null
   }

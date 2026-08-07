@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  ChevronDown,
+  ChevronRight,
   CircleAlert,
   LoaderCircle,
   PanelLeft,
@@ -29,6 +31,11 @@ import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -58,7 +65,14 @@ import {
   type TrainingConversationSession,
 } from './api'
 import {
+  groupTrainingConversationsByDate,
+  trainingConversationDateGroup,
+  type TrainingConversationDateGroupKey,
+} from './conversation-date-groups'
+import {
+  loadTrainingConversationGroupsExpanded,
   loadTrainingConversationListExpanded,
+  saveTrainingConversationGroupsExpanded,
   saveTrainingConversationListExpanded,
 } from './conversation-list-preference'
 import { NewTrainingConversationDialog } from './new-training-conversation-dialog'
@@ -138,6 +152,11 @@ function TrainingConversationWorkspaceContent({
         typeof window === 'undefined' ? null : window.localStorage
       )
   )
+  const [expandedDateGroups, setExpandedDateGroups] = useState(() =>
+    loadTrainingConversationGroupsExpanded(
+      typeof window === 'undefined' ? null : window.localStorage
+    )
+  )
   const [headerActionsTarget, setHeaderActionsTarget] =
     useState<HTMLDivElement | null>(null)
   const [sessionPendingDelete, setSessionPendingDelete] =
@@ -150,6 +169,13 @@ function TrainingConversationWorkspaceContent({
     () => selectedSession(sessions, selection),
     [selection, sessions]
   )
+  const dateGroups = useMemo(
+    () => groupTrainingConversationsByDate(sessions),
+    [sessions]
+  )
+  const activeDateGroupKey = activeSession
+    ? trainingConversationDateGroup(activeSession.updatedAt)
+    : null
   const deleteSessionMutation = useMutation({
     mutationFn: (session: TrainingConversationSession) =>
       deleteTrainingConversationSession(host.apiBase, session.id),
@@ -231,6 +257,12 @@ function TrainingConversationWorkspaceContent({
     )
   }, [isListCollapsed])
   useEffect(() => {
+    saveTrainingConversationGroupsExpanded(
+      typeof window === 'undefined' ? null : window.localStorage,
+      expandedDateGroups
+    )
+  }, [expandedDateGroups])
+  useEffect(() => {
     if (!activeSession) return
     if (
       sessionId === activeSession.id &&
@@ -254,6 +286,21 @@ function TrainingConversationWorkspaceContent({
         </AlertDescription>
       </Alert>
     )
+  }
+
+  const dateGroupLabel = (key: TrainingConversationDateGroupKey) => {
+    switch (key) {
+      case 'today':
+        return localize('Today', '今天')
+      case 'yesterday':
+        return localize('Yesterday', '昨天')
+      case 'previous7Days':
+        return localize('Previous 7 days', '过去 7 天')
+      case 'previous30Days':
+        return localize('Previous 30 days', '过去 30 天')
+      case 'older':
+        return localize('Older', '更早')
+    }
   }
 
   return (
@@ -336,50 +383,88 @@ function TrainingConversationWorkspaceContent({
                     )}
                   </div>
                 )}
-              <div className='space-y-1'>
-                {sessions.map((session) => (
-                  <div
-                    className={cn(
-                      'group hover:bg-accent focus-within:ring-ring flex w-full items-start gap-1 rounded-md px-3 py-2 outline-none focus-within:ring-2 focus-within:ring-inset',
-                      activeSession?.id === session.id && 'bg-accent'
-                    )}
-                    key={session.id}
-                  >
-                    <button
-                      className='min-w-0 flex-1 text-left'
-                      onClick={() => onSessionChange(sessionSearch(session))}
-                      type='button'
+              <div className='space-y-2'>
+                {dateGroups.map((group, index) => {
+                  const isDefaultExpanded = activeDateGroupKey
+                    ? group.key === activeDateGroupKey
+                    : index === 0
+                  const isExpanded =
+                    expandedDateGroups[group.key] ?? isDefaultExpanded
+
+                  return (
+                    <Collapsible
+                      key={group.key}
+                      open={isExpanded}
+                      onOpenChange={(open) =>
+                        setExpandedDateGroups((current) => ({
+                          ...current,
+                          [group.key]: open,
+                        }))
+                      }
                     >
-                      <span className='block truncate text-sm font-medium'>
-                        {session.title}
-                      </span>
-                    </button>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <Button
-                            aria-label={localize(
-                              'Delete training session',
-                              '删除训练会话'
+                      <CollapsibleTrigger className='text-muted-foreground hover:text-foreground focus-visible:ring-ring flex h-7 w-full items-center gap-1 rounded-md px-1 text-left text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-inset'>
+                        {isExpanded ? (
+                          <ChevronDown className='size-3.5 shrink-0' />
+                        ) : (
+                          <ChevronRight className='size-3.5 shrink-0' />
+                        )}
+                        <span className='truncate'>
+                          {dateGroupLabel(group.key)}
+                        </span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className='space-y-1'>
+                        {group.sessions.map((session) => (
+                          <div
+                            className={cn(
+                              'group hover:bg-accent focus-within:ring-ring flex w-full items-start gap-1 rounded-md px-3 py-2 outline-none focus-within:ring-2 focus-within:ring-inset',
+                              activeSession?.id === session.id && 'bg-accent'
                             )}
-                            className='opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100'
-                            size='icon-sm'
-                            variant='ghost'
-                            onClick={() => {
-                              deleteSessionMutation.reset()
-                              setSessionPendingDelete(session)
-                            }}
-                          />
-                        }
-                      >
-                        <Trash2 />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        {localize('Delete training session', '删除训练会话')}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                ))}
+                            key={session.id}
+                          >
+                            <button
+                              className='min-w-0 flex-1 text-left'
+                              onClick={() =>
+                                onSessionChange(sessionSearch(session))
+                              }
+                              type='button'
+                            >
+                              <span className='block truncate text-sm font-medium'>
+                                {session.title}
+                              </span>
+                            </button>
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    aria-label={localize(
+                                      'Delete training session',
+                                      '删除训练会话'
+                                    )}
+                                    className='opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100'
+                                    size='icon-sm'
+                                    variant='ghost'
+                                    onClick={() => {
+                                      deleteSessionMutation.reset()
+                                      setSessionPendingDelete(session)
+                                    }}
+                                  />
+                                }
+                              >
+                                <Trash2 />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {localize(
+                                  'Delete training session',
+                                  '删除训练会话'
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  )
+                })}
               </div>
             </ScrollArea>
           </div>

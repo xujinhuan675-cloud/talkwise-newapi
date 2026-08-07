@@ -67,6 +67,50 @@ describe('training conversation workspace API', () => {
     )
   })
 
+  test('keeps display-only actions and emotion metadata when loading messages', () => {
+    assert.deepEqual(
+      normalizeTrainingConversationMessages({
+        data: {
+          items: [
+            {
+              public_id: 'msg-emotion',
+              role: 'persona',
+              content:
+                '（皱眉）这个方案需要重新评估。<!--emotion:{"score":-2,"label":"质疑"}--> ',
+              metadata: {
+                trainingEmotion: {
+                  score: -2,
+                  label: '质疑',
+                },
+              },
+              content_parts: [{ type: 'text', text: '这个方案需要重新评估。' }],
+              branch_id: 'main',
+            },
+          ],
+        },
+      }),
+      [
+        {
+          publicId: 'msg-emotion',
+          role: 'assistant',
+          content: '（皱眉）这个方案需要重新评估。',
+          contentParts: [{ type: 'text', text: '这个方案需要重新评估。' }],
+          metadata: {
+            trainingEmotion: {
+              score: -2,
+              label: '质疑',
+            },
+          },
+          emotionLabel: '质疑',
+          emotionScore: -2,
+          parentMessageId: null,
+          branchId: 'main',
+          createdAt: null,
+        },
+      ]
+    )
+  })
+
   test('builds a scoped streamed message request without client identity fields', () => {
     const payload = buildTrainingConversationSendPayload({
       message: 'I want to reset expectations with the customer.',

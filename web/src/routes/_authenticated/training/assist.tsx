@@ -18,14 +18,18 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
+import { LiveCoach } from '@/features/training/live-coach'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
-export const Route = createFileRoute('/_authenticated/training/live-coach')({
+export const Route = createFileRoute('/_authenticated/training/assist')({
   beforeLoad: () => {
     if (!isSidebarModuleEnabled('training', 'studio')) {
       throw redirect({ to: '/dashboard' })
     }
-
-    throw redirect({ to: '/training/assist', replace: true })
   },
+  component: TrainingAssistPage,
 })
+
+function TrainingAssistPage() {
+  return <LiveCoach />
+}

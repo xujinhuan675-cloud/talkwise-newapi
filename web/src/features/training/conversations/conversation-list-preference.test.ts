@@ -20,8 +20,11 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  loadTrainingConversationGroupsExpanded,
   loadTrainingConversationListExpanded,
+  saveTrainingConversationGroupsExpanded,
   saveTrainingConversationListExpanded,
+  TRAINING_CONVERSATION_GROUPS_PREFERENCE_KEY,
   TRAINING_CONVERSATION_LIST_PREFERENCE_KEY,
 } from './conversation-list-preference'
 
@@ -57,6 +60,49 @@ describe('training conversation list preference', () => {
     assert.equal(loadTrainingConversationListExpanded(storage), true)
     assert.doesNotThrow(() =>
       saveTrainingConversationListExpanded(storage, false)
+    )
+  })
+
+  test('persists only valid date-group expansion states', () => {
+    const values = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    }
+
+    saveTrainingConversationGroupsExpanded(storage, {
+      today: true,
+      yesterday: false,
+    })
+    assert.deepEqual(loadTrainingConversationGroupsExpanded(storage), {
+      today: true,
+      yesterday: false,
+    })
+
+    values.set(
+      TRAINING_CONVERSATION_GROUPS_PREFERENCE_KEY,
+      JSON.stringify({ today: false, older: true, unknown: true, yesterday: 1 })
+    )
+    assert.deepEqual(loadTrainingConversationGroupsExpanded(storage), {
+      today: false,
+      older: true,
+    })
+  })
+
+  test('invalid or blocked date-group preferences fall back safely', () => {
+    const values = new Map<string, string>([
+      [TRAINING_CONVERSATION_GROUPS_PREFERENCE_KEY, '{invalid'],
+    ])
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: () => {
+        throw new Error('blocked')
+      },
+    }
+
+    assert.deepEqual(loadTrainingConversationGroupsExpanded(storage), {})
+    assert.doesNotThrow(() =>
+      saveTrainingConversationGroupsExpanded(storage, { previous7Days: true })
     )
   })
 })
