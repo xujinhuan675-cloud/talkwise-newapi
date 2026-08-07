@@ -20,11 +20,13 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  abortTurnBasedVoiceRecorder,
   buildTurnBasedVoiceFrames,
   decodeTurnBasedVoiceServerEvent,
   downmixAndResampleVoiceAudio,
   encodeVoicePcmWav,
   finalVoiceTranscript,
+  isTurnBasedVoiceInputActive,
   persistedVoiceMessage,
   selectVoiceRecorderMimeType,
   TALKWISE_TURN_BASED_VOICE_PROTOCOL,
@@ -34,6 +36,33 @@ import {
 } from '../turn-based-voice-client'
 
 describe('turn-based training voice client contract', () => {
+  test('keeps text input in the voice mode until the turn is settled', () => {
+    assert.equal(isTurnBasedVoiceInputActive('requesting_permission'), true)
+    assert.equal(isTurnBasedVoiceInputActive('recording'), true)
+    assert.equal(isTurnBasedVoiceInputActive('transcribing'), true)
+    assert.equal(isTurnBasedVoiceInputActive('idle'), false)
+    assert.equal(isTurnBasedVoiceInputActive('persisted'), false)
+    assert.equal(isTurnBasedVoiceInputActive('error'), false)
+  })
+
+  test('aborts a recorder without allowing its stop handler to submit audio', () => {
+    let stopped = false
+    const recorder = {
+      ondataavailable: () => undefined,
+      onstop: () => undefined,
+      state: 'recording',
+      stop() {
+        stopped = true
+      },
+    } as unknown as MediaRecorder
+
+    abortTurnBasedVoiceRecorder(recorder)
+
+    assert.equal(stopped, true)
+    assert.equal(recorder.ondataavailable, null)
+    assert.equal(recorder.onstop, null)
+  })
+
   test('builds an authenticated same-origin room URL without identity inputs', () => {
     const url = trainingTurnBasedVoiceWebSocketUrl(
       '/api/talkwise/training',
@@ -128,6 +157,65 @@ describe('turn-based training voice client contract', () => {
     const serialized = JSON.stringify(frames)
     assert.doesNotMatch(serialized, /userId|teamId|accessToken|authorization/i)
     assert.throws(() => buildTurnBasedVoiceFrames(new Uint8Array()))
+  })
+
+  test('attaches the selected LLM model to voice turn metadata', () => {
+    const frames = buildTurnBasedVoiceFrames(Uint8Array.from([1, 2]), 4, {
+      llmModel: '  gpt-5.5  ',
+    })
+
+    assert.deepEqual(frames.at(-1), {
+      format: 'wav',
+      metadata: {
+        interactionMode: 'turn_based',
+        llm: { model: 'gpt-5.5' },
+        media: {
+          channels: 1,
+          mimeType: 'audio/wav',
+          sampleRate: 16_000,
+        },
+        modality: 'voice',
+        source: 'voice_transcription',
+        trainingMode: 'voice',
+      },
+      type: 'speech_end',
+    })
+  })
+
+  test('attaches only the bounded training voice fields to voice turn metadata', () => {
+    const frames = buildTurnBasedVoiceFrames(Uint8Array.from([1, 2]), 4, {
+      voiceMetadata: {
+        trainingVoiceId: 'zh_male_dayi_saturn_bigtts',
+        trainingVoiceSpeed: 1.2,
+        trainingVoiceLoudness: 0.8,
+        trainingVoiceEmotion: 'firm',
+        trainingVoiceEmotionScale: 1.4,
+        trainingVoiceStyle: 'concise',
+        userId: 'must-not-leak',
+      },
+    })
+
+    const finalFrame = frames.at(-1)
+    if (!finalFrame || finalFrame.type !== 'speech_end') {
+      throw new Error('voice turn must end with a speech_end frame')
+    }
+    assert.deepEqual(finalFrame.metadata, {
+      interactionMode: 'turn_based',
+      media: {
+        channels: 1,
+        mimeType: 'audio/wav',
+        sampleRate: 16_000,
+      },
+      modality: 'voice',
+      source: 'voice_transcription',
+      trainingMode: 'voice',
+      trainingVoiceId: 'zh_male_dayi_saturn_bigtts',
+      trainingVoiceSpeed: 1.2,
+      trainingVoiceLoudness: 0.8,
+      trainingVoiceEmotion: 'firm',
+      trainingVoiceEmotionScale: 1.4,
+      trainingVoiceStyle: 'concise',
+    })
   })
 
   test('distinguishes recognized text from confirmed message persistence', () => {

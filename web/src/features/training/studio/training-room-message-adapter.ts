@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { Message } from '@/features/playground/types'
 
 import type { TrainingConversationMessage } from '../conversation-workspace/api'
+import { formatTrainingMessageForDisplay } from '../training-message-presentation'
 import type { TrainingRoomMessage } from './training-room-client'
 
 function timestampMillis(value: string | null): number | undefined {
@@ -38,7 +39,12 @@ export function trainingRoomPlaygroundMessages(
     return {
       key: message.id,
       from: message.senderType === 'user' ? 'user' : 'assistant',
-      versions: [{ id: message.id, content }],
+      versions: [
+        {
+          id: message.id,
+          content: formatTrainingMessageForDisplay(content, message.metadata),
+        },
+      ],
       ...(timestamp === undefined
         ? {}
         : { createdAt: timestamp, completedAt: timestamp }),
@@ -75,6 +81,10 @@ export function trainingRoomConversationMessages(
     publicId: message.id,
     role: trainingConversationRole(message.senderType),
     content: message.content || emptyContent(message.videoAnswer !== null),
+    contentParts: [],
+    metadata: message.metadata,
+    emotionLabel: message.emotionLabel,
+    emotionScore: message.emotionScore,
     parentMessageId: metadataText(
       message.metadata,
       'parentMessageId',

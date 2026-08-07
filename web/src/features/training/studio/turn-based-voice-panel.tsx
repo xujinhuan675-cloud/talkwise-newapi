@@ -16,18 +16,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { LoaderCircle, Mic, Square } from 'lucide-react'
+import { Check, LoaderCircle, Mic, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
+  abortTurnBasedVoiceRecorder,
   buildTurnBasedVoiceFrames,
   decodeTurnBasedVoiceServerEvent,
   finalVoiceTranscript,
+  isTurnBasedVoiceInputActive,
   normalizeTurnBasedVoiceAudio,
   persistedVoiceMessage,
   selectVoiceRecorderMimeType,
@@ -38,13 +40,23 @@ import {
   type TurnBasedVoiceServerEvent,
   type TurnBasedVoiceStatus,
 } from './turn-based-voice-client'
+import {
+  QUIET_WAVEFORM,
+  quietWaveformLevels,
+  waveformBarCountForWidth,
+  waveformLevelsFromFrequencyData,
+} from './turn-based-voice-waveform'
 
 interface TurnBasedVoicePanelProps {
   apiBase: string
   disabled?: boolean
+  model?: string
+  onErrorChange?: (error: string | null) => void
+  onVoiceInputStateChange?: (active: boolean) => void
   onMessagePersisted?: (message: PersistedVoiceMessage) => void
   roomId: string
   sessionId: string
+  voiceMetadata?: Readonly<Record<string, unknown>>
 }
 
 const TRANSCRIPTION_TIMEOUT_MS = 45_000
@@ -64,9 +76,13 @@ function isMissingDeviceError(error: unknown): boolean {
 export function TurnBasedVoicePanel({
   apiBase,
   disabled = false,
+  model,
+  onErrorChange,
+  onVoiceInputStateChange,
   onMessagePersisted,
   roomId,
   sessionId,
+  voiceMetadata,
 }: TurnBasedVoicePanelProps) {
   const { i18n, t } = useTranslation()
   const accessToken = useAuthStore((state) => state.auth.accessToken)
@@ -78,8 +94,17 @@ export function TurnBasedVoicePanel({
   const generationRef = useRef(0)
   const intentionalCloseRef = useRef(false)
   const transcriptRef = useRef('')
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const analyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const analyserGainRef = useRef<GainNode | null>(null)
+  const analyserDataRef = useRef<Uint8Array | null>(null)
+  const waveformFrameRef = useRef<number | null>(null)
+  const waveformContainerRef = useRef<HTMLDivElement | null>(null)
+  const waveformBarCountRef = useRef(QUIET_WAVEFORM.length)
   const [status, setStatus] = useState<TurnBasedVoiceStatus>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [waveform, setWaveform] = useState<readonly number[]>(QUIET_WAVEFORM)
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -93,23 +118,110 @@ export function TurnBasedVoicePanel({
     requestTimerRef.current = null
   }, [])
 
-  const releaseCapture = useCallback((abortRecorder: boolean) => {
-    const recorder = recorderRef.current
-    recorderRef.current = null
-    if (abortRecorder && recorder) {
-      recorder.ondataavailable = null
-      recorder.onstop = null
-      if (recorder.state !== 'inactive') {
-        try {
-          recorder.stop()
-        } catch {
-          // The browser may finish the recorder between the state check and stop.
-        }
+  const stopWaveformMonitor = useCallback(() => {
+    if (waveformFrameRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(waveformFrameRef.current)
+    }
+    waveformFrameRef.current = null
+
+    try {
+      analyserSourceRef.current?.disconnect()
+      analyserRef.current?.disconnect()
+      analyserGainRef.current?.disconnect()
+    } catch {
+      // The audio graph may already be closed when the capture track ends.
+    }
+    analyserSourceRef.current = null
+    analyserRef.current = null
+    analyserGainRef.current = null
+    analyserDataRef.current = null
+
+    const context = audioContextRef.current
+    audioContextRef.current = null
+    if (context) {
+      try {
+        void context.close()
+      } catch {
+        // The browser may have closed the context concurrently.
       }
     }
-    streamRef.current?.getTracks().forEach((track) => track.stop())
-    streamRef.current = null
+    setWaveform(quietWaveformLevels(waveformBarCountRef.current))
   }, [])
+
+  const startWaveformMonitor = useCallback(
+    (stream: MediaStream) => {
+      stopWaveformMonitor()
+      if (
+        typeof window === 'undefined' ||
+        typeof AudioContext === 'undefined' ||
+        stream.getAudioTracks().length === 0
+      ) {
+        return
+      }
+
+      try {
+        const context = new AudioContext()
+        const source = context.createMediaStreamSource(stream)
+        const analyser = context.createAnalyser()
+        const silentGain = context.createGain()
+        analyser.fftSize = 256
+        analyser.smoothingTimeConstant = 0.75
+        silentGain.gain.value = 0
+        source.connect(analyser)
+        analyser.connect(silentGain)
+        silentGain.connect(context.destination)
+        const data = new Uint8Array(analyser.frequencyBinCount)
+
+        audioContextRef.current = context
+        analyserSourceRef.current = source
+        analyserRef.current = analyser
+        analyserGainRef.current = silentGain
+        analyserDataRef.current = data
+
+        if (context.state === 'suspended') {
+          void context.resume().catch(() => undefined)
+        }
+
+        const updateWaveform = () => {
+          if (analyserRef.current !== analyser || !analyserDataRef.current) {
+            return
+          }
+          analyser.getByteFrequencyData(data)
+          const next = waveformLevelsFromFrequencyData(
+            data,
+            waveformBarCountRef.current
+          )
+          setWaveform((current) => {
+            const unchanged = current.every(
+              (level, index) => Math.abs(level - (next[index] ?? 0)) < 0.02
+            )
+            return unchanged ? current : next
+          })
+          waveformFrameRef.current =
+            window.requestAnimationFrame(updateWaveform)
+        }
+
+        waveformFrameRef.current = window.requestAnimationFrame(updateWaveform)
+      } catch {
+        stopWaveformMonitor()
+      }
+    },
+    [stopWaveformMonitor]
+  )
+
+  const releaseCapture = useCallback(
+    (abortRecorder: boolean) => {
+      const recorder = recorderRef.current
+      recorderRef.current = null
+      if (abortRecorder && recorder) {
+        abortTurnBasedVoiceRecorder(recorder)
+      }
+      stopWaveformMonitor()
+      streamRef.current?.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    },
+    [stopWaveformMonitor]
+  )
 
   const releaseRuntime = useCallback(
     (abortRecorder = true) => {
@@ -240,6 +352,13 @@ export function TurnBasedVoicePanel({
           noiseSuppression: true,
         },
       })
+      if (
+        stream.getAudioTracks().length === 0 ||
+        stream.getAudioTracks().every((track) => track.readyState === 'ended')
+      ) {
+        stream.getTracks().forEach((track) => track.stop())
+        throw new DOMException('No microphone was detected.', 'NotFoundError')
+      }
       if (generationRef.current !== generation) {
         stream.getTracks().forEach((track) => track.stop())
         return
@@ -315,7 +434,11 @@ export function TurnBasedVoicePanel({
                 return
               }
               const wavBytes = new Uint8Array(await normalized.arrayBuffer())
-              for (const frame of buildTurnBasedVoiceFrames(wavBytes)) {
+              for (const frame of buildTurnBasedVoiceFrames(
+                wavBytes,
+                undefined,
+                { llmModel: model, voiceMetadata }
+              )) {
                 socket.send(JSON.stringify(frame))
               }
               setStatus('transcribing')
@@ -354,6 +477,7 @@ export function TurnBasedVoicePanel({
           return
         }
         setStatus('recording')
+        startWaveformMonitor(stream)
       })
       socket.addEventListener('message', (message) => {
         if (
@@ -431,9 +555,12 @@ export function TurnBasedVoicePanel({
     fail,
     handleServerEvent,
     localize,
+    model,
     releaseRuntime,
     roomId,
     sessionId,
+    startWaveformMonitor,
+    voiceMetadata,
   ])
 
   const stopRecording = useCallback(() => {
@@ -450,6 +577,16 @@ export function TurnBasedVoicePanel({
     releaseCapture(false)
   }, [clearTimers, releaseCapture])
 
+  const cancelRecording = useCallback(() => {
+    const recorder = recorderRef.current
+    if (!recorder || recorder.state !== 'recording') return
+    generationRef.current += 1
+    transcriptRef.current = ''
+    releaseRuntime()
+    setError(null)
+    setStatus('idle')
+  }, [releaseRuntime])
+
   useEffect(() => {
     return () => {
       generationRef.current += 1
@@ -464,6 +601,15 @@ export function TurnBasedVoicePanel({
     setError(null)
     setStatus('idle')
   }, [releaseRuntime, roomId, sessionId])
+
+  useEffect(() => {
+    if (!disabled) return
+    generationRef.current += 1
+    releaseRuntime()
+    transcriptRef.current = ''
+    setError(null)
+    setStatus('idle')
+  }, [disabled, releaseRuntime])
 
   const statusLabels: Record<TurnBasedVoiceStatus, string> = {
     connecting: localize('Connecting', '\u8fde\u63a5\u4e2d'),
@@ -480,47 +626,129 @@ export function TurnBasedVoicePanel({
   }
   const busy = !['error', 'idle', 'persisted', 'recording'].includes(status)
   let actionIcon = <Mic />
-  let actionLabel = localize('Record', '\u5f55\u5236')
+  let actionLabel = localize('Voice input', '\u8bed\u97f3\u8f93\u5165')
   if (busy) {
     actionIcon = <LoaderCircle className='animate-spin' />
+    actionLabel = localize('Preparing', '\u5904\u7406\u4e2d')
   } else if (status === 'recording') {
-    actionIcon = <Square />
-    actionLabel = localize('Stop', '\u505c\u6b62')
-  } else if (status === 'persisted') {
-    actionLabel = localize('Record another', '\u518d\u5f55\u4e00\u6b21')
+    actionIcon = <Check />
+    actionLabel = localize('Done speaking', '\u8bf4\u5b8c\u4e86')
+  } else if (status === 'error') {
+    actionLabel = localize('Try again', '\u91cd\u8bd5\u5f55\u97f3')
   }
+  const isRecording = status === 'recording'
+  const voiceInputActive = isTurnBasedVoiceInputActive(status)
+  let actionVariant: 'default' | 'destructive' | 'ghost' = 'ghost'
+  if (status === 'error') actionVariant = 'destructive'
+  else if (isRecording) actionVariant = 'default'
 
   useEffect(() => {
-    if (!error) return
-    toast.error(
-      localize(
-        'Microphone unavailable',
-        '\u9ea6\u514b\u98ce\u4e0d\u53ef\u7528'
-      ),
-      {
-        description: error,
-      }
-    )
-  }, [error, localize])
+    onErrorChange?.(error)
+  }, [error, onErrorChange])
+
+  useEffect(() => {
+    onVoiceInputStateChange?.(voiceInputActive)
+    return () => onVoiceInputStateChange?.(false)
+  }, [onVoiceInputStateChange, voiceInputActive])
+
+  useEffect(() => {
+    const container = waveformContainerRef.current
+    if (!container) return
+
+    const updateBarCount = (width: number) => {
+      const nextCount = waveformBarCountForWidth(width)
+      if (waveformBarCountRef.current === nextCount) return
+      waveformBarCountRef.current = nextCount
+      setWaveform(quietWaveformLevels(nextCount))
+    }
+
+    updateBarCount(container.getBoundingClientRect().width)
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) updateBarCount(entry.contentRect.width)
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   return (
-    <Button
-      aria-label={localize(
-        `${actionLabel} microphone`,
-        `${actionLabel}\u9ea6\u514b\u98ce`
-      )}
-      aria-pressed={status === 'recording'}
-      disabled={busy || ((disabled || !accessToken) && status !== 'recording')}
-      size='icon-sm'
-      title={error || statusLabels[status]}
-      type='button'
-      variant={
-        status === 'error' || status === 'recording' ? 'destructive' : 'ghost'
-      }
-      onClick={status === 'recording' ? stopRecording : startRecording}
-    >
-      {actionIcon}
-      <span className='sr-only'>{actionLabel}</span>
-    </Button>
+    <div className='flex min-w-0 flex-1 items-center gap-2'>
+      <div
+        aria-hidden={!isRecording}
+        aria-label={localize(
+          'Microphone input level',
+          '\u9ea6\u514b\u98ce\u8f93\u5165\u97f3\u91cf'
+        )}
+        className={cn(
+          'flex h-6 min-w-14 flex-1 items-center justify-between gap-0.5 overflow-hidden rounded-md bg-muted/50 px-1 transition-opacity',
+          isRecording ? 'opacity-100' : 'opacity-0'
+        )}
+        data-testid='turn-based-voice-waveform'
+        ref={waveformContainerRef}
+        role='img'
+      >
+        {waveform
+          .map((level, index) => ({
+            id: `waveform-bar-${index}`,
+            level,
+          }))
+          .map((bar) => (
+            <span
+              aria-hidden='true'
+              className='bg-primary/70 w-0.5 shrink-0 rounded-full transition-[height] duration-75'
+              key={bar.id}
+              style={{
+                height: `${Math.max(18, Math.round(bar.level * 100))}%`,
+              }}
+            />
+          ))}
+      </div>
+      <div className='grid w-40 shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-1.5 sm:w-48 sm:grid-cols-[5rem_minmax(0,1fr)]'>
+        {isRecording && (
+          <Button
+            aria-label={localize(
+              'Cancel current recording',
+              '\u53d6\u6d88\u5f53\u524d\u5f55\u97f3'
+            )}
+            className='min-w-0 justify-center gap-1 px-2'
+            title={localize('Cancel recording', '\u53d6\u6d88\u5f55\u97f3')}
+            type='button'
+            variant='ghost'
+            onClick={cancelRecording}
+          >
+            <X />
+            <span className='truncate text-xs sm:text-sm'>
+              {localize('Cancel', '\u53d6\u6d88')}
+            </span>
+          </Button>
+        )}
+        <Button
+          aria-label={actionLabel}
+          aria-pressed={isRecording}
+          className={cn(
+            'min-w-0 justify-center gap-1.5 px-2',
+            !isRecording && 'col-span-2'
+          )}
+          disabled={disabled || busy || !accessToken}
+          title={error || statusLabels[status]}
+          type='button'
+          variant={actionVariant}
+          onClick={isRecording ? stopRecording : startRecording}
+        >
+          {actionIcon}
+          <span className='truncate text-xs sm:text-sm'>{actionLabel}</span>
+        </Button>
+      </div>
+      <span aria-live='polite' className='sr-only'>
+        {isRecording
+          ? localize(
+              'Microphone input is active.',
+              '\u6b63\u5728\u63a5\u6536\u9ea6\u514b\u98ce\u58f0\u97f3\u3002'
+            )
+          : error || statusLabels[status]}
+      </span>
+    </div>
   )
 }

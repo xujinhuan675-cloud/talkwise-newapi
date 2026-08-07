@@ -16,12 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CircleAlert, Mic, Square } from 'lucide-react'
+import { LoaderCircle, Mic, Square } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -32,7 +30,6 @@ import {
   realtimeAudioContract,
   realtimeEventAudio,
   realtimeEventError,
-  realtimeEventText,
   TALKWISE_REALTIME_PROTOCOL,
   talkWiseBearerProtocol,
   trainingRealtimeWebSocketUrl,
@@ -41,17 +38,15 @@ import {
   type RealtimeTrainingStatus,
 } from './realtime-client'
 
-interface RealtimeTrainingPanelProps {
+interface RealtimeVoiceControlProps {
   apiBase: string
+  disabled?: boolean
+  onErrorChange?: (error: string | null) => void
+  onMessagePersisted?: () => void
   profile: RealtimeProfile
   provider: string
   roomId: string
   sessionId: string
-}
-
-interface TranscriptItem {
-  id: number
-  text: string
 }
 
 const ACTIVE_STATUSES = new Set<RealtimeTrainingStatus>([
@@ -69,14 +64,6 @@ function isPermissionError(error: unknown): boolean {
   )
 }
 
-function statusVariant(
-  status: RealtimeTrainingStatus
-): 'destructive' | 'outline' | 'secondary' {
-  if (status === 'error') return 'destructive'
-  if (ACTIVE_STATUSES.has(status)) return 'secondary'
-  return 'outline'
-}
-
 function int16Samples(bytes: Uint8Array): Int16Array {
   const sampleCount = Math.floor(bytes.byteLength / 2)
   const samples = new Int16Array(sampleCount)
@@ -87,13 +74,16 @@ function int16Samples(bytes: Uint8Array): Int16Array {
   return samples
 }
 
-export function RealtimeTrainingPanel({
+export function RealtimeVoiceControl({
   apiBase,
+  disabled = false,
+  onErrorChange,
+  onMessagePersisted,
   profile,
   provider,
   roomId,
   sessionId,
-}: RealtimeTrainingPanelProps) {
+}: RealtimeVoiceControlProps) {
   const { i18n, t } = useTranslation()
   const accessToken = useAuthStore((state) => state.auth.accessToken)
   const socketRef = useRef<WebSocket | null>(null)
@@ -104,15 +94,12 @@ export function RealtimeTrainingPanel({
   const inputSilenceRef = useRef<GainNode | null>(null)
   const outputContextRef = useRef<AudioContext | null>(null)
   const nextOutputAtRef = useRef(0)
-  const transcriptIdRef = useRef(0)
   const stoppingRef = useRef(false)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [status, setStatus] = useState<RealtimeTrainingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
-  const [preview, setPreview] = useState('')
-  const [transcripts, setTranscripts] = useState<TranscriptItem[]>([])
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -278,33 +265,26 @@ export function RealtimeTrainingPanel({
           })
         return
       }
-      const text = realtimeEventText(event)
-      if (!text) return
-      if (event.type === 'transcript.delta') {
-        setPreview(text)
-        return
-      }
       if (
         event.type === 'transcript.done' ||
         event.type === 'transcript.persisted'
       ) {
         scheduleSettledClose()
-        setPreview('')
-        setTranscripts((current) => {
-          if (current.at(-1)?.text === text) return current
-          transcriptIdRef.current += 1
-          return [...current, { id: transcriptIdRef.current, text }].slice(-8)
-        })
+        if (event.type === 'transcript.persisted') onMessagePersisted?.()
       }
     },
-    [closeRealtime, localize, playAudio, scheduleSettledClose]
+    [
+      closeRealtime,
+      localize,
+      onMessagePersisted,
+      playAudio,
+      scheduleSettledClose,
+    ]
   )
 
   const startRealtime = useCallback(async () => {
-    if (!accessToken || ACTIVE_STATUSES.has(status)) return
+    if (disabled || !accessToken || ACTIVE_STATUSES.has(status)) return
     setError(null)
-    setPreview('')
-    setTranscripts([])
     setStatus('connecting')
     setIsFinishing(false)
     stoppingRef.current = false
@@ -428,6 +408,7 @@ export function RealtimeTrainingPanel({
     accessToken,
     apiBase,
     contract.inputSampleRate,
+    disabled,
     closeRealtime,
     localize,
     profile,
@@ -438,6 +419,21 @@ export function RealtimeTrainingPanel({
     status,
     handleEvent,
   ])
+
+  useEffect(() => {
+    onErrorChange?.(error)
+  }, [error, onErrorChange])
+
+  useEffect(() => {
+    closeRealtime('idle')
+    setError(null)
+  }, [closeRealtime, roomId, sessionId])
+
+  useEffect(() => {
+    if (!disabled) return
+    closeRealtime('closed')
+    setError(null)
+  }, [closeRealtime, disabled])
 
   const active = ACTIVE_STATUSES.has(status)
   const statusLabels: Record<RealtimeTrainingStatus, string> = {
@@ -450,64 +446,35 @@ export function RealtimeTrainingPanel({
     processing: localize('Processing', '处理中'),
     speaking: localize('Speaking', '正在回应'),
   }
-  let actionLabel = localize('Start', '开始')
-  if (active) actionLabel = localize('Stop', '停止')
-  if (isFinishing) actionLabel = localize('Finishing', '收尾中')
+  const busy = status === 'connecting' || status === 'preparing' || isFinishing
+  let actionIcon = <Mic />
+  let actionLabel = localize('Start realtime voice', '开始实时语音')
+  if (active) {
+    actionIcon = <Square />
+    actionLabel = localize('Stop realtime voice', '停止实时语音')
+  }
+  if (busy) {
+    actionIcon = <LoaderCircle className='animate-spin' />
+  }
+  if (isFinishing) {
+    actionLabel = localize('Finishing realtime voice', '正在结束实时语音')
+  }
 
   return (
-    <section className='border-border border-t pt-4' aria-live='polite'>
-      <div className='flex flex-wrap items-center justify-between gap-3'>
-        <div className='min-w-0'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <h2 className='text-sm font-semibold'>
-              {localize('Realtime voice', '实时语音')}
-            </h2>
-            <Badge variant={statusVariant(status)}>
-              {statusLabels[status]}
-            </Badge>
-            <Badge variant='outline'>
-              {contract.latencyProfile === 'true_realtime'
-                ? localize('True realtime', '真实时')
-                : localize('Near realtime', '近实时')}
-            </Badge>
-          </div>
-          <p className='text-muted-foreground mt-1 text-xs'>
-            {preview ||
-              transcripts.at(-1)?.text ||
-              localize('No transcript yet', '尚无转录')}
-          </p>
-        </div>
-        <Button
-          type='button'
-          variant={active ? 'destructive' : 'default'}
-          size='sm'
-          onClick={active ? finishRealtime : startRealtime}
-          disabled={!accessToken || status === 'connecting' || isFinishing}
-        >
-          {active ? <Square /> : <Mic />}
-          {actionLabel}
-        </Button>
-      </div>
-
-      {error && (
-        <Alert variant='destructive' className='mt-3'>
-          <CircleAlert />
-          <AlertTitle>
-            {localize('Realtime unavailable', '实时能力不可用')}
-          </AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {transcripts.length > 0 && (
-        <ol className='mt-3 max-h-40 space-y-2 overflow-y-auto text-sm'>
-          {transcripts.map((item) => (
-            <li key={item.id} className='border-l-2 pl-3'>
-              {item.text}
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
+    <Button
+      aria-label={actionLabel}
+      aria-pressed={active}
+      disabled={
+        disabled || status === 'connecting' || isFinishing || !accessToken
+      }
+      size='icon-sm'
+      title={error || statusLabels[status]}
+      type='button'
+      variant={active || status === 'error' ? 'destructive' : 'ghost'}
+      onClick={active ? finishRealtime : startRealtime}
+    >
+      {actionIcon}
+      <span className='sr-only'>{actionLabel}</span>
+    </Button>
   )
 }

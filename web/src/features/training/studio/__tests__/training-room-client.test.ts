@@ -25,6 +25,8 @@ import {
   parseTrainingRoomSse,
   parseTrainingRoomVideoAnswer,
   trainingRoomAudioChunk,
+  trainingRoomCompletionPath,
+  trainingRoomMessageAudioPath,
   trainingRoomPath,
   trainingRoomStreamPath,
 } from '../training-room-client'
@@ -172,6 +174,117 @@ describe('training room client', () => {
     )
   })
 
+  test('exposes persisted replay audio and only allows voice-opening reconstruction', () => {
+    const messages = normalizeTrainingRoomMessages({
+      data: {
+        messages: [
+          {
+            id: 7,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Original voice reply.',
+            metadata: {
+              aiAudio: {
+                available: true,
+                original: true,
+                segmentCount: 2,
+                trainingMode: 'realtime_voice',
+                segments: [{ assetId: 99 }],
+              },
+            },
+          },
+          {
+            id: 8,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Text reply.',
+            metadata: {},
+          },
+          {
+            id: 9,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Text reply with invalid replay metadata.',
+            metadata: {
+              aiAudio: {
+                available: true,
+                original: true,
+                segmentCount: 1,
+                trainingMode: 'text',
+              },
+            },
+          },
+          {
+            id: 10,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Historical voice opening.',
+            metadata: {
+              eventKind: 'scenario_opening',
+              trainingMode: 'voice',
+            },
+          },
+          {
+            id: 11,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Recreated voice reply.',
+            metadata: {
+              aiAudio: {
+                available: true,
+                original: false,
+                provenance: 'server_resynthesis',
+                segmentCount: 1,
+                trainingMode: 'voice',
+              },
+            },
+          },
+          {
+            id: 12,
+            room_id: 42,
+            sender_type: 'persona',
+            sender_id: 'buyer',
+            content: 'Historical video opening without AI audio.',
+            metadata: {
+              eventKind: 'scenario_opening',
+              trainingMode: 'video',
+            },
+          },
+        ],
+      },
+    })
+
+    assert.deepEqual(messages[0]?.audioReplay, {
+      available: true,
+      original: true,
+      provenance: null,
+      segmentCount: 2,
+      trainingMode: 'realtime_voice',
+    })
+    assert.equal(messages[1]?.audioReplay, undefined)
+    assert.equal(messages[2]?.audioReplay, undefined)
+    assert.equal(messages[3]?.audioSynthesisAvailable, true)
+    assert.deepEqual(messages[4]?.audioReplay, {
+      available: true,
+      original: false,
+      provenance: 'server_resynthesis',
+      segmentCount: 1,
+      trainingMode: 'voice',
+    })
+    assert.equal(messages[5]?.audioReplay, undefined)
+    assert.equal(messages[5]?.audioSynthesisAvailable, undefined)
+    assert.equal(JSON.stringify(messages[0]?.audioReplay).includes('assetId'), false)
+    assert.equal(
+      trainingRoomMessageAudioPath('42', 'session 1', '7', 1),
+      '/api/talkwise/conversations/rooms/42/messages/7/audio/1?trainingSessionId=session+1'
+    )
+  })
+
   test('normalizes a completed room session with a ready review', () => {
     const result = normalizeTrainingRoomCompletionResult(
       {
@@ -192,6 +305,14 @@ describe('training room client', () => {
 
     assert.equal(result?.reportId, 'report-1')
     assert.equal(result?.reportStatus, 'ready')
+  })
+
+  test('uses the same-origin training proxy when completing a room session', () => {
+    assert.equal(
+      trainingRoomCompletionPath('', 'session 1'),
+      '/api/talkwise/training/sessions/session%201/complete'
+    )
+    assert.throws(() => trainingRoomCompletionPath('', ' '), /session id/)
   })
 
   test('marks direct room completion as review skipped', () => {
