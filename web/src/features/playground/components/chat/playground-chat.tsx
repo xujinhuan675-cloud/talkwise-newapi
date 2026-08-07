@@ -39,7 +39,10 @@ import type {
   Message as MessageType,
   PlaygroundMessageLayoutMode,
 } from '../../types'
-import { MessageActions } from '../message/message-actions'
+import {
+  MessageActions,
+  type MessageActionItem,
+} from '../message/message-actions'
 import { MessageErrorActions } from '../message/message-error-actions'
 import { PlaygroundMessageContent } from '../message/playground-message-content'
 import { PlaygroundMessageEditor } from '../message/playground-message-editor'
@@ -57,7 +60,10 @@ interface PlaygroundChatProps {
   onForkMessage?: (message: MessageType) => void
   forkMessageLabel?: string
   onDeleteMessage?: (message: MessageType) => void
+  renderMessageHeader?: (message: MessageType) => ReactNode
   renderMessageFooter?: (message: MessageType) => ReactNode
+  getMessageActions?: (message: MessageType) => readonly MessageActionItem[]
+  showSourceAction?: boolean
   onSelectPrompt?: (prompt: string) => void
   isGenerating?: boolean
   isLoadingMessages?: boolean
@@ -82,7 +88,10 @@ export function PlaygroundChat({
   onForkMessage,
   forkMessageLabel,
   onDeleteMessage,
+  renderMessageHeader,
   renderMessageFooter,
+  getMessageActions,
+  showSourceAction = true,
   onSelectPrompt,
   isGenerating = false,
   isLoadingMessages = false,
@@ -154,6 +163,7 @@ export function PlaygroundChat({
         key={message.key}
       >
         <div className='w-full min-w-0 flex-1 basis-full'>
+          {!isEditing && renderMessageHeader?.(message)}
           {isEditing ? (
             <PlaygroundMessageEditor
               editText={editText}
@@ -169,10 +179,13 @@ export function PlaygroundChat({
               alignment={alignment}
               actions={
                 <MessageActions
+                  additionalActions={getMessageActions?.(message)}
                   message={message}
                   onCopy={onCopyMessage}
                   onRegenerate={onRegenerateMessage}
-                  onToggleSource={handleToggleMessageSource}
+                  onToggleSource={
+                    showSourceAction ? handleToggleMessageSource : undefined
+                  }
                   onEdit={onEditMessage}
                   onFork={onForkMessage}
                   forkLabel={forkMessageLabel}

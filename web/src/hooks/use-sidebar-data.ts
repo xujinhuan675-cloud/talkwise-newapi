@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import {
   ClipboardList,
+  Headphones,
   History,
   Home,
   LayoutDashboard,
@@ -32,6 +33,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
+import { TRAINING_ASSIST_AVAILABILITY } from '@/features/training/section-registry'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -68,6 +70,16 @@ export function useSidebarData(): SidebarData {
             title: localize('Conversations', '\u5bf9\u8bdd'),
             url: '/training/conversations',
             icon: MessageSquare,
+          },
+          {
+            title: localize('In-call assist', '\u4e34\u573a\u8f85\u52a9'),
+            url: '/training/assist',
+            icon: Headphones,
+            badge: localize(
+              TRAINING_ASSIST_AVAILABILITY.english,
+              TRAINING_ASSIST_AVAILABILITY.chinese
+            ),
+            badgeVariant: TRAINING_ASSIST_AVAILABILITY.badgeVariant,
           },
           {
             title: localize('Review', '\u590d\u76d8'),

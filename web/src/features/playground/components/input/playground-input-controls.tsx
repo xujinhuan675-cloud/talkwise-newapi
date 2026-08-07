@@ -29,6 +29,7 @@ import type { GroupOption, ModelOption } from '../../types'
 type PlaygroundInputControlsProps = {
   actions?: ReactNode
   disabled?: boolean
+  hideSubmitButton?: boolean
   groups: GroupOption[]
   groupValue: string
   isGenerating?: boolean
@@ -38,6 +39,7 @@ type PlaygroundInputControlsProps = {
   onGroupChange: (value: string) => void
   onModelChange: (value: string) => void
   onStop?: () => void
+  selectorPlacement?: 'end' | 'start'
   text: string
   tools: ReactNode
 }
@@ -45,6 +47,7 @@ type PlaygroundInputControlsProps = {
 export function PlaygroundInputControls({
   actions,
   disabled,
+  hideSubmitButton = false,
   groups,
   groupValue,
   isGenerating,
@@ -54,6 +57,7 @@ export function PlaygroundInputControls({
   onGroupChange,
   onModelChange,
   onStop,
+  selectorPlacement = 'end',
   text,
   tools,
 }: PlaygroundInputControlsProps) {
@@ -81,18 +85,22 @@ export function PlaygroundInputControls({
     />
   )
 
-  const renderSubmitButton = () =>
-    shouldShowStop ? (
-      <PromptInputButton
-        className='border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/15 font-medium'
-        onClick={onStop}
-        variant='secondary'
-      >
-        <SquareIcon className='fill-current' size={16} />
-        <span className='hidden sm:inline'>{t('Stop')}</span>
-        <span className='sr-only sm:hidden'>{t('Stop')}</span>
-      </PromptInputButton>
-    ) : (
+  const renderSubmitButton = () => {
+    if (hideSubmitButton) return null
+    if (shouldShowStop) {
+      return (
+        <PromptInputButton
+          className='border-destructive/25 bg-destructive/10 text-destructive hover:bg-destructive/15 font-medium'
+          onClick={onStop}
+          variant='secondary'
+        >
+          <SquareIcon className='fill-current' size={16} />
+          <span className='hidden sm:inline'>{t('Stop')}</span>
+          <span className='sr-only sm:hidden'>{t('Stop')}</span>
+        </PromptInputButton>
+      )
+    }
+    return (
       <PromptInputButton
         className='border-primary bg-primary text-primary-foreground hover:bg-primary/90 disabled:border-border disabled:bg-muted/70 disabled:text-foreground/50 h-8 border px-3 font-medium shadow-sm disabled:opacity-100'
         disabled={!canSubmit}
@@ -104,6 +112,25 @@ export function PlaygroundInputControls({
         <span className='sr-only sm:hidden'>{t('Send')}</span>
       </PromptInputButton>
     )
+  }
+
+  if (selectorPlacement === 'start') {
+    return (
+      <div className='flex w-full flex-col gap-2.5 md:flex-row md:items-center'>
+        <div className='flex min-w-0 shrink-0 items-center'>
+          {renderSelector()}
+        </div>
+
+        <div className='flex min-w-0 flex-1 items-center justify-between gap-2 md:justify-end'>
+          {tools}
+          <div className='ml-auto flex min-w-0 flex-1 items-center justify-end gap-1.5'>
+            {actions}
+            {renderSubmitButton()}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className='flex w-full flex-col gap-2.5 md:flex-row md:items-center md:justify-between'>

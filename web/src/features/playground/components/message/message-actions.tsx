@@ -51,6 +51,7 @@ import type { Message } from '../../types'
 import { MessageActionButton } from './message-action-button'
 
 interface MessageActionsProps {
+  additionalActions?: readonly MessageActionItem[]
   message: Message
   onCopy?: (message: Message) => void
   onRegenerate?: (message: Message) => void
@@ -65,16 +66,18 @@ interface MessageActionsProps {
   className?: string
 }
 
-type MessageActionItem = {
+export type MessageActionItem = {
   className?: string
   disabled?: boolean
   icon: LucideIcon
+  iconClassName?: string
   label: string
   onClick: () => void
   variant?: 'default' | 'destructive'
 }
 
 export function MessageActions({
+  additionalActions = [],
   message,
   onCopy,
   onRegenerate,
@@ -135,6 +138,8 @@ export function MessageActions({
     })
   }
 
+  if (!isLoading) actions.push(...additionalActions)
+
   if ((isAssistant || isUser) && hasContent && !isLoading && onRegenerate) {
     actions.push({
       disabled: isGenerating,
@@ -185,6 +190,7 @@ export function MessageActions({
               className={action.className}
               disabled={action.disabled}
               icon={action.icon}
+              iconClassName={action.iconClassName}
               key={action.label}
               label={t(action.label)}
               onClick={action.onClick}
@@ -223,7 +229,7 @@ export function MessageActions({
                 >
                   {t(action.label)}
                   <DropdownMenuShortcut>
-                    <Icon className='size-4' />
+                    <Icon className={`size-4 ${action.iconClassName ?? ''}`} />
                   </DropdownMenuShortcut>
                 </DropdownMenuItem>
               )
