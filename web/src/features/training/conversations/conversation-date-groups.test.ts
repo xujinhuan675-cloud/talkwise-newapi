@@ -36,6 +36,8 @@ function session(
     conversationId: id,
     roomId: null,
     mode: 'text',
+    modality: 'text',
+    interactionMode: 'turn_based',
     feedbackMode: 'simulation',
     realtimeProfile: 'cascade',
     realtimeProvider: null,

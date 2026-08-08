@@ -50,6 +50,9 @@ export type TrainingConversationSession = {
   readonly conversationId: string | null
   readonly roomId: string | null
   readonly mode: TrainingSessionDTO['mode']
+  /** The room modality; legacy mode=realtime is normalized to voice. */
+  readonly modality: 'text' | 'voice' | 'video'
+  readonly interactionMode: 'turn_based' | 'realtime'
   readonly feedbackMode: 'assisted' | 'drill' | 'simulation'
   readonly realtimeProfile: 'cascade' | 'speech_to_speech'
   readonly realtimeProvider: string | null
@@ -152,6 +155,12 @@ function toTrainingConversationSession(
     conversationId,
     roomId,
     mode: session.mode,
+    modality: session.mode === 'realtime' ? 'voice' : session.mode,
+    interactionMode:
+      session.mode === 'realtime' ||
+      asText(metadata?.interactionMode) === 'realtime'
+        ? 'realtime'
+        : 'turn_based',
     feedbackMode: metadataFeedbackMode(metadata),
     realtimeProfile: metadataRealtimeProfile(metadata),
     realtimeProvider: asText(metadata?.realtimeProvider),

@@ -121,6 +121,8 @@ describe('training conversation session normalization', () => {
     ])
 
     assert.equal(session?.roomId, '42')
+    assert.equal(session?.modality, 'voice')
+    assert.equal(session?.interactionMode, 'realtime')
     assert.equal(session?.realtimeProfile, 'speech_to_speech')
     assert.equal(session?.realtimeProvider, 'doubao')
   })

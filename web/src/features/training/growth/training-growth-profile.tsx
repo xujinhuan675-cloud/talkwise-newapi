@@ -48,7 +48,10 @@ import {
   generateTrainingProfileCard,
 } from './profile-card'
 
-async function captureCard(element: HTMLDivElement): Promise<Blob> {
+async function captureCard(
+  element: HTMLDivElement,
+  errorMessage: string
+): Promise<Blob> {
   const { default: html2canvas } = await import('html2canvas-pro')
   const canvas = await html2canvas(element, {
     backgroundColor: null,
@@ -58,7 +61,7 @@ async function captureCard(element: HTMLDivElement): Promise<Blob> {
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, 'image/png')
   )
-  if (!blob) throw new Error('Unable to create the profile card image')
+  if (!blob) throw new Error(errorMessage)
   return blob
 }
 
@@ -92,7 +95,10 @@ function TrainingGrowthProfileContent() {
     queryFn: async () => {
       const response = await getAffiliateCode()
       if (!response.success) {
-        throw new Error(response.message || 'Unable to load referral link')
+        throw new Error(
+          response.message ||
+            localize('Unable to load referral link', '无法加载推荐链接')
+        )
       }
       return response.data ? generateAffiliateLink(response.data) : ''
     },
@@ -155,7 +161,13 @@ function TrainingGrowthProfileContent() {
     if (!card || !cardRef.current) return
     setExportAction(action)
     try {
-      const blob = await captureCard(cardRef.current)
+      const blob = await captureCard(
+        cardRef.current,
+        localize(
+          'Unable to create the profile card image',
+          '无法生成沟通名片图片'
+        )
+      )
       if (action === 'download') {
         downloadBlob(blob)
         toast.success(

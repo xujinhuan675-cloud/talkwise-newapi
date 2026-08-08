@@ -20,11 +20,6 @@ import { createSectionRegistry } from '@/features/system-settings/utils/section-
 
 export const TRAINING_SIDEBAR_MODULE = 'training'
 export const TRAINING_SIDEBAR_ITEM = 'studio'
-export const TRAINING_ASSIST_AVAILABILITY = {
-  english: 'Coming soon',
-  chinese: '\u5373\u5c06\u5f00\u653e',
-  badgeVariant: 'secondary',
-} as const
 
 export const TRAINING_DIRECT_ROUTE_PATHS = [
   '/training',

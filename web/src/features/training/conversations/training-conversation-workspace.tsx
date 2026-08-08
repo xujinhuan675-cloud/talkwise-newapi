@@ -542,7 +542,7 @@ function TrainingConversationWorkspaceContent({
             ref={setHeaderActionsTarget}
           />
         </div>
-        {activeSession?.mode === 'text' && activeSession.conversationId && (
+        {activeSession?.modality === 'text' && activeSession.conversationId && (
           <TrainingConversationSurface
             conversationId={activeSession.conversationId}
             headerActionsTarget={headerActionsTarget}
@@ -579,12 +579,13 @@ function TrainingConversationWorkspaceContent({
             }
           />
         )}
-        {activeSession?.roomId && activeSession.mode !== 'text' && (
+        {activeSession?.roomId && activeSession.modality !== 'text' && (
           <TrainingRoomConversationSurface
             apiBase={host.apiBase}
             feedbackMode={activeSession.feedbackMode}
             headerActionsTarget={headerActionsTarget}
-            mode={activeSession.mode}
+            interactionMode={activeSession.interactionMode}
+            mode={activeSession.modality}
             onCompletionConfirmed={handleCompletionConfirmed}
             realtimeProfile={activeSession.realtimeProfile}
             realtimeProvider={activeSession.realtimeProvider}

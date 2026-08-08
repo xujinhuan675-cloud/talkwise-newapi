@@ -120,7 +120,7 @@ function speakerLabel(message: TrainingRoomMessage, localize: Localize) {
   return localize('System', '系统')
 }
 
-async function loadVideoBlob(url: string): Promise<Blob> {
+async function loadVideoBlob(url: string, localize: Localize): Promise<Blob> {
   const response = await fetch(url, {
     credentials: 'include',
     headers: {
@@ -129,24 +129,42 @@ async function loadVideoBlob(url: string): Promise<Blob> {
     },
   })
   if (!response.ok) {
-    throw Object.assign(new Error(`Video replay failed (${response.status})`), {
-      status: response.status,
-    })
+    throw Object.assign(
+      new Error(localize('Video replay failed', '视频回放失败')),
+      {
+        status: response.status,
+      }
+    )
   }
   const contentType = (response.headers.get('content-type') || '')
     .split(';', 1)[0]
     ?.trim()
     .toLowerCase()
   if (!contentType?.startsWith('video/')) {
-    throw new Error('Video replay returned an unsupported media type.')
+    throw new Error(
+      localize(
+        'Video replay returned an unsupported media type.',
+        '视频回放返回了不支持的媒体类型。'
+      )
+    )
   }
   const declaredSize = Number(response.headers.get('content-length'))
   if (Number.isFinite(declaredSize) && declaredSize > VIDEO_REPLAY_MAX_BYTES) {
-    throw new Error('Video replay exceeds the supported size.')
+    throw new Error(
+      localize(
+        'Video replay exceeds the supported size.',
+        '视频回放超过支持的大小限制。'
+      )
+    )
   }
   const blob = await response.blob()
   if (blob.size <= 0 || blob.size > VIDEO_REPLAY_MAX_BYTES) {
-    throw new Error('Video replay returned an invalid media file.')
+    throw new Error(
+      localize(
+        'Video replay returned an invalid media file.',
+        '视频回放返回了无效的媒体文件。'
+      )
+    )
   }
   return blob.type ? blob : new Blob([blob], { type: contentType })
 }
@@ -177,7 +195,7 @@ function VideoReplay({
     setIsLoading(true)
     setError(null)
     try {
-      const blob = await loadVideoBlob(replayUrl)
+      const blob = await loadVideoBlob(replayUrl, localize)
       const nextObjectUrl = URL.createObjectURL(blob)
       setObjectUrl((previous) => {
         if (previous) URL.revokeObjectURL(previous)
