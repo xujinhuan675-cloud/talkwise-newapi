@@ -856,6 +856,54 @@ func TestTalkWiseTrainingProxyPreservesRequestAndResponseContract(t *testing.T) 
 	assert.JSONEq(t, body, forwarded.Body)
 }
 
+func TestTalkWiseHealthProxiesPreserveMonitorAuthorization(t *testing.T) {
+	type observedRequest struct {
+		Path          string
+		Authorization string
+	}
+	observed := make(chan observedRequest, 3)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			Path:          request.URL.Path,
+			Authorization: request.Header.Get("Authorization"),
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(`{"status":"ready"}`))
+	}))
+	defer upstream.Close()
+	t.Setenv(talkWiseTrainingUpstreamEnv, upstream.URL+"/internal")
+
+	router := gin.New()
+	router.GET("/api/talkwise/health/live", ProxyTalkWiseHealthLive)
+	router.GET("/api/talkwise/health/ready", ProxyTalkWiseHealthReady)
+	router.GET("/api/talkwise/health/voice/ready", ProxyTalkWiseVoiceHealthReady)
+
+	tests := []struct {
+		path         string
+		upstreamPath string
+	}{
+		{path: "/api/talkwise/health/live", upstreamPath: "/internal/health/live"},
+		{path: "/api/talkwise/health/ready", upstreamPath: "/internal/health/ready"},
+		{
+			path:         "/api/talkwise/health/voice/ready",
+			upstreamPath: "/internal/health/voice/ready",
+		},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(http.MethodGet, test.path, nil)
+		request.Header.Set("Authorization", "Bearer monitor-token")
+		recorder := newCloseNotifyRecorder()
+
+		router.ServeHTTP(recorder, request)
+
+		require.Equal(t, http.StatusOK, recorder.Code)
+		forwarded := <-observed
+		assert.Equal(t, test.upstreamPath, forwarded.Path)
+		assert.Equal(t, "Bearer monitor-token", forwarded.Authorization)
+	}
+}
+
 func TestTalkWiseTrainingWebSocketProxyPromotesBearerAndStripsSensitiveInputs(t *testing.T) {
 	db := setupTalkWiseControllerTestDB(t)
 	user := seedTalkWiseUser(t, db)

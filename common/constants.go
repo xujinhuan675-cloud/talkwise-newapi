@@ -13,7 +13,10 @@ import (
 var StartTime = time.Now().Unix() // unit: second
 var Version = "v0.0.0"            // this hard coding will be replaced automatically when building, no need to manually change
 var SystemName = "TalkWise"
-var Footer = ""
+
+const DefaultFooter = "TalkWise | AI Communication Training Platform"
+
+var Footer = DefaultFooter
 var Logo = "/brand-icons/talkwise-speech-wave-standard-1024.png"
 var TopUpLink = ""
 

@@ -67,6 +67,9 @@ func SetApiRouter(router *gin.Engine) {
 
 		talkwiseRoute := apiRouter.Group("/talkwise")
 		{
+			talkwiseRoute.GET("/health/live", controller.ProxyTalkWiseHealthLive)
+			talkwiseRoute.GET("/health/ready", controller.ProxyTalkWiseHealthReady)
+			talkwiseRoute.GET("/health/voice/ready", controller.ProxyTalkWiseVoiceHealthReady)
 			talkwiseRoute.Any(
 				"/training/*path",
 				controller.PromoteTalkWiseTrainingWebSocketAuthorization,

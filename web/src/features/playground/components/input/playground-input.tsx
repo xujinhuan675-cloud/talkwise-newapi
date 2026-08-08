@@ -34,7 +34,10 @@ import type {
   PlaygroundConfig,
 } from '../../types'
 import type { PlaygroundInputCapabilities } from './playground-input-capabilities'
-import { PlaygroundInputControls } from './playground-input-controls'
+import {
+  PlaygroundInputControls,
+  type PlaygroundInputPrimaryAction,
+} from './playground-input-controls'
 import { PlaygroundInputTools } from './playground-input-tools'
 
 interface PlaygroundInputProps {
@@ -45,6 +48,8 @@ interface PlaygroundInputProps {
   onStop?: () => void
   disabled?: boolean
   hideSubmitButton?: boolean
+  hideModelSelector?: boolean
+  disableTextInput?: boolean
   extraTools?: ReactNode
   extraActions?: ReactNode
   isGenerating?: boolean
@@ -66,6 +71,7 @@ interface PlaygroundInputProps {
     value: boolean
   ) => void
   parameterEnabled: ParameterEnabled
+  primaryAction?: PlaygroundInputPrimaryAction
   selectorPlacement?: 'end' | 'start'
 }
 
@@ -77,6 +83,8 @@ export function PlaygroundInput({
   onStop,
   disabled,
   hideSubmitButton = false,
+  hideModelSelector = false,
+  disableTextInput = false,
   extraTools,
   extraActions,
   isGenerating,
@@ -92,6 +100,7 @@ export function PlaygroundInput({
   onClearMessages,
   onParameterEnabledChange,
   parameterEnabled,
+  primaryAction,
   selectorPlacement,
 }: PlaygroundInputProps) {
   const { t } = useTranslation()
@@ -122,7 +131,7 @@ export function PlaygroundInput({
               ? 'bg-card text-foreground placeholder:text-muted-foreground/80 max-h-32 min-h-11 px-4 py-3 leading-5 opacity-100 md:min-h-11 md:text-base'
               : 'bg-card text-foreground placeholder:text-muted-foreground/80 min-h-20 px-5 pt-4 pb-3 leading-7 opacity-100 md:min-h-24 md:text-base'
           }
-          disabled={disabled}
+          disabled={disabled || disableTextInput}
           onChange={(event) => setText(event.target.value)}
           placeholder={t('Ask anything')}
           rows={compact ? 1 : undefined}
@@ -134,6 +143,8 @@ export function PlaygroundInput({
             actions={extraActions}
             disabled={disabled}
             hideSubmitButton={hideSubmitButton}
+            hideModelSelector={hideModelSelector}
+            primaryAction={primaryAction}
             groups={groups}
             groupValue={groupValue}
             isGenerating={isGenerating}

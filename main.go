@@ -314,6 +314,10 @@ func InitResources() error {
 		if err := model.MigrateRetiredFrontendOptions(); err != nil {
 			common.SysError("failed to migrate retired frontend options: " + err.Error())
 		}
+		if err := model.MigrateTalkWiseSiteOptions(); err != nil {
+			common.FatalLog("failed to initialize TalkWise site options: " + err.Error())
+			return err
+		}
 		if err := model.MigrateVolcengineServiceModes(); err != nil {
 			common.FatalLog("failed to migrate Volcengine service modes: " + err.Error())
 			return err
