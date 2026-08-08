@@ -33,6 +33,7 @@ const defaultSiteSettings: SiteSettings = {
   Footer: '',
   About: '',
   HomePageContent: '',
+  HomePageConfig: '',
   ServerAddress: '',
   TaskPublicAddress: '',
   'general_setting.docs_link': '',

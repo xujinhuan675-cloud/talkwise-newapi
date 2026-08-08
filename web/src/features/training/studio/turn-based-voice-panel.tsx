@@ -17,13 +17,24 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Check, LoaderCircle, Mic, X } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import type {
+  TrainingRoomMediaControlHandle,
+  TrainingRoomPrimaryActionState,
+} from './training-room-media-control'
 import {
   abortTurnBasedVoiceRecorder,
   buildTurnBasedVoiceFrames,
@@ -52,10 +63,14 @@ interface TurnBasedVoicePanelProps {
   disabled?: boolean
   model?: string
   onErrorChange?: (error: string | null) => void
+  onPrimaryActionChange?: (
+    action: TrainingRoomPrimaryActionState | null
+  ) => void
   onVoiceInputStateChange?: (active: boolean) => void
   onMessagePersisted?: (message: PersistedVoiceMessage) => void
   roomId: string
   sessionId: string
+  showPrimaryAction?: boolean
   voiceMetadata?: Readonly<Record<string, unknown>>
 }
 
@@ -73,17 +88,25 @@ function isMissingDeviceError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotFoundError'
 }
 
-export function TurnBasedVoicePanel({
-  apiBase,
-  disabled = false,
-  model,
-  onErrorChange,
-  onVoiceInputStateChange,
-  onMessagePersisted,
-  roomId,
-  sessionId,
-  voiceMetadata,
-}: TurnBasedVoicePanelProps) {
+export const TurnBasedVoicePanel = forwardRef<
+  TrainingRoomMediaControlHandle,
+  TurnBasedVoicePanelProps
+>(function TurnBasedVoicePanel(
+  {
+    apiBase,
+    disabled = false,
+    model,
+    onErrorChange,
+    onPrimaryActionChange,
+    onVoiceInputStateChange,
+    onMessagePersisted,
+    roomId,
+    sessionId,
+    showPrimaryAction = true,
+    voiceMetadata,
+  },
+  ref
+) {
   const { i18n, t } = useTranslation()
   const accessToken = useAuthStore((state) => state.auth.accessToken)
   const socketRef = useRef<WebSocket | null>(null)
@@ -338,10 +361,20 @@ export function TurnBasedVoicePanel({
       })
       const protocols = turnBasedVoiceProtocols(accessToken)
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Microphone capture is unavailable in this browser.')
+        throw new Error(
+          localize(
+            'Microphone capture is unavailable in this browser.',
+            '当前浏览器无法采集麦克风。'
+          )
+        )
       }
       if (typeof MediaRecorder === 'undefined') {
-        throw new Error('Audio recording is unavailable in this browser.')
+        throw new Error(
+          localize(
+            'Audio recording is unavailable in this browser.',
+            '当前浏览器不支持录音。'
+          )
+        )
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -642,6 +675,39 @@ export function TurnBasedVoicePanel({
   if (status === 'error') actionVariant = 'destructive'
   else if (isRecording) actionVariant = 'default'
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      trigger() {
+        if (isRecording) stopRecording()
+        else if (!busy) void startRecording()
+      },
+    }),
+    [busy, isRecording, startRecording, stopRecording]
+  )
+
+  useEffect(() => {
+    onPrimaryActionChange?.({
+      active: isRecording,
+      disabled: disabled || busy || !accessToken,
+      icon: busy ? 'loader' : isRecording ? 'check' : 'mic',
+      label: actionLabel,
+      title: error || actionLabel,
+      tone: status === 'error' ? 'destructive' : 'default',
+    })
+  }, [
+    accessToken,
+    actionLabel,
+    busy,
+    disabled,
+    error,
+    isRecording,
+    onPrimaryActionChange,
+    status,
+  ])
+
+  useEffect(() => () => onPrimaryActionChange?.(null), [onPrimaryActionChange])
+
   useEffect(() => {
     onErrorChange?.(error)
   }, [error, onErrorChange])
@@ -705,7 +771,7 @@ export function TurnBasedVoicePanel({
             />
           ))}
       </div>
-      <div className='grid w-40 shrink-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-1.5 sm:w-48 sm:grid-cols-[5rem_minmax(0,1fr)]'>
+      <div className='flex shrink-0 items-center gap-1.5'>
         {isRecording && (
           <Button
             aria-label={localize(
@@ -724,22 +790,21 @@ export function TurnBasedVoicePanel({
             </span>
           </Button>
         )}
-        <Button
-          aria-label={actionLabel}
-          aria-pressed={isRecording}
-          className={cn(
-            'min-w-0 justify-center gap-1.5 px-2',
-            !isRecording && 'col-span-2'
-          )}
-          disabled={disabled || busy || !accessToken}
-          title={error || statusLabels[status]}
-          type='button'
-          variant={actionVariant}
-          onClick={isRecording ? stopRecording : startRecording}
-        >
-          {actionIcon}
-          <span className='truncate text-xs sm:text-sm'>{actionLabel}</span>
-        </Button>
+        {showPrimaryAction && (
+          <Button
+            aria-label={actionLabel}
+            aria-pressed={isRecording}
+            className='min-w-0 justify-center gap-1.5 px-2'
+            disabled={disabled || busy || !accessToken}
+            title={error || statusLabels[status]}
+            type='button'
+            variant={actionVariant}
+            onClick={isRecording ? stopRecording : startRecording}
+          >
+            {actionIcon}
+            <span className='truncate text-xs sm:text-sm'>{actionLabel}</span>
+          </Button>
+        )}
       </div>
       <span aria-live='polite' className='sr-only'>
         {isRecording
@@ -751,4 +816,4 @@ export function TurnBasedVoicePanel({
       </span>
     </div>
   )
-}
+})

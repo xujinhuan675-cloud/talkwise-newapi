@@ -91,6 +91,11 @@ import {
 
 import { useTrainingHost } from '../host'
 import {
+  trainingRoleLocalizedLabel,
+  trainingVoiceRouteLocalizedDescription,
+  trainingVoiceRouteLocalizedName,
+} from '../training-display-labels'
+import {
   TRAINING_FEEDBACK_MODE_OPTIONS,
   type TrainingFeedbackMode,
 } from '../training-feedback'
@@ -488,11 +493,14 @@ export function TrainingScenarios() {
     () =>
       selectableVoiceRoutes.map((route) => ({
         value: route.id,
-        label: route.name,
-        category: route.mode === 'cascade' ? 'Cascade' : 'Realtime',
-        description: route.description,
+        label: trainingVoiceRouteLocalizedName(route, localize),
+        category: localize(
+          route.mode === 'cascade' ? 'Cascade' : 'Realtime',
+          route.mode === 'cascade' ? '级联' : '实时'
+        ),
+        description: trainingVoiceRouteLocalizedDescription(route, localize),
       })),
-    [selectableVoiceRoutes]
+    [localize, selectableVoiceRoutes]
   )
   useEffect(() => {
     if (!selectableVoiceRoutes.length) {
@@ -857,7 +865,10 @@ export function TrainingScenarios() {
                     {localize('Learner role', '练习者角色')}
                   </span>
                   <span className='font-medium'>
-                    {selectedScenario.learnerRole}
+                    {trainingRoleLocalizedLabel(
+                      selectedScenario.learnerRole,
+                      localize
+                    )}
                   </span>
                 </div>
 
@@ -1131,13 +1142,20 @@ export function TrainingScenarios() {
                             'Loading platform presets…',
                             '正在加载平台预设…'
                           )
-                        : selectableVoiceRoutes.find(
-                            (route) => route.id === voiceRouteId
-                          )?.description ||
-                          localize(
-                            'The platform controls the model combination and provider route.',
-                            '平台负责模型组合与上游渠道。'
-                          )}
+                        : (() => {
+                            const selectedRoute = selectableVoiceRoutes.find(
+                              (route) => route.id === voiceRouteId
+                            )
+                            return selectedRoute
+                              ? trainingVoiceRouteLocalizedDescription(
+                                  selectedRoute,
+                                  localize
+                                )
+                              : localize(
+                                  'The platform controls the model combination and provider route.',
+                                  '平台负责模型组合与上游渠道。'
+                                )
+                          })()}
                     </p>
                   </div>
                 ) : (

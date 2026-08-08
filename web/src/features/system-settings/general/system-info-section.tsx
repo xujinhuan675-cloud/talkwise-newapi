@@ -91,7 +91,6 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       privacy_policy: normalizeValue(defaultValues.legal?.privacy_policy),
     },
   }
-
   const systemInfoSchemaWithI18n = z.object({
     SystemName: z.string().min(1, {
       error: () => t('System name is required'),
@@ -254,17 +253,19 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
                   name='HomePageContent'
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>{t('Home Page Content')}</FormLabel>
+                      <FormLabel>
+                        {t('Custom home page override (optional)')}
+                      </FormLabel>
                       <FormControl>
                         <Textarea
-                          placeholder={t('Welcome to our New API...')}
+                          placeholder={t('Enter Markdown, HTML, or a full URL')}
                           rows={6}
                           {...field}
                         />
                       </FormControl>
                       <FormDescription>
                         {t(
-                          'Content displayed on the home page (supports Markdown)'
+                          'Leave empty to use the structured built-in home page. Markdown, HTML, or a full URL replaces the built-in page.'
                         )}
                       </FormDescription>
                       <FormMessage />

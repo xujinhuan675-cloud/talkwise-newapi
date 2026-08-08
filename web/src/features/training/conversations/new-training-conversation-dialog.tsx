@@ -48,6 +48,8 @@ import {
 } from '@/features/training/scenarios/api'
 import type { TrainingScenario } from '@/features/training/scenarios/types'
 
+import { trainingRoleLocalizedLabel } from '../training-display-labels'
+
 type NewTrainingConversationDialogProps = {
   apiBase: string
   open: boolean
@@ -198,7 +200,12 @@ export function NewTrainingConversationDialog({
                 <Badge variant='secondary'>
                   {selectedScenario.persona.name}
                 </Badge>
-                <Badge variant='outline'>{selectedScenario.learnerRole}</Badge>
+                <Badge variant='outline'>
+                  {trainingRoleLocalizedLabel(
+                    selectedScenario.learnerRole,
+                    localize
+                  )}
+                </Badge>
               </div>
               {selectedScenario.trainingPoints.length > 0 && (
                 <div className='space-y-1.5'>

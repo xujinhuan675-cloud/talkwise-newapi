@@ -28,6 +28,20 @@ const CHINESE_ROLE_LABELS: Readonly<Record<string, string>> = {
   'team member': '团队成员',
 }
 
+const CHINESE_VOICE_ROUTE_NAMES: Readonly<Record<string, string>> = {
+  'openai near realtime': 'OpenAI 近实时',
+  'doubao realtime standard': '豆包实时标准',
+}
+
+const CHINESE_VOICE_ROUTE_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  'platform managed stt, llm, and tts cascade for low cost practice.':
+    '平台托管语音识别、语言模型和语音合成级联，适合低成本练习。',
+  'platform managed native realtime voice route.':
+    '平台托管的原生实时语音路线。',
+}
+
+export type TrainingLocalize = (english: string, chinese: string) => string
+
 const CHINESE_EMOTION_KEYWORDS: readonly (readonly [RegExp, string])[] = [
   [/(angry|furious|rage)/i, '愤怒'],
   [/(pressur|demand|forceful|insist)/i, '施压'],
@@ -118,6 +132,44 @@ export function trainingRoleDisplayLabel(
     )
   })
   return knownRole?.[1] ?? value
+}
+
+function normalizedDisplayKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replaceAll(/[\s_-]+/g, ' ')
+}
+
+export function trainingRoleLocalizedLabel(
+  role: string,
+  localize: TrainingLocalize
+): string {
+  const value = role.trim()
+  const key = normalizedDisplayKey(value)
+  const knownRole = Object.entries(CHINESE_ROLE_LABELS).find(
+    ([candidate]) => key === candidate || key.startsWith(`${candidate} `)
+  )
+  return knownRole ? localize(value, knownRole[1]) : value
+}
+
+export function trainingVoiceRouteLocalizedName(
+  route: Pick<{ id: string; name: string }, 'id' | 'name'>,
+  localize: TrainingLocalize
+): string {
+  const chinese =
+    CHINESE_VOICE_ROUTE_NAMES[normalizedDisplayKey(route.name)] ??
+    CHINESE_VOICE_ROUTE_NAMES[normalizedDisplayKey(route.id)]
+  return chinese ? localize(route.name, chinese) : route.name
+}
+
+export function trainingVoiceRouteLocalizedDescription(
+  route: Pick<{ description: string }, 'description'>,
+  localize: TrainingLocalize
+): string {
+  const chinese =
+    CHINESE_VOICE_ROUTE_DESCRIPTIONS[normalizedDisplayKey(route.description)]
+  return chinese ? localize(route.description, chinese) : route.description
 }
 
 export function trainingSessionStatusDisplayLabel(

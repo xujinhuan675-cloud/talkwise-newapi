@@ -20,8 +20,11 @@ import { describe, test } from 'node:test'
 import {
   trainingDifficultyDisplayLabel,
   trainingEmotionDisplayLabel,
+  trainingRoleLocalizedLabel,
   trainingRoleDisplayLabel,
   trainingSessionStatusDisplayLabel,
+  trainingVoiceRouteLocalizedDescription,
+  trainingVoiceRouteLocalizedName,
 } from '../training-display-labels'
 
 describe('training display labels', () => {
@@ -55,6 +58,35 @@ describe('training display labels', () => {
     assert.equal(
       trainingRoleDisplayLabel('sales_person extra', 'zh-Hans'),
       trainingRoleDisplayLabel('Salesperson', 'zh-CN')
+    )
+  })
+
+  test('localizes persisted roles and platform voice route metadata through the shared translator', () => {
+    const localize = (_english: string, chinese: string) => chinese
+    assert.equal(
+      trainingRoleLocalizedLabel('Team Member', localize),
+      '团队成员'
+    )
+    assert.equal(
+      trainingRoleLocalizedLabel('Account Manager', localize),
+      '客户经理'
+    )
+    assert.equal(
+      trainingVoiceRouteLocalizedName(
+        { id: 'openai-cascade-standard', name: 'OpenAI Near Realtime' },
+        localize
+      ),
+      'OpenAI 近实时'
+    )
+    assert.equal(
+      trainingVoiceRouteLocalizedDescription(
+        {
+          description:
+            'Platform-managed STT, LLM, and TTS cascade for low-cost practice.',
+        },
+        localize
+      ),
+      '平台托管语音识别、语言模型和语音合成级联，适合低成本练习。'
     )
   })
 })

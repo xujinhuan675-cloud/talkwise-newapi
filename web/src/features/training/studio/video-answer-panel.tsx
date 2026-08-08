@@ -28,7 +28,15 @@ import {
   Trash2,
   Video,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -37,6 +45,10 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 
+import type {
+  TrainingRoomMediaControlHandle,
+  TrainingRoomPrimaryActionState,
+} from './training-room-media-control'
 import {
   loadVideoAnswerReplay,
   persistVideoAnswerMessage,
@@ -65,9 +77,13 @@ interface VideoAnswerPanelProps {
   readonly disabled?: boolean
   readonly feedbackMode: VideoAnswerFeedbackMode
   readonly maxDurationMs?: number
+  readonly onPrimaryActionChange?: (
+    action: TrainingRoomPrimaryActionState | null
+  ) => void
   readonly onPersisted?: (message: PersistedVideoAnswerMessage) => void
   readonly roomId: string
   readonly sessionId: string
+  readonly showPrimaryAction?: boolean
 }
 
 const MIME_CANDIDATES = [
@@ -116,15 +132,23 @@ function statusVariant(
   return 'outline'
 }
 
-export function VideoAnswerPanel({
-  apiBase,
-  disabled = false,
-  feedbackMode,
-  maxDurationMs = 3 * 60 * 1000,
-  onPersisted,
-  roomId,
-  sessionId,
-}: VideoAnswerPanelProps) {
+export const VideoAnswerPanel = forwardRef<
+  TrainingRoomMediaControlHandle,
+  VideoAnswerPanelProps
+>(function VideoAnswerPanel(
+  {
+    apiBase,
+    disabled = false,
+    feedbackMode,
+    maxDurationMs = 3 * 60 * 1000,
+    onPrimaryActionChange,
+    onPersisted,
+    roomId,
+    sessionId,
+    showPrimaryAction = true,
+  },
+  ref
+) {
   const { i18n, t } = useTranslation()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -498,6 +522,73 @@ export function VideoAnswerPanel({
     submitted: localize('Saved', '已保存'),
     uploading: localize('Uploading', '正在上传'),
   }
+  let actionIcon: TrainingRoomPrimaryActionState['icon'] = 'camera'
+  let actionLabel = localize('Enable camera', '开启摄像头')
+  let actionTone: TrainingRoomPrimaryActionState['tone'] = 'default'
+  if (status === 'ready') {
+    actionIcon = 'play'
+    actionLabel = localize('Record', '开始录制')
+  } else if (status === 'recording') {
+    actionIcon = 'square'
+    actionLabel = localize('Stop', '停止')
+    actionTone = 'destructive'
+  } else if (status === 'recorded') {
+    actionIcon = 'send'
+    actionLabel = uploadedRef.current
+      ? localize('Retry save', '重试保存')
+      : localize('Submit', '提交')
+  } else if (busy) {
+    actionIcon = 'loader'
+    actionLabel = statusLabels[status]
+  } else if (status === 'submitted') {
+    actionIcon = 'rotate'
+    actionLabel = localize('Record another', '继续录制')
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      trigger() {
+        if (status === 'idle') void enableCamera()
+        else if (status === 'ready') startRecording()
+        else if (status === 'recording') stopRecording()
+        else if (status === 'recorded') void submitRecording()
+        else if (status === 'submitted') discard()
+      },
+    }),
+    [
+      discard,
+      enableCamera,
+      startRecording,
+      status,
+      stopRecording,
+      submitRecording,
+    ]
+  )
+
+  useEffect(() => {
+    onPrimaryActionChange?.({
+      active: status === 'recording',
+      disabled: disabled || busy || !mimeType,
+      icon: actionIcon,
+      label: actionLabel,
+      title: error || actionLabel,
+      tone: actionTone,
+    })
+  }, [
+    actionIcon,
+    actionLabel,
+    actionTone,
+    busy,
+    disabled,
+    error,
+    mimeType,
+    onPrimaryActionChange,
+    status,
+  ])
+
+  useEffect(() => () => onPrimaryActionChange?.(null), [onPrimaryActionChange])
+
   const displayUrl = status === 'submitted' ? serverPreviewUrl : localPreviewUrl
   const showingLivePreview = status === 'ready' || status === 'recording'
 
@@ -521,7 +612,7 @@ export function VideoAnswerPanel({
         </div>
 
         <div className='flex flex-wrap items-center justify-end gap-2'>
-          {status === 'idle' && (
+          {showPrimaryAction && status === 'idle' && (
             <Button
               type='button'
               size='sm'
@@ -533,7 +624,7 @@ export function VideoAnswerPanel({
               {localize('Enable camera', '开启摄像头')}
             </Button>
           )}
-          {status === 'ready' && (
+          {showPrimaryAction && status === 'ready' && (
             <Button
               type='button'
               size='sm'
@@ -544,7 +635,7 @@ export function VideoAnswerPanel({
               {localize('Record', '开始录制')}
             </Button>
           )}
-          {status === 'recording' && (
+          {showPrimaryAction && status === 'recording' && (
             <Button
               type='button'
               size='sm'
@@ -556,7 +647,7 @@ export function VideoAnswerPanel({
               {localize('Stop', '停止')}
             </Button>
           )}
-          {status === 'recorded' && (
+          {showPrimaryAction && status === 'recorded' && (
             <Button
               type='button'
               size='sm'
@@ -569,13 +660,13 @@ export function VideoAnswerPanel({
                 : localize('Submit', '提交')}
             </Button>
           )}
-          {busy && (
+          {showPrimaryAction && busy && (
             <Button type='button' size='sm' disabled>
               <LoaderCircle className='animate-spin' />
               {statusLabels[status]}
             </Button>
           )}
-          {status === 'submitted' && (
+          {showPrimaryAction && status === 'submitted' && (
             <Button
               type='button'
               size='sm'
@@ -686,4 +777,4 @@ export function VideoAnswerPanel({
       )}
     </section>
   )
-}
+})

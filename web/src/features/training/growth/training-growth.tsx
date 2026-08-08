@@ -61,6 +61,9 @@ import {
   ProgressValue,
 } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CheckinSummaryCard } from '@/features/profile/components/checkin-summary-card'
+import { useStatus } from '@/hooks/use-status'
+import { cn } from '@/lib/utils'
 
 import { getTrainingScenarioConfig } from '../config/api'
 import { TrainingHostProvider, useTrainingHost } from '../host'
@@ -409,6 +412,7 @@ function TrainingCompetencyRadarCard({
 function TrainingGrowthContent() {
   const { i18n, t } = useTranslation()
   const host = useTrainingHost()
+  const { status } = useStatus()
   const localize = (english: string, chinese: string) =>
     t(english, {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
@@ -439,6 +443,13 @@ function TrainingGrowthContent() {
     [scenarioConfigQuery.data]
   )
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [checkinApiAvailable, setCheckinApiAvailable] = useState(true)
+  const checkinEnabled = status?.checkin_enabled === true
+  const showCheckin = checkinEnabled && checkinApiAvailable
+  const turnstileEnabled = !!(
+    status?.turnstile_check && status?.turnstile_site_key
+  )
+  const turnstileSiteKey = status?.turnstile_site_key || ''
   const learnerName =
     host.user?.displayName ||
     host.user?.username ||
@@ -464,23 +475,39 @@ function TrainingGrowthContent() {
 
   return (
     <div className='space-y-3'>
-      <TrainingPointsCard
-        summary={pointsQuery.data}
-        isPending={pointsQuery.isPending}
-        errorMessage={
-          pointsQuery.isError
-            ? reviewRequestErrorMessage(
-                pointsQuery.error,
-                localize(
-                  'Unable to load Training Points.',
-                  '\u65e0\u6cd5\u52a0\u8f7d\u8bad\u7ec3\u79ef\u5206\u3002'
+      <div
+        className={cn(
+          'grid gap-3',
+          showCheckin &&
+            'lg:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)] lg:items-stretch'
+        )}
+      >
+        <TrainingPointsCard
+          summary={pointsQuery.data}
+          isPending={pointsQuery.isPending}
+          errorMessage={
+            pointsQuery.isError
+              ? reviewRequestErrorMessage(
+                  pointsQuery.error,
+                  localize(
+                    'Unable to load Training Points.',
+                    '\u65e0\u6cd5\u52a0\u8f7d\u8bad\u7ec3\u79ef\u5206\u3002'
+                  )
                 )
-              )
-            : null
-        }
-        onRetry={() => void pointsQuery.refetch()}
-        localize={localize}
-      />
+              : null
+          }
+          onRetry={() => void pointsQuery.refetch()}
+          localize={localize}
+        />
+        {checkinEnabled && (
+          <CheckinSummaryCard
+            checkinEnabled={checkinEnabled}
+            turnstileEnabled={turnstileEnabled}
+            turnstileSiteKey={turnstileSiteKey}
+            onAvailabilityChange={setCheckinApiAvailable}
+          />
+        )}
+      </div>
       <TrainingCareerPathCard
         summary={pointsQuery.data}
         isPending={pointsQuery.isPending}

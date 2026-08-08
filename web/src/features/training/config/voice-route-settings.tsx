@@ -21,6 +21,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 
 import { useTrainingHost } from '../host'
+import { trainingVoiceRouteLocalizedName } from '../training-display-labels'
 import {
   getTrainingVoiceRouteConfig,
   listTrainingModelOptions,
@@ -261,7 +262,7 @@ export function VoiceRouteSettings({
           <SelectContent>
             {draft.routes.map((route) => (
               <SelectItem key={route.id} value={route.id}>
-                {route.name}
+                {trainingVoiceRouteLocalizedName(route, localize)}
               </SelectItem>
             ))}
           </SelectContent>

@@ -33,6 +33,7 @@ const STATUS_RELATED_KEYS = [
   'HeaderNavModules',
   'SidebarModulesAdmin',
   'Notice',
+  'HomePageConfig',
   'LogConsumeEnabled',
   'QuotaPerUnit',
   'USDExchangeRate',
@@ -41,6 +42,7 @@ const STATUS_RELATED_KEYS = [
   'general_setting.quota_display_type',
   'general_setting.custom_currency_symbol',
   'general_setting.custom_currency_exchange_rate',
+  'checkin_setting.enabled',
 ]
 
 const CONTENT_QUERY_KEYS: Record<string, readonly string[]> = {
