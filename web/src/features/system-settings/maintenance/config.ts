@@ -24,6 +24,9 @@ export type HeaderNavAccessConfig = {
 export type HeaderNavModulesConfig = {
   home: boolean
   training: boolean
+  conversations: boolean
+  review: boolean
+  growth: boolean
   console: boolean
   pricing: HeaderNavAccessConfig
   rankings: HeaderNavAccessConfig
@@ -42,6 +45,9 @@ export type SidebarModulesAdminConfig = Record<string, SidebarSectionConfig>
 export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
   home: true,
   training: true,
+  conversations: true,
+  review: true,
+  growth: true,
   console: true,
   pricing: {
     enabled: true,
@@ -58,7 +64,17 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
 export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   training: {
     enabled: true,
-    studio: true,
+    overview: true,
+    scenarios: true,
+    conversations: true,
+    assist: true,
+    review: true,
+    growth: true,
+    personas: true,
+    settings: true,
+    teamScenarios: true,
+    teamCompetencies: true,
+    teamMembers: true,
   },
   personal: {
     enabled: true,
@@ -166,6 +182,16 @@ export function parseHeaderNavModules(
       }
     })
 
+    // Before per-route switches existed, `training` controlled all training
+    // entries. Preserve that behavior until an administrator saves the new
+    // expanded configuration.
+    const legacyTraining = toBoolean(parsed.training, base.training)
+    for (const key of ['conversations', 'review', 'growth'] as const) {
+      if (!Object.hasOwn(parsed, key)) {
+        result[key] = legacyTraining
+      }
+    }
+
     return result
   } catch {
     return base
@@ -210,12 +236,28 @@ export function parseSidebarModulesAdmin(
       Object.entries(raw as Record<string, unknown>).forEach(
         ([moduleKey, moduleValue]) => {
           if (moduleKey === 'enabled') return
+          if (sectionKey === 'training' && moduleKey === 'studio') return
           sectionConfig[moduleKey] = toBoolean(
             moduleValue,
             defaultSection[moduleKey] ?? true
           )
         }
       )
+
+      if (sectionKey === 'training' && 'studio' in raw) {
+        const legacyStudioEnabled = toBoolean(
+          (raw as Record<string, unknown>).studio,
+          true
+        )
+        Object.keys(defaults.training).forEach((moduleKey) => {
+          if (
+            moduleKey !== 'enabled' &&
+            !Object.hasOwn(raw as Record<string, unknown>, moduleKey)
+          ) {
+            sectionConfig[moduleKey] = legacyStudioEnabled
+          }
+        })
+      }
 
       result[sectionKey] = sectionConfig
     })
