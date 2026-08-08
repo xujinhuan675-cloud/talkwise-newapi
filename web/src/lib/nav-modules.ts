@@ -25,6 +25,9 @@ export type HeaderNavModule = 'rankings' | 'pricing'
 export type HeaderNavModules = {
   home: boolean
   training: boolean
+  conversations: boolean
+  review: boolean
+  growth: boolean
   console: boolean
   pricing: ModuleAccess
   rankings: ModuleAccess
@@ -36,6 +39,9 @@ export type HeaderNavModules = {
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   home: true,
   training: true,
+  conversations: true,
+  review: true,
+  growth: true,
   console: true,
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
@@ -134,6 +140,16 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
       )
     }
   })
+
+  // `training` was previously the single switch for every training link.
+  // Keep existing deployments unchanged until the administrator saves the
+  // expanded per-route configuration.
+  const legacyTraining = parseHeaderNavBoolean(parsed.training, true)
+  for (const key of ['conversations', 'review', 'growth'] as const) {
+    if (!Object.hasOwn(parsed, key)) {
+      result[key] = legacyTraining
+    }
+  }
 
   return result
 }

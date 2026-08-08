@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 import {
   Activity,
+  AudioLines,
   Box,
   CreditCard,
   FileText,
@@ -115,6 +116,12 @@ export function getPlatformManagementNavGroups(t: TFunction): NavGroup[] {
           requiredRole: ROLE.ADMIN,
         },
         {
+          title: localize(t, 'Voice presets', '\u8bed\u97f3\u9884\u8bbe'),
+          url: '/voice-presets',
+          icon: AudioLines,
+          requiredRole: ROLE.ADMIN,
+        },
+        {
           title: t('API Keys'),
           url: '/keys',
           icon: Key,
@@ -141,7 +148,7 @@ export function getPlatformManagementNavGroups(t: TFunction): NavGroup[] {
 export const PLATFORM_MANAGEMENT_VIEW: SidebarView = {
   id: 'platform-management',
   pathPattern:
-    /^\/(?:dashboard|keys|usage-logs|channels|models|users|redemption-codes|subscriptions|system-info)(?:\/|$)/,
+    /^\/(?:dashboard|keys|usage-logs|channels|models|users|voice-presets|redemption-codes|subscriptions|system-info)(?:\/|$)/,
   parent: {
     to: '/training',
     label: 'Back',
