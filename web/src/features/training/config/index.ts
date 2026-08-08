@@ -17,3 +17,4 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 export { TrainingSettings } from './training-settings'
+export { PlatformVoiceRouteSettings } from './platform-voice-route-settings'
