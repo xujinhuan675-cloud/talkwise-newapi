@@ -36,6 +36,16 @@ func TestExtractRealtimeTextSupportsASRAndChatPayloads(t *testing.T) {
 	assert.Equal(t, "您好", extractRealtimeText([]byte(`{"content":"您好"}`)))
 }
 
+func TestMergeRealtimeASRHypothesisDoesNotAppendCumulativeFrames(t *testing.T) {
+	current := ""
+	assert.Equal(t, "呃", mergeRealtimeASRHypothesis(&current, "呃"))
+	assert.Equal(t, "是", mergeRealtimeASRHypothesis(&current, "呃是"))
+	assert.Equal(t, "这样的", mergeRealtimeASRHypothesis(&current, "呃是这样的"))
+	assert.Equal(t, "呃是这样的", current)
+	assert.Equal(t, "", mergeRealtimeASRHypothesis(&current, "呃是这样"))
+	assert.Equal(t, "呃是这样", current)
+}
+
 func TestAddRealtimeAudioUsageSeparatesInputAndOutput(t *testing.T) {
 	usage := &dto.RealtimeUsage{}
 	addRealtimeAudioUsage(usage, defaultRealtimeSampleRate*2, defaultRealtimeSampleRate, true)
