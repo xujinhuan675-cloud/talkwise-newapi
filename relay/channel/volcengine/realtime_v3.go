@@ -26,7 +26,7 @@ type realtimeV3SessionState struct {
 	sessionID     string
 	started       bool
 	clientSession dto.RealtimeSession
-	asrText       strings.Builder
+	asrText       string
 	assistantText strings.Builder
 	turnUsage     dto.RealtimeUsage
 	totalUsage    dto.RealtimeUsage
@@ -271,13 +271,16 @@ func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, st
 		if text == "" {
 			return nil
 		}
-		state.asrText.WriteString(text)
+		delta := mergeRealtimeASRHypothesis(&state.asrText, text)
+		if delta == "" {
+			return nil
+		}
 		return helper.WssObject(c, info.ClientWs, map[string]any{
-			"type": "conversation.item.input_audio_transcription.delta", "event_id": helper.GetLocalRealtimeID(c), "delta": text,
+			"type": "conversation.item.input_audio_transcription.delta", "event_id": helper.GetLocalRealtimeID(c), "delta": delta,
 		})
 	case EventType_ASREnded:
-		text := state.asrText.String()
-		state.asrText.Reset()
+		text := state.asrText
+		state.asrText = ""
 		if text == "" {
 			return nil
 		}
@@ -323,6 +326,30 @@ func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, st
 		}
 		return nil
 	}
+}
+
+// Volcengine ASRResponse frames contain the current utterance hypothesis, not
+// an independent token delta. Keep the latest hypothesis for persistence and
+// emit only its newly extended suffix to clients.
+func mergeRealtimeASRHypothesis(current *string, incoming string) string {
+	if current == nil {
+		return ""
+	}
+	next := strings.TrimSpace(incoming)
+	if next == "" {
+		return ""
+	}
+	previous := strings.TrimSpace(*current)
+	*current = next
+	if previous == "" {
+		return next
+	}
+	if strings.HasPrefix(next, previous) {
+		return next[len(previous):]
+	}
+	// A provider correction cannot be represented by an append-only delta; the
+	// final completion frame still carries the corrected full hypothesis.
+	return ""
 }
 
 func emitRealtimeAudio(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState, audio []byte) error {
