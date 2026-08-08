@@ -60,7 +60,7 @@ export function SignIn() {
             {t('Returning to TalkWise')}
           </h2>
           <p className='text-muted-foreground text-sm'>
-            {t('Please wait while NewAPI connects your account.')}
+            {t('Please wait while TalkWise connects your account.')}
           </p>
           {handoffError ? (
             <p className='text-destructive text-sm'>{handoffError}</p>
