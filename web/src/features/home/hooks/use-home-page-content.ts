@@ -16,9 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18next from 'i18next'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { isHttpUrl } from '@/lib/content-format'
 
@@ -32,53 +31,37 @@ const STORAGE_KEY = 'home_page_content'
  * Supports both Markdown/HTML content and iframe URLs
  */
 export function useHomePageContent(): HomePageContentResult {
-  const [content, setContent] = useState<string>('')
-  const [isLoaded, setIsLoaded] = useState(false)
+  const query = useQuery({
+    queryKey: ['home-page-content'],
+    queryFn: getHomePageContent,
+    placeholderData: getCachedHomePageContent,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const content = query.data?.success ? (query.data.data?.trim() ?? '') : ''
 
   useEffect(() => {
-    let mounted = true
-
-    const loadContent = async () => {
-      // Load from localStorage first for immediate display
-      const cached = localStorage.getItem(STORAGE_KEY)
-      if (cached && mounted) {
-        setContent(cached)
+    try {
+      if (content) {
+        localStorage.setItem(STORAGE_KEY, content)
+      } else if (query.isFetched) {
+        localStorage.removeItem(STORAGE_KEY)
       }
-
-      try {
-        const response = await getHomePageContent()
-        const { success, data } = response
-
-        if (!mounted) return
-
-        if (success && data) {
-          setContent(data)
-          localStorage.setItem(STORAGE_KEY, data)
-        } else {
-          // Clear content if API returns empty
-          setContent('')
-          localStorage.removeItem(STORAGE_KEY)
-        }
-      } catch (error) {
-        if (!mounted) return
-        // eslint-disable-next-line no-console
-        console.error('Failed to load home page content:', error)
-        toast.error(i18next.t('Failed to load home page content'))
-      } finally {
-        if (mounted) {
-          setIsLoaded(true)
-        }
-      }
+    } catch {
+      // Ignore storage failures; the API response remains authoritative.
     }
-
-    loadContent()
-
-    return () => {
-      mounted = false
-    }
-  }, [])
+  }, [content, query.isFetched])
 
   const isUrl = isHttpUrl(content)
 
-  return { content, isLoaded, isUrl }
+  return { content, isLoaded: !query.isPending, isUrl }
+}
+
+function getCachedHomePageContent() {
+  try {
+    const cached = localStorage.getItem(STORAGE_KEY)?.trim()
+    return cached ? { success: true, data: cached } : undefined
+  } catch {
+    return undefined
+  }
 }

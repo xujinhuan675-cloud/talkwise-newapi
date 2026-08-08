@@ -33,7 +33,6 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
@@ -650,7 +649,7 @@ export function Home() {
   if (content) {
     if (isUrl) {
       return (
-        <PublicLayout showMainContainer={false}>
+        <PublicLayout showMainContainer={false} showFooter={false}>
           {/*
             allow-top-navigation-by-user-activation: the custom home page URL is
             admin-configured (trusted); this lets its target="_top" nav/menu links
@@ -706,7 +705,6 @@ export function Home() {
       <Features content={talkWiseFeatures} />
       <HowItWorks id='training-workflow' content={talkWiseFlow} />
       <CTA content={talkWiseCta} />
-      <Footer />
     </PublicLayout>
   )
 }
