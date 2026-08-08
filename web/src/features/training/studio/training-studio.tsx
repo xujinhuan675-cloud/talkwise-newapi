@@ -16,12 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { CircleAlert, LoaderCircle, Play } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { ModelSelector } from '@/components/model-group-selector'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,23 +36,20 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  usePlaygroundOptions,
+  usePlaygroundState,
+} from '@/features/playground/hooks'
 
 import { TrainingHostProvider, useTrainingHost } from '../host'
+import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../training-feedback'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
+import { listTrainingVoiceRoutes, type VoiceRoute } from '../voice-routes'
 import {
   launchTrainingSession,
   trainingStudioErrorMessage,
-  type RealtimeProviderChoice,
-  type RealtimeProfile,
   type TrainingFeedbackMode,
   type TrainingStudioMode,
 } from './api'
@@ -62,23 +61,11 @@ const MODES: Array<{ value: TrainingStudioMode; label: string }> = [
   { value: 'video', label: 'Video' },
 ]
 
-const FEEDBACK_MODES: Array<{ value: TrainingFeedbackMode; label: string }> = [
-  { value: 'simulation', label: 'Simulation' },
-  { value: 'assisted', label: 'Guided' },
-  { value: 'drill', label: 'Drill' },
-]
-
 function chineseModeLabel(label: string): string {
   if (label === 'Text') return '文本'
   if (label === 'Voice') return '语音'
   if (label === 'Realtime') return '实时'
   return '视频'
-}
-
-function chineseFeedbackLabel(label: string): string {
-  if (label === 'Simulation') return '模拟'
-  if (label === 'Guided') return '引导'
-  return '逐项练习'
 }
 
 type TrainingStudioContentProps = {
@@ -94,10 +81,7 @@ function TrainingStudioContent({
   const [role, setRole] = useState('')
   const [goal, setGoal] = useState('')
   const [mode, setMode] = useState<TrainingStudioMode>('voice')
-  const [realtimeProfile, setRealtimeProfile] =
-    useState<RealtimeProfile>('cascade')
-  const [realtimeProviderChoice, setRealtimeProviderChoice] =
-    useState<RealtimeProviderChoice>('openai')
+  const [voiceRouteId, setVoiceRouteId] = useState('')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
@@ -110,6 +94,57 @@ function TrainingStudioContent({
       i18n.language.startsWith('zh') ? chinese : t(english),
     [i18n.language, t]
   )
+  const {
+    config: playgroundConfig,
+    models: playgroundModels,
+    updateConfig: updatePlaygroundConfig,
+    setGroups: setPlaygroundGroups,
+    setModels: setPlaygroundModels,
+  } = usePlaygroundState()
+  usePlaygroundOptions({
+    currentGroup: playgroundConfig.group,
+    currentModel: playgroundConfig.model,
+    modelEndpointType: 'openai',
+    preferredModel: 'doubao-seed-2-0-pro-260215',
+    setGroups: setPlaygroundGroups,
+    setModels: setPlaygroundModels,
+    updateConfig: updatePlaygroundConfig,
+  })
+  const voiceRoutesQuery = useQuery<VoiceRoute[]>({
+    queryKey: ['training', 'voice-routes', apiBase],
+    queryFn: () => listTrainingVoiceRoutes(apiBase),
+    enabled: authStatus === 'authenticated',
+  })
+  const selectableVoiceRoutes = useMemo(
+    () =>
+      (voiceRoutesQuery.data ?? []).filter(
+        (route) => mode === 'realtime' || route.mode === 'cascade'
+      ),
+    [mode, voiceRoutesQuery.data]
+  )
+  const voiceRouteOptions = useMemo(
+    () =>
+      selectableVoiceRoutes.map((route) => ({
+        value: route.id,
+        label: route.name,
+        category: route.mode === 'cascade' ? 'Cascade' : 'Realtime',
+        description: route.description,
+      })),
+    [selectableVoiceRoutes]
+  )
+  useEffect(() => {
+    if (!selectableVoiceRoutes.length) {
+      if (voiceRouteId) setVoiceRouteId('')
+      return
+    }
+    if (selectableVoiceRoutes.some((route) => route.id === voiceRouteId)) {
+      return
+    }
+    const defaultRoute =
+      selectableVoiceRoutes.find((route) => route.default) ??
+      selectableVoiceRoutes[0]
+    setVoiceRouteId(defaultRoute.id)
+  }, [selectableVoiceRoutes, voiceRouteId])
 
   useEffect(() => {
     if (!initialSessionId) return
@@ -131,8 +166,9 @@ function TrainingStudioContent({
         feedbackMode,
         pressure,
         lengthProfile,
-        realtimeProfile,
-        realtimeProvider: realtimeProviderChoice,
+        ...(mode === 'voice' || mode === 'realtime'
+          ? { voiceRouteId }
+          : { llmModel: playgroundConfig.model }),
       })
       await navigate({
         search: { session: nextSession.sessionId },
@@ -233,74 +269,52 @@ function TrainingStudioContent({
                   </div>
                 </div>
 
-                {mode === 'realtime' && (
-                  <div className='grid gap-4 sm:grid-cols-2'>
-                    <div className='space-y-2'>
-                      <Label htmlFor='training-studio-realtime-provider'>
-                        {localize('Voice provider', '语音方案')}
-                      </Label>
-                      <Select
-                        value={realtimeProviderChoice}
-                        onValueChange={(value) => {
-                          if (value === 'doubao' || value === 'openai') {
-                            setRealtimeProviderChoice(value)
-                          }
-                        }}
-                        disabled={isLaunching}
-                      >
-                        <SelectTrigger
-                          id='training-studio-realtime-provider'
-                          className='w-full'
-                          aria-label={localize('Voice provider', '语音方案')}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value='doubao'>
-                            {localize('Doubao only', '纯豆包')}
-                          </SelectItem>
-                          <SelectItem value='openai'>
-                            {localize('OpenAI only', '纯 OpenAI')}
-                          </SelectItem>
-                          <SelectItem disabled value='hybrid'>
-                            {localize(
-                              'Doubao + OpenAI (not configured)',
-                              '豆包 + OpenAI（未配置）'
-                            )}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className='space-y-2'>
-                      <Label>{localize('Realtime profile', '实时模式')}</Label>
-                      <ToggleGroup
-                        value={[realtimeProfile]}
-                        onValueChange={(values) => {
-                          const nextProfile = values.find(
-                            (value) => value !== realtimeProfile
-                          )
-                          if (nextProfile) {
-                            setRealtimeProfile(nextProfile as RealtimeProfile)
-                          }
-                        }}
-                        variant='outline'
-                        className='grid w-full grid-cols-2'
-                        disabled={isLaunching}
-                        aria-label={localize('Realtime profile', '实时模式')}
-                      >
-                        <ToggleGroupItem value='cascade' className='w-full'>
-                          {localize('Near realtime', '近实时')}
-                        </ToggleGroupItem>
-                        <ToggleGroupItem
-                          value='speech_to_speech'
-                          className='w-full'
-                        >
-                          {localize('True realtime', '真实时')}
-                        </ToggleGroupItem>
-                      </ToggleGroup>
-                    </div>
-                  </div>
-                )}
+                <div className='space-y-2'>
+                  <Label>
+                    {mode === 'voice' || mode === 'realtime'
+                      ? localize('Voice preset', '语音预设')
+                      : localize('Language model', '语言模型')}
+                  </Label>
+                  {mode === 'voice' || mode === 'realtime' ? (
+                    <ModelSelector
+                      variant='field'
+                      models={voiceRouteOptions}
+                      selectedModel={voiceRouteId}
+                      onModelChange={setVoiceRouteId}
+                      disabled={isLaunching}
+                      placeholder={localize(
+                        'Select a platform preset',
+                        '选择平台预设'
+                      )}
+                      searchPlaceholder={localize(
+                        'Search voice presets...',
+                        '搜索语音预设...'
+                      )}
+                      emptyText={localize(
+                        'No voice preset found.',
+                        '没有找到语音预设'
+                      )}
+                      ariaLabel={localize('Voice preset', '语音预设')}
+                    />
+                  ) : (
+                    <ModelSelector
+                      variant='field'
+                      models={playgroundModels}
+                      selectedModel={playgroundConfig.model}
+                      onModelChange={(value) =>
+                        updatePlaygroundConfig('model', value)
+                      }
+                      disabled={isLaunching}
+                      placeholder={localize('Select a model', '选择模型')}
+                      searchPlaceholder={localize(
+                        'Search models...',
+                        '搜索模型...'
+                      )}
+                      emptyText={localize('No model found.', '没有找到模型')}
+                      ariaLabel={localize('Language model', '语言模型')}
+                    />
+                  )}
+                </div>
 
                 <div className='space-y-2'>
                   <Label htmlFor='training-studio-goal'>
@@ -335,16 +349,17 @@ function TrainingStudioContent({
                     disabled={isLaunching}
                     aria-label={localize('Feedback policy', '反馈方式')}
                   >
-                    {FEEDBACK_MODES.map((option) => (
+                    {TRAINING_FEEDBACK_MODE_OPTIONS.map((option) => (
                       <ToggleGroupItem
                         key={option.value}
                         value={option.value}
                         className='w-full'
-                      >
-                        {localize(
-                          option.label,
-                          chineseFeedbackLabel(option.label)
+                        title={localize(
+                          option.description.english,
+                          option.description.chinese
                         )}
+                      >
+                        {localize(option.label.english, option.label.chinese)}
                       </ToggleGroupItem>
                     ))}
                   </ToggleGroup>
@@ -420,7 +435,13 @@ function TrainingStudioContent({
               <CardFooter className='justify-end gap-2'>
                 <Button
                   onClick={startSession}
-                  disabled={isLaunching || authStatus !== 'authenticated'}
+                  disabled={
+                    isLaunching ||
+                    authStatus !== 'authenticated' ||
+                    (mode === 'voice' || mode === 'realtime'
+                      ? !voiceRouteId
+                      : !playgroundConfig.model)
+                  }
                 >
                   {isLaunching ? (
                     <LoaderCircle className='animate-spin' />

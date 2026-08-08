@@ -21,6 +21,7 @@ import axios from 'axios'
 import { api } from '@/lib/http-client'
 
 import { trainingApiUrl } from '../scenarios/api'
+import type { TrainingFeedbackMode } from '../training-feedback'
 import {
   trainingPlanMetadata,
   trainingTurnBudget,
@@ -30,8 +31,9 @@ import {
 import type { RealtimeProfile } from './realtime-client'
 
 export type TrainingStudioMode = 'realtime' | 'text' | 'voice' | 'video'
-export type TrainingFeedbackMode = 'simulation' | 'assisted' | 'drill'
-export type RealtimeProviderChoice = 'doubao' | 'hybrid' | 'openai'
+export type TrainingModality = Exclude<TrainingStudioMode, 'realtime'>
+export type TrainingInteractionMode = 'turn_based' | 'realtime'
+export type { TrainingFeedbackMode } from '../training-feedback'
 export type { RealtimeProfile } from './realtime-client'
 
 interface TalkWiseResponse<T> {
@@ -46,6 +48,8 @@ export interface TrainingSession {
   conversationId: string | null
   status: 'created' | 'active' | 'completed' | 'failed'
   mode: TrainingStudioMode
+  modality: TrainingModality
+  interactionMode: TrainingInteractionMode
   feedbackMode?: TrainingFeedbackMode
   realtimeProfile?: RealtimeProfile
   realtimeProvider?: string
@@ -78,8 +82,8 @@ export interface StudioLaunchInput {
   feedbackMode: TrainingFeedbackMode
   pressure?: TrainingPressure
   lengthProfile?: TrainingLengthProfile
-  realtimeProfile?: RealtimeProfile
-  realtimeProvider?: RealtimeProviderChoice
+  llmModel?: string
+  voiceRouteId?: string
   liveCoach?: {
     sourceLanguage: string
     targetLanguage: string
@@ -152,6 +156,12 @@ export function normalizeTrainingSession(
         : String(session.conversation.conversationId),
     status: session.status,
     mode: session.mode,
+    modality: session.mode === 'realtime' ? 'voice' : session.mode,
+    interactionMode:
+      session.mode === 'realtime' ||
+      metadataText(session.task_config.metadata?.interactionMode) === 'realtime'
+        ? 'realtime'
+        : 'turn_based',
     feedbackMode:
       feedbackMode === 'simulation' ||
       feedbackMode === 'assisted' ||
@@ -261,7 +271,7 @@ function realtimeHandoffMetadata(
       ? {
           scenario_training: {
             ...scenarioTraining,
-            trainingMode: 'realtime',
+            trainingMode: 'voice',
             interactionMode: 'realtime',
           },
         }
@@ -269,7 +279,7 @@ function realtimeHandoffMetadata(
     source: 'conversation_realtime_handoff',
     ...(sourceKind ? { sourceTrainingOrigin: sourceKind } : {}),
     sourceTrainingSessionId: source.session_id,
-    trainingMode: 'realtime',
+    trainingMode: 'voice',
     interactionMode: 'realtime',
     realtimeProfile: 'cascade',
     latencyProfile: 'near_realtime',
@@ -350,7 +360,8 @@ export function buildRealtimeHandoffStartRequest(source: TrainingSessionDTO) {
             metadata: {
               source: 'scenario_training_opening',
               sourceTrainingSessionId: source.session_id,
-              trainingMode: 'realtime',
+              trainingMode: 'voice',
+              interactionMode: 'realtime',
             },
           },
         }
@@ -413,17 +424,6 @@ function studioPersona(input: StudioLaunchInput) {
   }
 }
 
-export function realtimeProviderRuntime(
-  choice: RealtimeProviderChoice | undefined
-): 'openai' | 'volcengine.doubao_realtime' {
-  if (choice === 'hybrid') {
-    throw new Error(
-      'Mixed Doubao and OpenAI realtime routing is not configured'
-    )
-  }
-  return choice === 'doubao' ? 'volcengine.doubao_realtime' : 'openai'
-}
-
 export function buildStudioSessionRequest(input: StudioLaunchInput) {
   const role = input.role.trim() || 'Learner'
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
@@ -448,7 +448,7 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
       metadata: {
         source: 'newapi_training_studio',
         counterpartPersona: studioPersona(input),
-        trainingMode: input.mode,
+        trainingMode: input.mode === 'realtime' ? 'voice' : input.mode,
         interactionMode: input.mode === 'realtime' ? 'realtime' : 'turn_based',
         feedbackMode: input.feedbackMode,
         trainingGoal: goal,
@@ -458,16 +458,14 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
           pressure,
           lengthProfile,
         }),
-        ...(input.mode === 'realtime'
-          ? {
-              realtimeProfile: input.realtimeProfile || 'cascade',
-              realtimeProviderChoice: input.realtimeProvider || 'openai',
-              realtimeProvider: realtimeProviderRuntime(input.realtimeProvider),
-              latencyProfile:
-                input.realtimeProfile === 'speech_to_speech'
-                  ? 'true_realtime'
-                  : 'near_realtime',
-            }
+        ...((input.mode === 'voice' || input.mode === 'realtime') &&
+        input.voiceRouteId
+          ? { voiceRouteId: input.voiceRouteId }
+          : {}),
+        ...(input.mode !== 'voice' &&
+        input.mode !== 'realtime' &&
+        input.llmModel
+          ? { llmModel: input.llmModel }
           : {}),
         ...(input.liveCoach
           ? {
