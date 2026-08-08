@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
+import { t as translate } from 'i18next'
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -307,7 +308,7 @@ function retrySource(
 function trainingConversationErrorMessage(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
-    : 'Training conversation request failed.'
+    : translate('Training conversation request failed.')
 }
 
 function CompletionReportIcon({
@@ -532,7 +533,9 @@ export function TrainingConversationSurface({
     currentGroup: config.group,
     currentModel: config.model,
     modelEndpointType: 'openai',
-    preferredModel: DEFAULT_TRAINING_TEXT_MODEL,
+    preferredModel:
+      metadataText(trainingSession.metadata?.llmModel) ??
+      DEFAULT_TRAINING_TEXT_MODEL,
     setGroups,
     setModels,
     updateConfig,
@@ -704,11 +707,19 @@ export function TrainingConversationSurface({
           throw new Error(streamError)
         }
         if (!didComplete && !controller.signal.aborted) {
-          throw new Error('Training response ended before completion.')
+          throw new Error(
+            localize(
+              'Training response ended before completion.',
+              '训练响应在完成前中断。'
+            )
+          )
         }
       } catch (error) {
         const message = controller.signal.aborted
-          ? 'Generation stopped before the response was completed.'
+          ? localize(
+              'Generation stopped before the response was completed.',
+              '生成在响应完成前已停止。'
+            )
           : trainingConversationErrorMessage(error)
         mutateMessages((current) =>
           current.map((item) =>
@@ -736,6 +747,7 @@ export function TrainingConversationSurface({
       config.temperature,
       conversationId,
       applyLoadedMessages,
+      localize,
       mutateMessages,
       parameterEnabled.max_tokens,
       parameterEnabled.temperature,
@@ -817,7 +829,12 @@ export function TrainingConversationSurface({
       )
         .then((result) => {
           if (result.message?.publicId !== selectedMessageId) {
-            throw new Error('Selected branch was not confirmed by the server.')
+            throw new Error(
+              localize(
+                'Selected branch was not confirmed by the server.',
+                '服务器未确认已选择的分支。'
+              )
+            )
           }
           selectedTailIdRef.current = nextProjection.selectedTailId
           messageRecordsRef.current = new Map(
@@ -840,6 +857,7 @@ export function TrainingConversationSurface({
       conversationId,
       isGenerating,
       isSavingEdit,
+      localize,
       pendingBranchMessageId,
       onSelectedTailChange,
       replaceMessages,
@@ -1258,6 +1276,7 @@ export function TrainingConversationSurface({
               groupValue={config.group}
               hasMessages={messages.length > 0}
               isGenerating={isGenerating}
+              hideModelSelector
               isModelLoading={isLoadingModels}
               modelValue={config.model}
               models={models}

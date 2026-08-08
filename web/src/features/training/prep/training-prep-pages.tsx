@@ -383,7 +383,12 @@ function TrainingBattlePrepContent() {
   const startMutation = useMutation({
     mutationFn: async () => {
       if (!preparation) {
-        throw new Error('Generate an opponent before starting practice')
+        throw new Error(
+          localize(
+            'Generate an opponent before starting practice',
+            '开始训练前请先生成模拟对手'
+          )
+        )
       }
       const result = await startBattlePrep({
         preparation,
@@ -396,7 +401,10 @@ function TrainingBattlePrepContent() {
       const handoff = trainingPrepWorkspaceHandoff(result)
       if (!handoff) {
         throw new Error(
-          'TalkWise did not return the training session and conversation required to open practice'
+          localize(
+            'TalkWise did not return the training session and conversation required to open practice',
+            'TalkWise 未返回打开训练所需的训练会话和对话'
+          )
         )
       }
       return handoff
@@ -616,7 +624,11 @@ function TrainingDefensePrepContent() {
   const personas = personasQuery.data ?? []
   const prepareMutation = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error('Choose a practice document')
+      if (!file) {
+        throw new Error(
+          localize('Choose a practice document', '请选择训练文档')
+        )
+      }
       return prepareDefensePrep({
         file,
         personaIds: selectedPersonaIds,
@@ -634,7 +646,11 @@ function TrainingDefensePrepContent() {
   })
   const startMutation = useMutation({
     mutationFn: async () => {
-      if (!prepared) throw new Error('Prepare questions before starting')
+      if (!prepared) {
+        throw new Error(
+          localize('Prepare questions before starting', '开始前请先准备问题')
+        )
+      }
       const result = await startDefensePrep({
         defenseSessionId: prepared.defenseSessionId,
         selectedQuestionIndexes,
@@ -643,7 +659,10 @@ function TrainingDefensePrepContent() {
       const handoff = trainingPrepWorkspaceHandoff(result)
       if (!handoff) {
         throw new Error(
-          'TalkWise did not return the training session and conversation required to open practice'
+          localize(
+            'TalkWise did not return the training session and conversation required to open practice',
+            'TalkWise 未返回打开训练所需的训练会话和对话'
+          )
         )
       }
       return handoff
