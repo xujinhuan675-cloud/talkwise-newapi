@@ -25,6 +25,11 @@ const (
 	talkWiseTrainingUpstreamPath                = "/api/v1/training-studio"
 	talkWiseTrainingProxyUnavailable            = "TALKWISE_TRAINING_PROXY_UNAVAILABLE"
 	talkWiseTrainingUpstreamUnavailable         = "TALKWISE_TRAINING_UPSTREAM_UNAVAILABLE"
+	talkWiseHealthLiveUpstreamPath              = "/health/live"
+	talkWiseHealthReadyUpstreamPath             = "/health/ready"
+	talkWiseVoiceHealthReadyUpstreamPath        = "/health/voice/ready"
+	talkWiseHealthProxyUnavailable              = "TALKWISE_HEALTH_PROXY_UNAVAILABLE"
+	talkWiseHealthUpstreamUnavailable           = "TALKWISE_HEALTH_UPSTREAM_UNAVAILABLE"
 	talkWiseConversationUpstreamPath            = "/api/v1/stakeholder"
 	talkWiseConversationProxyUnavailable        = "TALKWISE_CONVERSATION_PROXY_UNAVAILABLE"
 	talkWiseConversationUpstreamUnavailable     = "TALKWISE_CONVERSATION_UPSTREAM_UNAVAILABLE"
@@ -584,6 +589,42 @@ func ProxyTalkWiseTraining(c *gin.Context) {
 
 	proxy := newTalkWiseTrainingReverseProxy(upstream, suffix)
 	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
+// ProxyTalkWiseHealthLive exposes the backend's secret-free liveness check to
+// external monitors without requiring a dashboard user session.
+func ProxyTalkWiseHealthLive(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWiseHealthLiveUpstreamPath,
+		talkWiseHealthProxyUnavailable,
+		talkWiseHealthUpstreamUnavailable,
+		"TalkWise health",
+	)
+}
+
+// ProxyTalkWiseHealthReady preserves the optional HEALTH__ACCESS_TOKEN header
+// while forwarding the backend dependency readiness check.
+func ProxyTalkWiseHealthReady(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWiseHealthReadyUpstreamPath,
+		talkWiseHealthProxyUnavailable,
+		talkWiseHealthUpstreamUnavailable,
+		"TalkWise health",
+	)
+}
+
+// ProxyTalkWiseVoiceHealthReady exposes the protected, non-billable voice
+// route and local runtime readiness check for Uptime Kuma.
+func ProxyTalkWiseVoiceHealthReady(c *gin.Context) {
+	proxyTalkWiseFixedPath(
+		c,
+		talkWiseVoiceHealthReadyUpstreamPath,
+		talkWiseHealthProxyUnavailable,
+		talkWiseHealthUpstreamUnavailable,
+		"TalkWise voice health",
+	)
 }
 
 // PromoteTalkWiseTrainingWebSocketAuthorization lets browser WebSocket clients

@@ -206,100 +206,102 @@ export function Hero(props: HeroProps) {
             {renderActions()}
           </div>
 
-          {/* Supported Apps (参考图二样式，进行卡片化和信息扩充设计，增加视觉高度) */}
-          <div
-            className='landing-animate-fade-up mt-10 w-full max-w-xl opacity-0'
-            style={{ animationDelay: '240ms' }}
-          >
-            <div className='mb-4 flex flex-col gap-1'>
-              <span className='text-muted-foreground/50 text-[10px] font-bold tracking-[0.15em] uppercase'>
-                {props.content?.support?.eyebrow ?? t('Supported Applications')}
-              </span>
-              <p className='text-muted-foreground/60 text-xs leading-relaxed'>
-                {props.content?.support?.description ??
-                  t(
-                    'Supports one-click configuration and perfectly adapts to NewAPI multi-protocol configuration.'
-                  )}
-              </p>
-            </div>
-            <div className='flex flex-wrap items-center gap-3'>
-              {props.content?.support ? (
-                props.content.support.items.map((item) => {
-                  const className =
-                    'group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
-                  const children = (
-                    <>
-                      {item.icon}
-                      <span>{item.label}</span>
-                    </>
-                  )
+          {props.content?.support !== null && (
+            <div
+              className='landing-animate-fade-up mt-10 w-full max-w-xl opacity-0'
+              style={{ animationDelay: '240ms' }}
+            >
+              <div className='mb-4 flex flex-col gap-1'>
+                <span className='text-muted-foreground/50 text-[10px] font-bold tracking-[0.15em] uppercase'>
+                  {props.content?.support?.eyebrow ??
+                    t('Supported Applications')}
+                </span>
+                <p className='text-muted-foreground/60 text-xs leading-relaxed'>
+                  {props.content?.support?.description ??
+                    t(
+                      'Supports one-click configuration and perfectly adapts to NewAPI multi-protocol configuration.'
+                    )}
+                </p>
+              </div>
+              <div className='flex flex-wrap items-center gap-3'>
+                {props.content?.support ? (
+                  props.content.support.items.map((item) => {
+                    const className =
+                      'group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
+                    const children = (
+                      <>
+                        {item.icon}
+                        <span>{item.label}</span>
+                      </>
+                    )
 
-                  return item.href ? (
+                    return item.href ? (
+                      <a
+                        key={item.id}
+                        href={item.href}
+                        target={item.external ? '_blank' : undefined}
+                        rel={item.external ? 'noopener noreferrer' : undefined}
+                        className={className}
+                      >
+                        {children}
+                      </a>
+                    ) : (
+                      <div key={item.id} className={className}>
+                        {children}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <>
+                    {/* Cherry Studio */}
                     <a
-                      key={item.id}
-                      href={item.href}
-                      target={item.external ? '_blank' : undefined}
-                      rel={item.external ? 'noopener noreferrer' : undefined}
-                      className={className}
+                      href='https://cherry-ai.com'
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
                     >
-                      {children}
+                      <CherryStudio.Color size={24} className='shrink-0' />
+                      <span>Cherry Studio</span>
                     </a>
-                  ) : (
-                    <div key={item.id} className={className}>
-                      {children}
-                    </div>
-                  )
-                })
-              ) : (
-                <>
-                  {/* Cherry Studio */}
-                  <a
-                    href='https://cherry-ai.com'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
-                  >
-                    <CherryStudio.Color size={24} className='shrink-0' />
-                    <span>Cherry Studio</span>
-                  </a>
 
-                  {/* CC Switch */}
-                  <a
-                    href='https://ccswitch.io'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
-                  >
-                    <img
-                      src='https://ccswitch.io/favicon.png'
-                      alt='CC Switch'
-                      className='size-6 shrink-0 rounded-md object-contain'
-                      onError={(e) => {
-                        // Fallback to a styled text avatar if the remote favicon fails to load in sandbox or local environments
-                        e.currentTarget.style.display = 'none'
-                        const fallback = e.currentTarget
-                          .nextSibling as HTMLElement
-                        if (fallback) fallback.style.display = 'flex'
-                      }}
-                    />
-                    <span
-                      style={{ display: 'none' }}
-                      className='size-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-[10px] font-bold text-blue-600 dark:bg-blue-400/10 dark:text-blue-400'
+                    {/* CC Switch */}
+                    <a
+                      href='https://ccswitch.io'
+                      target='_blank'
+                      rel='noopener noreferrer'
+                      className='group border-border/40 bg-muted/15 text-foreground/80 hover:border-border hover:bg-muted/30 hover:text-foreground flex items-center gap-3 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'
                     >
-                      CC
-                    </span>
-                    <span>CC Switch</span>
-                  </a>
+                      <img
+                        src='https://ccswitch.io/favicon.png'
+                        alt='CC Switch'
+                        className='size-6 shrink-0 rounded-md object-contain'
+                        onError={(e) => {
+                          // Fallback to a styled text avatar if the remote favicon fails to load in sandbox or local environments
+                          e.currentTarget.style.display = 'none'
+                          const fallback = e.currentTarget
+                            .nextSibling as HTMLElement
+                          if (fallback) fallback.style.display = 'flex'
+                        }}
+                      />
+                      <span
+                        style={{ display: 'none' }}
+                        className='size-6 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-[10px] font-bold text-blue-600 dark:bg-blue-400/10 dark:text-blue-400'
+                      >
+                        CC
+                      </span>
+                      <span>CC Switch</span>
+                    </a>
 
-                  {/* "更多" */}
-                  <div className='group border-border/40 bg-muted/15 text-foreground/55 hover:border-border hover:bg-muted/30 hover:text-foreground flex cursor-default items-center gap-2.5 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'>
-                    <MoreIcon />
-                    <span>{t('More Apps')}</span>
-                  </div>
-                </>
-              )}
+                    {/* "更多" */}
+                    <div className='group border-border/40 bg-muted/15 text-foreground/55 hover:border-border hover:bg-muted/30 hover:text-foreground flex cursor-default items-center gap-2.5 rounded-full border px-5 py-2.5 text-sm font-medium shadow-[0_1px_2.5px_rgba(0,0,0,0.01)] backdrop-blur-xs transition-all duration-300 hover:scale-[1.02]'>
+                      <MoreIcon />
+                      <span>{t('More Apps')}</span>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Right Column: Hero Terminal API Demo */}

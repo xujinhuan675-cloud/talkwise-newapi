@@ -30,6 +30,8 @@ type PlaygroundInputControlsProps = {
   actions?: ReactNode
   disabled?: boolean
   hideSubmitButton?: boolean
+  hideModelSelector?: boolean
+  primaryAction?: PlaygroundInputPrimaryAction
   groups: GroupOption[]
   groupValue: string
   isGenerating?: boolean
@@ -44,10 +46,22 @@ type PlaygroundInputControlsProps = {
   tools: ReactNode
 }
 
+export interface PlaygroundInputPrimaryAction {
+  active?: boolean
+  disabled?: boolean
+  icon: ReactNode
+  label: string
+  onClick: () => void
+  title?: string
+  tone?: 'default' | 'destructive' | 'secondary'
+}
+
 export function PlaygroundInputControls({
   actions,
   disabled,
   hideSubmitButton = false,
+  hideModelSelector = false,
+  primaryAction,
   groups,
   groupValue,
   isGenerating,
@@ -62,31 +76,65 @@ export function PlaygroundInputControls({
   tools,
 }: PlaygroundInputControlsProps) {
   const { t } = useTranslation()
-  const { canSubmit, isSelectorDisabled, shouldShowStop } =
-    getInputControlState({
-      disabled,
-      groups,
-      hasStopHandler: Boolean(onStop),
-      isGenerating,
-      isModelLoading,
-      models,
-      text,
-    })
+  const {
+    canSubmit: defaultCanSubmit,
+    isSelectorDisabled,
+    shouldShowStop,
+  } = getInputControlState({
+    disabled,
+    groups,
+    hasStopHandler: Boolean(onStop),
+    isGenerating,
+    isModelLoading,
+    models,
+    text,
+  })
 
-  const renderSelector = () => (
-    <ModelGroupSelector
-      selectedModel={modelValue}
-      models={models}
-      onModelChange={onModelChange}
-      selectedGroup={groupValue}
-      groups={groups}
-      onGroupChange={onGroupChange}
-      disabled={isSelectorDisabled}
-    />
-  )
+  const canSubmit = hideModelSelector
+    ? !disabled && Boolean(text.trim()) && !isGenerating
+    : defaultCanSubmit
+
+  const renderSelector = () => {
+    if (hideModelSelector) return null
+    return (
+      <ModelGroupSelector
+        selectedModel={modelValue}
+        models={models}
+        onModelChange={onModelChange}
+        selectedGroup={groupValue}
+        groups={groups}
+        onGroupChange={onGroupChange}
+        disabled={isSelectorDisabled}
+      />
+    )
+  }
 
   const renderSubmitButton = () => {
     if (hideSubmitButton) return null
+    if (primaryAction) {
+      const tone = primaryAction.tone ?? 'default'
+      return (
+        <PromptInputButton
+          aria-label={primaryAction.label}
+          aria-pressed={primaryAction.active}
+          className={
+            tone === 'destructive'
+              ? 'border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90 min-w-24 border px-3 font-medium'
+              : tone === 'secondary'
+                ? 'border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 min-w-24 border px-3 font-medium'
+                : 'border-primary bg-primary text-primary-foreground hover:bg-primary/90 min-w-24 border px-3 font-medium shadow-sm'
+          }
+          disabled={primaryAction.disabled}
+          onClick={primaryAction.onClick}
+          title={primaryAction.title}
+          type='button'
+          variant={tone}
+        >
+          {primaryAction.icon}
+          <span className='truncate'>{primaryAction.label}</span>
+        </PromptInputButton>
+      )
+    }
     if (shouldShowStop) {
       return (
         <PromptInputButton
@@ -95,8 +143,7 @@ export function PlaygroundInputControls({
           variant='secondary'
         >
           <SquareIcon className='fill-current' size={16} />
-          <span className='hidden sm:inline'>{t('Stop')}</span>
-          <span className='sr-only sm:hidden'>{t('Stop')}</span>
+          <span className='truncate'>{t('Stop')}</span>
         </PromptInputButton>
       )
     }
@@ -108,8 +155,7 @@ export function PlaygroundInputControls({
         variant='default'
       >
         <SendIcon size={16} />
-        <span className='hidden sm:inline'>{t('Send')}</span>
-        <span className='sr-only sm:hidden'>{t('Send')}</span>
+        <span className='truncate'>{t('Send')}</span>
       </PromptInputButton>
     )
   }
@@ -117,9 +163,11 @@ export function PlaygroundInputControls({
   if (selectorPlacement === 'start') {
     return (
       <div className='flex w-full flex-col gap-2.5 md:flex-row md:items-center'>
-        <div className='flex min-w-0 shrink-0 items-center'>
-          {renderSelector()}
-        </div>
+        {!hideModelSelector && (
+          <div className='flex min-w-0 shrink-0 items-center'>
+            {renderSelector()}
+          </div>
+        )}
 
         <div className='flex min-w-0 flex-1 items-center justify-between gap-2 md:justify-end'>
           {tools}
@@ -134,9 +182,11 @@ export function PlaygroundInputControls({
 
   return (
     <div className='flex w-full flex-col gap-2.5 md:flex-row md:items-center md:justify-between'>
-      <div className='flex min-w-0 items-center justify-end md:hidden'>
-        {renderSelector()}
-      </div>
+      {!hideModelSelector && (
+        <div className='flex min-w-0 items-center justify-end md:hidden'>
+          {renderSelector()}
+        </div>
+      )}
 
       <div className='flex items-center justify-between gap-2 md:justify-start'>
         {tools}
@@ -146,11 +196,19 @@ export function PlaygroundInputControls({
         </div>
       </div>
 
-      <div className='hidden min-w-0 items-center gap-2 md:flex'>
-        {renderSelector()}
-        {actions}
-        {renderSubmitButton()}
-      </div>
+      {!hideModelSelector && (
+        <div className='hidden min-w-0 items-center gap-2 md:flex'>
+          {renderSelector()}
+          {actions}
+          {renderSubmitButton()}
+        </div>
+      )}
+      {hideModelSelector && (
+        <div className='hidden min-w-0 items-center gap-2 md:flex'>
+          {actions}
+          {renderSubmitButton()}
+        </div>
+      )}
     </div>
   )
 }

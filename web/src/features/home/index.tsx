@@ -35,12 +35,15 @@ import { useTranslation } from 'react-i18next'
 import { PublicLayout } from '@/components/layout'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
+import { useStatus } from '@/hooks/use-status'
 import { isLikelyHtml } from '@/lib/content-format'
+import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getTrainingScenarioConfig } from '../training/config/api'
 import { listPersonas } from '../training/personas/api'
 import { CTA, Features, Hero, HowItWorks, Stats } from './components'
+import { parseHomePageConfig, resolveHomePageLocale } from './config'
 import { useHomePageContent } from './hooks'
 import type {
   HomeCtaContent,
@@ -55,8 +58,23 @@ export function Home() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedTheme } = useTheme()
   const { auth } = useAuthStore()
+  const { status } = useStatus()
   const isAuthenticated = !!auth.user
   const { content, isLoaded, isUrl } = useHomePageContent()
+  const homePageConfig = useMemo(
+    () => parseHomePageConfig(status?.home_page_config),
+    [status?.home_page_config]
+  )
+  const homePageCopy = useMemo(
+    () =>
+      resolveHomePageLocale(
+        homePageConfig,
+        i18n.resolvedLanguage || i18n.language
+      ),
+    [homePageConfig, i18n.language, i18n.resolvedLanguage]
+  )
+  const trainingEnabled =
+    parseHeaderNavModulesFromStatus(status).training !== false
   const scenarioConfigQuery = useQuery({
     queryKey: ['training', 'scenario-config', ''],
     queryFn: () => getTrainingScenarioConfig(''),
@@ -78,58 +96,89 @@ export function Home() {
       }),
     [i18n.language, t]
   )
+  const homePageText = useCallback(
+    (override: string, english: string, chinese: string) =>
+      override || localized(english, chinese),
+    [localized]
+  )
 
   const talkWiseHero = useMemo<HomeHeroContent>(
     () => ({
-      badge: localized('AI Communication Training', 'AI 沟通训练'),
-      title: localized('For every important conversation', '为每一次重要沟通'),
-      highlightedTitle: localized('be prepared', '做好准备'),
-      description: localized(
+      badge: homePageText(
+        homePageCopy.hero.badge,
+        'AI Communication Training',
+        'AI 沟通训练'
+      ),
+      title: homePageText(
+        homePageCopy.hero.title,
+        'For every important conversation',
+        '为每一次重要沟通'
+      ),
+      highlightedTitle: homePageText(
+        homePageCopy.hero.highlightedTitle,
+        'be prepared',
+        '做好准备'
+      ),
+      description: homePageText(
+        homePageCopy.hero.description,
         'Rehearse realistic conversations, receive guidance in the moment, and turn every review into the next focused practice session.',
         '把重要沟通放进可重复演练的真实场景，在对话中获得提示，并把每次复盘变成下一轮针对性训练。'
       ),
-      actions: [
-        {
-          id: 'start-training',
-          label: localized('Start training', '开始训练'),
-          render: <Link to='/training' />,
-        },
-        {
-          id: 'view-flow',
-          label: localized('View training flow', '查看训练流程'),
-          render: <a href='#training-workflow' />,
-          variant: 'outline',
-        },
-      ],
-      support: {
-        eyebrow: localized('Training scenarios', '训练场景'),
-        description: localized(
-          'Choose a goal, counterpart, and difficulty, then keep every modality in one training context.',
-          '选择目标、对手角色与难度，让文本、语音与复盘共用同一训练上下文。'
-        ),
-        items: [
-          {
-            id: 'interview',
-            label: localized('Interview', '面试'),
-            icon: <Target className='size-5 text-emerald-500' />,
-          },
-          {
-            id: 'sales',
-            label: localized('Sales', '销售'),
-            icon: <UsersRound className='size-5 text-blue-500' />,
-          },
-          {
-            id: 'negotiation',
-            label: localized('Negotiation', '谈判'),
-            icon: <MessageSquareText className='size-5 text-violet-500' />,
-          },
-          {
-            id: 'workplace',
-            label: localized('Workplace', '职场沟通'),
-            icon: <Sparkles className='size-5 text-amber-500' />,
-          },
-        ],
-      },
+      actions: trainingEnabled
+        ? [
+            {
+              id: 'start-training',
+              label: localized('Start training', '开始训练'),
+              render: <Link to='/training' />,
+            },
+            ...(homePageConfig.sections.workflow
+              ? [
+                  {
+                    id: 'view-flow',
+                    label: localized('View training flow', '查看训练流程'),
+                    render: <a href='#training-workflow' />,
+                    variant: 'outline' as const,
+                  },
+                ]
+              : []),
+          ]
+        : [],
+      support: homePageConfig.sections.scenarioSupport
+        ? {
+            eyebrow: homePageText(
+              homePageCopy.hero.supportEyebrow,
+              'Training scenarios',
+              '训练场景'
+            ),
+            description: homePageText(
+              homePageCopy.hero.supportDescription,
+              'Choose a goal, counterpart, and difficulty, then keep every modality in one training context.',
+              '选择目标、对手角色与难度，让文本、语音与复盘共用同一训练上下文。'
+            ),
+            items: [
+              {
+                id: 'interview',
+                label: localized('Interview', '面试'),
+                icon: <Target className='size-5 text-emerald-500' />,
+              },
+              {
+                id: 'sales',
+                label: localized('Sales', '销售'),
+                icon: <UsersRound className='size-5 text-blue-500' />,
+              },
+              {
+                id: 'negotiation',
+                label: localized('Negotiation', '谈判'),
+                icon: <MessageSquareText className='size-5 text-violet-500' />,
+              },
+              {
+                id: 'workplace',
+                label: localized('Workplace', '职场沟通'),
+                icon: <Sparkles className='size-5 text-amber-500' />,
+              },
+            ],
+          }
+        : null,
       previewDemos: [
         {
           id: 'scenario',
@@ -363,7 +412,13 @@ export function Home() {
         },
       ],
     }),
-    [localized]
+    [
+      homePageConfig.sections,
+      homePageCopy.hero,
+      homePageText,
+      localized,
+      trainingEnabled,
+    ]
   )
 
   const talkWiseStats = useMemo<readonly HomeStat[]>(
@@ -597,22 +652,35 @@ export function Home() {
   const talkWiseCta = useMemo<HomeCtaContent>(
     () => ({
       title: [
-        localized('Prepare for the next', '从下一场'),
-        localized('conversation that matters', '重要沟通开始准备'),
+        homePageText(
+          homePageCopy.cta.titleFirst,
+          'Prepare for the next',
+          '从下一场'
+        ),
+        homePageText(
+          homePageCopy.cta.titleSecond,
+          'conversation that matters',
+          '重要沟通开始准备'
+        ),
       ],
-      description: localized(
+      description: homePageText(
+        homePageCopy.cta.description,
         'Enter the training workspace, choose a scenario, and begin a focused rehearsal.',
         '进入训练工作台，选择你的场景，开始一次有针对性的演练。'
       ),
       actions: [
         {
           id: 'enter-training',
-          label: localized('Enter training', '进入训练'),
+          label: homePageText(
+            homePageCopy.cta.actionLabel,
+            'Enter training',
+            '进入训练'
+          ),
           render: <Link to='/training' />,
         },
       ],
     }),
-    [localized]
+    [homePageCopy.cta, homePageText]
   )
 
   const syncIframePreferences = useCallback(() => {
@@ -701,10 +769,16 @@ export function Home() {
   return (
     <PublicLayout showMainContainer={false}>
       <Hero isAuthenticated={isAuthenticated} content={talkWiseHero} />
-      <Stats stats={talkWiseStats} />
-      <Features content={talkWiseFeatures} />
-      <HowItWorks id='training-workflow' content={talkWiseFlow} />
-      <CTA content={talkWiseCta} />
+      {homePageConfig.sections.stats && <Stats stats={talkWiseStats} />}
+      {homePageConfig.sections.features && (
+        <Features content={talkWiseFeatures} />
+      )}
+      {homePageConfig.sections.workflow && (
+        <HowItWorks id='training-workflow' content={talkWiseFlow} />
+      )}
+      {homePageConfig.sections.cta && trainingEnabled && (
+        <CTA content={talkWiseCta} />
+      )}
     </PublicLayout>
   )
 }

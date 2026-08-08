@@ -66,7 +66,7 @@ export interface HomeHeroContent {
     eyebrow: ReactNode
     description: ReactNode
     items: readonly HomeHeroSupportItem[]
-  }
+  } | null
   preview?: ReactNode
   previewDemos?: readonly HomeHeroPreviewDemo[]
 }
