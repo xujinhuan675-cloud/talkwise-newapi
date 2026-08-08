@@ -29,6 +29,7 @@ test('opens the platform-management view for NewAPI console routes', () => {
     '/dashboard/overview',
     '/usage-logs/common',
     '/users',
+    '/voice-presets',
     '/system-info',
   ]) {
     assert.equal(resolveSidebarView(path)?.id, 'platform-management', path)
@@ -68,5 +69,11 @@ test('places users under the operations group', () => {
       .find((group) => group.id === 'system')
       ?.items.some((item) => 'url' in item && item.url === '/users'),
     false
+  )
+  assert.equal(
+    groups
+      .find((group) => group.id === 'system')
+      ?.items.some((item) => 'url' in item && item.url === '/voice-presets'),
+    true
   )
 })

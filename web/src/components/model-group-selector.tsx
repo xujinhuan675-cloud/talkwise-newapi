@@ -67,7 +67,7 @@ import {
   scrollSelectedOptionIntoView,
 } from './model-group-selector/layout'
 
-interface ModelOption {
+export interface ModelOption {
   label: string
   value: string
   category?: string
@@ -88,6 +88,12 @@ interface ModelSelectorProps {
   onModelChange: (value: string) => void
   className?: string
   disabled?: boolean
+  /** Use the full-width trigger/popup treatment for form fields. */
+  variant?: 'compact' | 'field'
+  placeholder?: string
+  searchPlaceholder?: string
+  emptyText?: string
+  ariaLabel?: string
 }
 
 interface GroupSelectorProps {
@@ -104,33 +110,57 @@ const ModelTriggerButton = React.forwardRef<
     currentLabel: string
     triggerClassName?: string
     isDisabled?: boolean
+    fieldMode?: boolean
   }
->(({ currentLabel, triggerClassName, isDisabled, ...props }, ref) => (
-  <Button
-    ref={ref}
-    variant='outline'
-    role='combobox'
-    size='sm'
-    disabled={isDisabled}
-    className={cn(
-      'flex h-8 items-center gap-2 border px-3 font-medium',
-      'justify-center p-0 sm:w-auto sm:justify-start sm:px-3',
-      'w-8',
-      'bg-background text-foreground',
-      'hover:bg-accent transition-colors',
-      'focus:!ring-0 focus:!outline-none',
-      'shadow-none',
-      triggerClassName
-    )}
-    {...props}
-  >
-    <CpuIcon className='text-muted-foreground block size-4 sm:hidden' />
-    <span className='text-muted-foreground sm:text-foreground hidden truncate text-xs sm:block'>
-      {currentLabel}
-    </span>
-    <ChevronsUpDown className='text-muted-foreground hidden h-4 w-4 opacity-50 sm:block' />
-  </Button>
-))
+>(
+  (
+    { currentLabel, triggerClassName, isDisabled, fieldMode = false, ...props },
+    ref
+  ) => (
+    <Button
+      ref={ref}
+      variant='outline'
+      role='combobox'
+      size='sm'
+      disabled={isDisabled}
+      className={cn(
+        'flex h-8 items-center gap-2 border px-3 font-medium',
+        fieldMode
+          ? 'w-full justify-between px-3'
+          : 'justify-center p-0 sm:w-auto sm:justify-start sm:px-3 w-8',
+        'bg-background text-foreground',
+        'hover:bg-accent transition-colors',
+        'focus:!ring-0 focus:!outline-none',
+        'shadow-none',
+        triggerClassName
+      )}
+      {...props}
+    >
+      <CpuIcon
+        className={cn(
+          'text-muted-foreground block size-4',
+          fieldMode ? 'hidden' : 'sm:hidden'
+        )}
+      />
+      <span
+        className={cn(
+          'min-w-0 flex-1 text-left text-xs',
+          fieldMode
+            ? 'truncate text-foreground'
+            : 'text-muted-foreground hidden truncate sm:text-foreground sm:block'
+        )}
+      >
+        {currentLabel}
+      </span>
+      <ChevronsUpDown
+        className={cn(
+          'text-muted-foreground h-4 w-4 opacity-50',
+          fieldMode ? 'block' : 'hidden sm:block'
+        )}
+      />
+    </Button>
+  )
+)
 
 ModelTriggerButton.displayName = 'ModelTriggerButton'
 
@@ -175,7 +205,18 @@ GroupTriggerButton.displayName = 'GroupTriggerButton'
  * Styled following Scira's form-component design patterns
  */
 export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
-  ({ selectedModel, models, onModelChange, className, disabled = false }) => {
+  ({
+    selectedModel,
+    models,
+    onModelChange,
+    className,
+    disabled = false,
+    variant = 'compact',
+    placeholder,
+    searchPlaceholder,
+    emptyText,
+    ariaLabel,
+  }) => {
     const { t } = useTranslation()
     const [open, setOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('')
@@ -245,21 +286,19 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
         filter={() => 1}
         shouldFilter={false}
       >
-        {!isMobile && (
-          <CommandInput
-            placeholder={t('Search models...')}
-            className='h-9'
-            value={searchQuery}
-            onValueChange={setSearchQuery}
-          />
-        )}
-        <CommandEmpty>{t('No model found.')}</CommandEmpty>
+        <CommandInput
+          placeholder={searchPlaceholder || t('Search models...')}
+          className='h-9'
+          value={searchQuery}
+          onValueChange={setSearchQuery}
+        />
+        <CommandEmpty>{emptyText || t('No model found.')}</CommandEmpty>
         <CommandList
           className={isMobile ? '!max-h-full flex-1 p-2' : 'max-h-[300px]'}
         >
           {Object.keys(filteredModels).length === 0 ? (
             <div className='text-muted-foreground px-3 py-6 text-xs'>
-              {t('No model found.')}
+              {emptyText || t('No model found.')}
             </div>
           ) : (
             Object.entries(filteredModels).map(
@@ -291,7 +330,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                       <div className='flex min-w-0 flex-1 items-center gap-1'>
                         <div
                           className={cn(
-                            'truncate font-medium',
+                            'font-medium',
+                            variant === 'field'
+                              ? 'break-all whitespace-normal text-left'
+                              : 'truncate',
                             isMobile ? 'text-sm' : 'text-[11px]'
                           )}
                         >
@@ -320,9 +362,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerTrigger asChild>
           <ModelTriggerButton
-            currentLabel={currentModel?.label || t('Model')}
+            currentLabel={currentModel?.label || placeholder || t('Model')}
             triggerClassName={className}
             isDisabled={disabled}
+            fieldMode={variant === 'field'}
+            aria-label={ariaLabel}
             aria-expanded={open}
           />
         </DrawerTrigger>
@@ -342,15 +386,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
         <PopoverTrigger
           render={
             <ModelTriggerButton
-              currentLabel={currentModel?.label || t('Model')}
+              currentLabel={currentModel?.label || placeholder || t('Model')}
               triggerClassName={className}
               isDisabled={disabled}
+              fieldMode={variant === 'field'}
+              aria-label={ariaLabel}
               aria-expanded={open}
             />
           }
         />
         <PopoverContent
-          className='bg-popover z-40 w-[90vw] max-w-[20em] rounded-lg border p-0 !shadow-none sm:w-[20em]'
+          className={cn(
+            'bg-popover z-40 rounded-lg border p-0 !shadow-none',
+            variant === 'field'
+              ? 'w-[var(--anchor-width)] max-w-[min(30rem,calc(100vw-1rem))]'
+              : 'w-[90vw] max-w-[20em] sm:w-[20em]'
+          )}
           align='start'
           side='bottom'
           sideOffset={4}

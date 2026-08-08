@@ -33,7 +33,6 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { SidebarData } from '@/components/layout/types'
-import { TRAINING_ASSIST_AVAILABILITY } from '@/features/training/section-registry'
 import { ROLE } from '@/lib/roles'
 
 /**
@@ -43,51 +42,42 @@ import { ROLE } from '@/lib/roles'
  * registered in `layout/lib/sidebar-view-registry.ts`.
  */
 export function useSidebarData(): SidebarData {
-  const { i18n, t } = useTranslation()
-  const localize = (english: string, chinese: string) =>
-    t(english, {
-      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
-    })
+  const { t } = useTranslation()
 
   return {
     navGroups: [
       {
         id: 'training',
-        title: localize('Training', '\u8bad\u7ec3'),
+        title: t('Training'),
         items: [
           {
-            title: localize('Training overview', '\u8bad\u7ec3\u6982\u89c8'),
+            title: t('Training overview'),
             url: '/training',
             activeUrls: ['/training/overview'],
             icon: Home,
           },
           {
-            title: localize('Start training', '\u5f00\u59cb\u8bad\u7ec3'),
+            title: t('Start training'),
             url: '/training/scenarios',
             icon: ClipboardList,
           },
           {
-            title: localize('Conversations', '\u5bf9\u8bdd'),
+            title: t('Conversations'),
             url: '/training/conversations',
             icon: MessageSquare,
           },
           {
-            title: localize('In-call assist', '\u4e34\u573a\u8f85\u52a9'),
+            title: t('In-call assist'),
             url: '/training/assist',
             icon: Headphones,
-            badge: localize(
-              TRAINING_ASSIST_AVAILABILITY.english,
-              TRAINING_ASSIST_AVAILABILITY.chinese
-            ),
-            badgeVariant: TRAINING_ASSIST_AVAILABILITY.badgeVariant,
           },
           {
-            title: localize('Review', '\u590d\u76d8'),
+            title: t('Review'),
             url: '/training/sessions',
             icon: History,
           },
           {
-            title: localize('Growth', '\u6210\u957f'),
+            title: t('Growth'),
             url: '/training/growth',
             icon: TrendingUp,
           },
@@ -95,15 +85,15 @@ export function useSidebarData(): SidebarData {
       },
       {
         id: 'training-configuration',
-        title: localize('Training configuration', '\u8bad\u7ec3\u914d\u7f6e'),
+        title: t('Training configuration'),
         items: [
           {
-            title: localize('Personas', '\u89d2\u8272\u8d44\u4ea7'),
+            title: t('Personas'),
             url: '/training/personas',
             icon: Users,
           },
           {
-            title: localize('Training settings', '\u8bad\u7ec3\u8bbe\u7f6e'),
+            title: t('Training settings'),
             url: '/training/settings',
             icon: Settings,
           },
@@ -119,24 +109,21 @@ export function useSidebarData(): SidebarData {
       },
       {
         id: 'team-management',
-        title: localize('Team management', '\u56e2\u961f\u7ba1\u7406'),
+        title: t('Team management'),
         requiredTeamManagement: true,
         items: [
           {
-            title: localize('Scenario leaderboard', '\u573a\u666f\u6392\u884c'),
+            title: t('Scenario leaderboard'),
             url: '/training/team/scenarios',
             icon: TrendingUp,
           },
           {
-            title: localize(
-              'Competency leaderboard',
-              '\u80fd\u529b\u6392\u884c'
-            ),
+            title: t('Competency leaderboard'),
             url: '/training/team/competencies',
             icon: LayoutDashboard,
           },
           {
-            title: localize('Training teams', '\u8bad\u7ec3\u56e2\u961f'),
+            title: t('Training teams'),
             url: '/training/team/members',
             icon: Users,
           },
@@ -144,14 +131,11 @@ export function useSidebarData(): SidebarData {
       },
       {
         id: 'platform-management',
-        title: localize('Platform management', '\u5e73\u53f0\u7ba1\u7406'),
+        title: t('Platform management'),
         requiredRole: ROLE.ADMIN,
         items: [
           {
-            title: localize(
-              'Management console',
-              '\u7ba1\u7406\u63a7\u5236\u53f0'
-            ),
+            title: t('Management console'),
             url: '/dashboard/overview',
             icon: Shield,
           },

@@ -20,7 +20,10 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
-import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import {
+  parseHeaderNavModulesFromStatus,
+  type HeaderNavModules,
+} from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 export type TopNavLink = {
@@ -31,78 +34,120 @@ export type TopNavLink = {
   external?: boolean
 }
 
-/**
- * Generate top navigation links based on HeaderNavModules configuration from backend /api/status
- * Backend format example (stringified JSON):
- * {
- *   home: true,
- *   console: true,
- *   pricing: { enabled: true, requireAuth: false },
- *   rankings: { enabled: true, requireAuth: false },
- *   docs: true,
- *   about: true
- * }
- */
-export function useTopNavLinks(): TopNavLink[] {
-  const { i18n, t } = useTranslation()
-  const { status } = useStatus()
-  const { auth } = useAuthStore()
+type BuildTopNavLinksOptions = {
+  modules: HeaderNavModules
+  docsLink?: string
+  isAuthenticated: boolean
+  translate: (key: string) => string
+}
 
-  // Parse HeaderNavModules
-  const modules = useMemo(() => {
-    return parseHeaderNavModulesFromStatus(
-      status as Record<string, unknown> | null
-    )
-  }, [status])
-
-  // Documentation link (may be external)
-  const docsLink: string | undefined = status?.docs_link as string | undefined
-
-  const isAuthed = !!auth?.user
-
+export function buildTopNavLinks({
+  modules,
+  docsLink,
+  isAuthenticated,
+  translate,
+}: BuildTopNavLinksOptions): TopNavLink[] {
   const links: TopNavLink[] = []
+  const trainingEnabled = modules.training !== false
+  const isTrainingModuleEnabled = (value: unknown) =>
+    typeof value === 'boolean' ? value : trainingEnabled
 
-  // Home
-  if (modules?.home !== false) {
-    links.push({ title: t('Home'), href: '/' })
+  if (modules.home !== false) {
+    links.push({ title: translate('Home'), href: '/' })
   }
 
-  if (modules?.training !== false) {
+  if (modules.console !== false) {
     links.push({
-      title: i18n.language.startsWith('zh') ? '训练' : 'Training',
+      title: translate('Console'),
+      href: '/dashboard',
+      requiresAuth: !isAuthenticated,
+    })
+  }
+
+  if (trainingEnabled) {
+    links.push({
+      title: translate('Training'),
       href: '/training',
-      requiresAuth: !isAuthed,
+      requiresAuth: !isAuthenticated,
     })
+  }
+
+  if (isTrainingModuleEnabled(modules.conversations)) {
     links.push({
-      title: i18n.language.startsWith('zh') ? '对话' : 'Conversations',
+      title: translate('Conversations'),
       href: '/training/conversations',
-      requiresAuth: !isAuthed,
+      requiresAuth: !isAuthenticated,
     })
+  }
+
+  if (isTrainingModuleEnabled(modules.review)) {
     links.push({
-      title: i18n.language.startsWith('zh') ? '复盘' : 'Review',
+      title: translate('Review'),
       href: '/training/sessions',
-      requiresAuth: !isAuthed,
+      requiresAuth: !isAuthenticated,
     })
+  }
+
+  if (isTrainingModuleEnabled(modules.growth)) {
     links.push({
-      title: i18n.language.startsWith('zh') ? '成长' : 'Growth',
+      title: translate('Growth'),
       href: '/training/growth',
-      requiresAuth: !isAuthed,
+      requiresAuth: !isAuthenticated,
     })
   }
 
-  // Docs (supports external links)
-  if (modules?.docs !== false) {
-    if (docsLink) {
-      links.push({ title: t('Docs'), href: docsLink, external: true })
-    } else {
-      links.push({ title: t('Docs'), href: '/docs' })
-    }
+  if (modules.pricing.enabled !== false) {
+    links.push({
+      title: translate('Model Square'),
+      href: '/pricing',
+      requiresAuth: modules.pricing.requireAuth && !isAuthenticated,
+    })
   }
 
-  // About
-  if (modules?.about !== false) {
-    links.push({ title: t('About'), href: '/about' })
+  if (modules.rankings.enabled !== false) {
+    links.push({
+      title: translate('Rankings'),
+      href: '/rankings',
+      requiresAuth: modules.rankings.requireAuth && !isAuthenticated,
+    })
+  }
+
+  if (modules.docs !== false) {
+    links.push(
+      docsLink
+        ? {
+            title: translate('Docs'),
+            href: docsLink,
+            external: true,
+          }
+        : { title: translate('Docs'), href: '/docs' }
+    )
+  }
+
+  if (modules.about !== false) {
+    links.push({ title: translate('About'), href: '/about' })
   }
 
   return links
+}
+
+/** Generate top navigation links from the HeaderNavModules status option. */
+export function useTopNavLinks(): TopNavLink[] {
+  const { t } = useTranslation()
+  const { status } = useStatus()
+  const { auth } = useAuthStore()
+
+  const modules = useMemo(
+    () =>
+      parseHeaderNavModulesFromStatus(status as Record<string, unknown> | null),
+    [status]
+  )
+  const docsLink = status?.docs_link as string | undefined
+
+  return buildTopNavLinks({
+    modules,
+    docsLink,
+    isAuthenticated: Boolean(auth?.user),
+    translate: t,
+  })
 }
