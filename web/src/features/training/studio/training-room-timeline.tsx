@@ -255,6 +255,15 @@ export function TrainingRoomTimeline({
       stopReplay(false)
       const generation = replayGenerationRef.current
       const controller = new AbortController()
+      let timedOut = false
+      const timeoutId = globalThis.setTimeout(() => {
+        timedOut = true
+        if (replayAbortRef.current === controller) {
+          replayAudioRef.current?.pause()
+          replayResolveRef.current?.()
+        }
+        controller.abort()
+      }, 30_000)
       replayAbortRef.current = controller
       setReplayState({ messageId, status: 'loading' })
       try {
@@ -278,7 +287,7 @@ export function TrainingRoomTimeline({
               '历史音频已按当前语音配置重新合成并保存，不是此前播放的原始音频。'
             )
           )
-          await loadMessages()
+          void loadMessages()
         }
         for (const segment of manifest.segments) {
           if (
@@ -295,12 +304,25 @@ export function TrainingRoomTimeline({
             generation,
             controller.signal
           )
+          if (
+            controller.signal.aborted ||
+            generation !== replayGenerationRef.current
+          ) {
+            if (generation === replayGenerationRef.current) {
+              setReplayState({ messageId: null, status: 'idle' })
+            }
+            return false
+          }
         }
         if (generation !== replayGenerationRef.current) return false
         setReplayState({ messageId: null, status: 'idle' })
         return true
       } catch (error) {
-        if (controller.signal.aborted || isAbort(error)) return false
+        if (generation !== replayGenerationRef.current) return false
+        if (controller.signal.aborted || isAbort(error)) {
+          if (!timedOut) setReplayState({ messageId: null, status: 'idle' })
+          return false
+        }
         setReplayState({ messageId, status: 'error' })
         toast.error(
           errorMessage(
@@ -313,6 +335,7 @@ export function TrainingRoomTimeline({
         )
         return false
       } finally {
+        globalThis.clearTimeout(timeoutId)
         if (replayAbortRef.current === controller) replayAbortRef.current = null
       }
     },

@@ -40,7 +40,7 @@ function validateDataExportDefaultTime(value: string): 'week' | 'hour' | 'day' {
 const CONTENT_SECTIONS = [
   {
     id: 'dashboard',
-    titleKey: 'Data Dashboard',
+    titleKey: 'Gateway data settings',
     build: (settings: ContentSettings) => (
       <DashboardSection
         defaultValues={{

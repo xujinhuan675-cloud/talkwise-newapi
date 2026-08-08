@@ -97,20 +97,25 @@ export function DashboardSection({ defaultValues }: DashboardSectionProps) {
   const isEnabled = form.watch('DataExportEnabled')
 
   return (
-    <SettingsSection title={t('Data Dashboard')}>
+    <SettingsSection title={t('Gateway data settings')}>
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
+          <p className='text-muted-foreground text-sm leading-6'>
+            {t(
+              'Configure whether gateway usage data is available in the operations dashboard, along with its refresh interval and default time granularity. This does not change TalkWise training analytics.'
+            )}
+          </p>
           <FormField
             control={form.control}
             name='DataExportEnabled'
             render={({ field }) => (
               <SettingsSwitchItem>
                 <SettingsSwitchContent>
-                  <FormLabel>{t('Enable Data Dashboard')}</FormLabel>
+                  <FormLabel>{t('Enable gateway data dashboard')}</FormLabel>
                 </SettingsSwitchContent>
                 <FormControl>
                   <Switch

@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Plus, Trash2, Save } from 'lucide-react'
+import { Copy, Plus, Save, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -37,6 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -49,10 +50,20 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import { SettingsSwitchField } from '../components/settings-form-layout'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import {
+  resolveUptimeMonitorUrl,
+  UPTIME_KUMA_MONITOR_TARGETS,
+} from './uptime-kuma-monitor-targets'
 
 type UptimeKumaGroup = {
   id: number
@@ -227,6 +238,14 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
     }
   }
 
+  const handleCopyMonitorTarget = async (path: string) => {
+    const origin = typeof window === 'undefined' ? '' : window.location.origin
+    const copied = await copyToClipboard(resolveUptimeMonitorUrl(origin, path))
+    if (copied) {
+      toast.success(t('Monitor target copied'))
+    }
+  }
+
   const toggleSelectAll = (checked: boolean) => {
     setSelectedIds(checked ? groups.map((item) => item.id) : [])
   }
@@ -240,6 +259,71 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   return (
     <SettingsSection title={t('Uptime Kuma')}>
       <div className='space-y-4'>
+        <div className='space-y-3'>
+          <div>
+            <h4 className='text-sm font-medium'>{t('Recommended monitors')}</h4>
+            <p className='text-muted-foreground mt-1 text-sm leading-6'>
+              {t(
+                'After deploying Uptime Kuma, create HTTP(S) monitors for these same-origin targets, publish them on one status page, then add that page URL and slug below.'
+              )}
+            </p>
+          </div>
+          <div className='divide-border overflow-hidden rounded-lg border'>
+            {UPTIME_KUMA_MONITOR_TARGETS.map((target) => {
+              const origin =
+                typeof window === 'undefined' ? '' : window.location.origin
+              const monitorUrl = resolveUptimeMonitorUrl(origin, target.path)
+              return (
+                <div
+                  key={target.id}
+                  className='flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between'
+                >
+                  <div className='min-w-0'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <span className='text-sm font-medium'>
+                        {t(target.titleKey)}
+                      </span>
+                      <Badge variant='secondary'>HTTP 200</Badge>
+                      {target.requiresHealthToken && (
+                        <Badge variant='outline'>HEALTH__ACCESS_TOKEN</Badge>
+                      )}
+                    </div>
+                    <p className='text-muted-foreground mt-1 text-xs leading-5'>
+                      {t(target.descriptionKey)}
+                    </p>
+                    <code className='text-foreground mt-1 block text-xs break-all'>
+                      {monitorUrl}
+                    </code>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type='button'
+                          variant='ghost'
+                          size='icon-sm'
+                          aria-label={t('Copy monitor target')}
+                          onClick={() =>
+                            void handleCopyMonitorTarget(target.path)
+                          }
+                        />
+                      }
+                    >
+                      <Copy />
+                    </TooltipTrigger>
+                    <TooltipContent>{t('Copy monitor target')}</TooltipContent>
+                  </Tooltip>
+                </div>
+              )
+            })}
+          </div>
+          <p className='text-muted-foreground text-xs leading-5'>
+            {t(
+              'For backend and voice monitors, configure Authorization: Bearer <HEALTH__ACCESS_TOKEN> in Uptime Kuma. Use the same token configured on the TalkWise backend.'
+            )}
+          </p>
+        </div>
+
         <div className='flex flex-wrap items-center justify-between gap-2'>
           <div className='flex flex-wrap items-center gap-2'>
             <Button onClick={handleAdd} size='sm'>

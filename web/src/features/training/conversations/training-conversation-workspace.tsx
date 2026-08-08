@@ -59,6 +59,7 @@ import {
 } from '../conversation-workspace/training-conversation-surface'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import { TrainingRoomConversationSurface } from '../studio/training-room-conversation-surface'
+import { trainingRoleLocalizedLabel } from '../training-display-labels'
 import {
   deleteTrainingConversationSession,
   listTrainingConversationSessions,
@@ -528,7 +529,10 @@ function TrainingConversationWorkspaceContent({
                   {activeSession.title}
                 </div>
                 <div className='text-muted-foreground truncate text-xs'>
-                  {activeSession.description}
+                  {trainingRoleLocalizedLabel(
+                    activeSession.description,
+                    localize
+                  )}
                 </div>
               </>
             ) : (

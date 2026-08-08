@@ -70,7 +70,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import {
   trainingDifficultyDisplayLabel,
-  trainingRoleDisplayLabel,
+  trainingRoleLocalizedLabel,
   trainingSessionStatusDisplayLabel,
 } from '../training-display-labels'
 import {
@@ -415,7 +415,7 @@ function ContextTab({
             )}
             {scenario.personaRole && (
               <p className='text-muted-foreground text-sm'>
-                {trainingRoleDisplayLabel(scenario.personaRole, language)}
+                {trainingRoleLocalizedLabel(scenario.personaRole, localize)}
               </p>
             )}
             {scenario.personaStyle && (

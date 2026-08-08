@@ -44,6 +44,10 @@ import {
 } from '@/features/playground/hooks'
 
 import { TrainingHostProvider, useTrainingHost } from '../host'
+import {
+  trainingVoiceRouteLocalizedDescription,
+  trainingVoiceRouteLocalizedName,
+} from '../training-display-labels'
 import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../training-feedback'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
 import { listTrainingVoiceRoutes, type VoiceRoute } from '../voice-routes'
@@ -126,11 +130,14 @@ function TrainingStudioContent({
     () =>
       selectableVoiceRoutes.map((route) => ({
         value: route.id,
-        label: route.name,
-        category: route.mode === 'cascade' ? 'Cascade' : 'Realtime',
-        description: route.description,
+        label: trainingVoiceRouteLocalizedName(route, localize),
+        category: localize(
+          route.mode === 'cascade' ? 'Cascade' : 'Realtime',
+          route.mode === 'cascade' ? '级联' : '实时'
+        ),
+        description: trainingVoiceRouteLocalizedDescription(route, localize),
       })),
-    [selectableVoiceRoutes]
+    [localize, selectableVoiceRoutes]
   )
   useEffect(() => {
     if (!selectableVoiceRoutes.length) {

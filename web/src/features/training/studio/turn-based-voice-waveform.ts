@@ -59,3 +59,26 @@ export function waveformLevelsFromFrequencyData(
     return Math.max(0.08, Math.min(1, peak / 255))
   })
 }
+
+export function waveformLevelsFromPcmData(
+  data: ArrayLike<number>,
+  barCount = WAVEFORM_MIN_BAR_COUNT,
+  fullScale = 1
+): number[] {
+  if (barCount <= 0) return []
+  const scale = fullScale > 0 ? fullScale : 1
+
+  return Array.from({ length: barCount }, (_, index) => {
+    if (data.length === 0) return 0.08
+    const start = Math.floor((index * data.length) / barCount)
+    const end = Math.min(
+      data.length,
+      Math.max(start + 1, Math.ceil(((index + 1) * data.length) / barCount))
+    )
+    let peak = 0
+    for (let offset = start; offset < end; offset += 1) {
+      peak = Math.max(peak, Math.abs(Number(data[offset]) || 0))
+    }
+    return Math.max(0.08, Math.min(1, peak / scale))
+  })
+}

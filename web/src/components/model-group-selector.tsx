@@ -88,7 +88,7 @@ interface ModelSelectorProps {
   onModelChange: (value: string) => void
   className?: string
   disabled?: boolean
-  /** Use the full-width trigger/popup treatment for form fields. */
+  /** Use the matched-width trigger and popup treatment for form fields. */
   variant?: 'compact' | 'field'
   placeholder?: string
   searchPlaceholder?: string
@@ -387,7 +387,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
           render={
             <ModelTriggerButton
               currentLabel={currentModel?.label || placeholder || t('Model')}
-              triggerClassName={className}
+              triggerClassName={cn(
+                className,
+                variant === 'field' && 'w-[20em] max-w-full'
+              )}
               isDisabled={disabled}
               fieldMode={variant === 'field'}
               aria-label={ariaLabel}
@@ -397,10 +400,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
         />
         <PopoverContent
           className={cn(
-            'bg-popover z-40 rounded-lg border p-0 !shadow-none',
+            'bg-popover z-40 max-w-[20em] rounded-lg border p-0 !shadow-none',
             variant === 'field'
-              ? 'w-[var(--anchor-width)] max-w-[min(30rem,calc(100vw-1rem))]'
-              : 'w-[90vw] max-w-[20em] sm:w-[20em]'
+              ? 'w-[var(--anchor-width)]'
+              : 'w-[90vw] sm:w-[20em]'
           )}
           align='start'
           side='bottom'

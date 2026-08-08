@@ -20,6 +20,7 @@ import { describe, test } from 'node:test'
 import {
   waveformBarCountForWidth,
   waveformLevelsFromFrequencyData,
+  waveformLevelsFromPcmData,
 } from '../turn-based-voice-waveform'
 
 describe('turn-based voice waveform', () => {
@@ -47,5 +48,18 @@ describe('turn-based voice waveform', () => {
     assert.equal(waveformBarCountForWidth(56), 12)
     assert.equal(waveformBarCountForWidth(240), 30)
     assert.equal(waveformBarCountForWidth(640), 64)
+  })
+
+  test('maps pcm input and output energy into the same bounded waveform scale', () => {
+    const levels = waveformLevelsFromPcmData(
+      new Int16Array([0, 16384, -32768]),
+      3,
+      32768
+    )
+
+    assert.equal(levels.length, 3)
+    assert.equal(levels[0], 0.08)
+    assert.equal(levels[1], 0.5)
+    assert.equal(levels[2], 1)
   })
 })
