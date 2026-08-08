@@ -20,11 +20,16 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import { updateSystemOption } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
 const STATUS_RELATED_KEYS = [
+  'SystemName',
+  'Logo',
+  'Footer',
   'HeaderNavModules',
   'SidebarModulesAdmin',
   'Notice',
@@ -37,6 +42,11 @@ const STATUS_RELATED_KEYS = [
   'general_setting.custom_currency_symbol',
   'general_setting.custom_currency_exchange_rate',
 ]
+
+const CONTENT_QUERY_KEYS: Record<string, readonly string[]> = {
+  About: ['about-content'],
+  HomePageContent: ['home-page-content'],
+}
 
 export function useUpdateOption() {
   const queryClient = useQueryClient()
@@ -56,6 +66,28 @@ export function useUpdateOption() {
           } catch {
             /* empty */
           }
+        }
+
+        const contentQueryKey = CONTENT_QUERY_KEYS[variables.key]
+        if (contentQueryKey) {
+          queryClient.invalidateQueries({ queryKey: contentQueryKey })
+        }
+
+        if (variables.key === 'HomePageContent') {
+          try {
+            window.localStorage.removeItem('home_page_content')
+          } catch {
+            /* empty */
+          }
+        }
+
+        const value = String(variables.value)
+        if (variables.key === 'Footer') {
+          useSystemConfigStore.getState().setConfig({ footerHtml: value })
+        } else if (variables.key === 'SystemName') {
+          useSystemConfigStore.getState().setConfig({ systemName: value })
+        } else if (variables.key === 'Logo') {
+          useSystemConfigStore.getState().setConfig({ logo: value })
         }
 
         toast.success(i18next.t('Setting updated successfully'))

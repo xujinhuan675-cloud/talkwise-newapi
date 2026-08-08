@@ -52,29 +52,17 @@ type SidebarModulesSectionProps = {
 
 type SidebarFormValues = SidebarModulesAdminConfig
 
-const toTitleCase = (value: string) =>
-  value
-    .replaceAll(/[_-]+/g, ' ')
-    .replaceAll(/\b\w/g, (char) => char.toUpperCase())
-
 export function SidebarModulesSection({
   config,
   initialSerialized,
 }: SidebarModulesSectionProps) {
-  const { i18n, t } = useTranslation()
-  const localize = (english: string, chinese: string) =>
-    t(english, {
-      defaultValue: i18n.language.startsWith('zh') ? chinese : english,
-    })
+  const { t } = useTranslation()
   const updateOption = useUpdateOption()
 
   const sectionMeta: Record<string, { title: string; description: string }> = {
     training: {
-      title: localize('Training area', '训练区域'),
-      description: localize(
-        'Communication practice, review, and growth workflows.',
-        '沟通训练、复盘与成长工作流。'
-      ),
+      title: t('Training area'),
+      description: t('Communication practice, review, and growth workflows.'),
     },
     personal: {
       title: t('Personal area'),
@@ -91,12 +79,49 @@ export function SidebarModulesSection({
     Record<string, { title: string; description: string }>
   > = {
     training: {
-      studio: {
-        title: localize('Training Studio', '训练工作台'),
-        description: localize(
-          'Practice scenarios, review sessions, and track growth.',
-          '练习场景、复盘训练并跟踪成长。'
-        ),
+      overview: {
+        title: t('Training overview'),
+        description: t('See active training goals and progress.'),
+      },
+      scenarios: {
+        title: t('Start training'),
+        description: t('Choose a scenario and begin a practice session.'),
+      },
+      conversations: {
+        title: t('Conversations'),
+        description: t('Continue and review training conversations.'),
+      },
+      assist: {
+        title: t('In-call assist'),
+        description: t('Get live guidance during a training session.'),
+      },
+      review: {
+        title: t('Review'),
+        description: t('Review completed sessions and feedback.'),
+      },
+      growth: {
+        title: t('Growth'),
+        description: t('Track progress and improvement over time.'),
+      },
+      personas: {
+        title: t('Personas'),
+        description: t('Manage stakeholder personas for training.'),
+      },
+      settings: {
+        title: t('Training settings'),
+        description: t('Configure training defaults and voice options.'),
+      },
+      teamScenarios: {
+        title: t('Team scenarios'),
+        description: t('Manage team scenario assignments and rankings.'),
+      },
+      teamCompetencies: {
+        title: t('Competency leaderboard'),
+        description: t('Review team competency progress and rankings.'),
+      },
+      teamMembers: {
+        title: t('Training teams'),
+        description: t('Manage training team members.'),
       },
     },
     personal: {
@@ -111,39 +136,28 @@ export function SidebarModulesSection({
     },
     admin: {
       overview: {
-        title: localize('Platform overview', '平台概览'),
-        description: localize(
-          'Service health and high-level operational context.',
-          '服务健康度与平台运营概览。'
-        ),
+        title: t('Platform overview'),
+        description: t('Service health and high-level operational context.'),
       },
       analytics: {
-        title: localize('Operational data', '运营数据'),
-        description: localize(
-          'Platform traffic, model calls, and user activity trends.',
-          '平台流量、模型调用和用户活跃趋势。'
+        title: t('Operational data'),
+        description: t(
+          'Platform traffic, model calls, and user activity trends.'
         ),
       },
       key: {
         title: t('API Keys'),
-        description: localize(
-          'Manage administrator credentials and access controls.',
-          '管理管理员凭据与访问控制。'
-        ),
+        description: t('Manage administrator credentials and access controls.'),
       },
       log: {
         title: t('Usage logs'),
-        description: localize(
-          'Inspect platform requests, errors, and consumption records.',
-          '查看平台请求、错误和消耗记录。'
+        description: t(
+          'Inspect platform requests, errors, and consumption records.'
         ),
       },
       task: {
         title: t('Task logs'),
-        description: localize(
-          'Review background and image task execution records.',
-          '查看后台与图像任务的执行记录。'
-        ),
+        description: t('Review background and image task execution records.'),
       },
       channel: {
         title: t('Channels'),
@@ -171,8 +185,8 @@ export function SidebarModulesSection({
       },
     },
   }
-  const formDefaults = useMemo(() => config, [config])
 
+  const formDefaults = useMemo(() => config, [config])
   const form = useForm<SidebarFormValues>({
     defaultValues: formDefaults,
   })
@@ -212,7 +226,7 @@ export function SidebarModulesSection({
           />
           {sections.map(([sectionKey, sectionConfig]) => {
             const sectionInfo = sectionMeta[sectionKey] ?? {
-              title: toTitleCase(sectionKey),
+              title: t('Custom sidebar section'),
               description: t('Custom sidebar section'),
             }
             const modules = Object.entries(sectionConfig).filter(
@@ -246,7 +260,7 @@ export function SidebarModulesSection({
                 <SettingsControlChildren className='grid gap-3 md:grid-cols-2'>
                   {modules.map(([moduleKey]) => {
                     const moduleInfo = moduleMeta[sectionKey]?.[moduleKey] ?? {
-                      title: toTitleCase(moduleKey),
+                      title: t('Custom module'),
                       description: t('Custom module'),
                     }
                     return (
