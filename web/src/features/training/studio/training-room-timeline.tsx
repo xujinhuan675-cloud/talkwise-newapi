@@ -250,7 +250,7 @@ export function TrainingRoomTimeline({
   )
 
   const startReplay = useCallback(
-    async (messageId: string, synthesizeMissing = false) => {
+    async (messageId: string, synthesizeMissing = false): Promise<boolean> => {
       stopAudio()
       stopReplay(false)
       const generation = replayGenerationRef.current
@@ -285,7 +285,7 @@ export function TrainingRoomTimeline({
             controller.signal.aborted ||
             generation !== replayGenerationRef.current
           ) {
-            return
+            return false
           }
           setReplayState({ messageId, status: 'loading' })
           await playReplaySegment(
@@ -296,11 +296,11 @@ export function TrainingRoomTimeline({
             controller.signal
           )
         }
-        if (generation === replayGenerationRef.current) {
-          setReplayState({ messageId: null, status: 'idle' })
-        }
+        if (generation !== replayGenerationRef.current) return false
+        setReplayState({ messageId: null, status: 'idle' })
+        return true
       } catch (error) {
-        if (controller.signal.aborted || isAbort(error)) return
+        if (controller.signal.aborted || isAbort(error)) return false
         setReplayState({ messageId, status: 'error' })
         toast.error(
           errorMessage(
@@ -311,6 +311,7 @@ export function TrainingRoomTimeline({
             )
           )
         )
+        return false
       } finally {
         if (replayAbortRef.current === controller) replayAbortRef.current = null
       }
@@ -531,7 +532,9 @@ export function TrainingRoomTimeline({
       return
     }
     const opening = findTrainingOpeningMessage(messages)
-    if (!opening?.audioReplay) return
+    if (!opening) return
+    const shouldSynthesize = opening.audioReplay?.available !== true
+    if (!opening.audioReplay && !opening.audioSynthesisAvailable) return
 
     const playbackId = `${sessionId}:${opening.id}`
     if (openingPlaybackAttemptRef.current === playbackId) return
@@ -540,8 +543,11 @@ export function TrainingRoomTimeline({
     if (hasPlayedTrainingOpening(sessionStorage, sessionId, opening.id)) return
     openingPlaybackAttemptRef.current = playbackId
 
-    markTrainingOpeningPlayed(sessionStorage, sessionId, opening.id)
-    void startReplay(opening.id)
+    void startReplay(opening.id, shouldSynthesize).then((played) => {
+      if (played) {
+        markTrainingOpeningPlayed(sessionStorage, sessionId, opening.id)
+      }
+    })
   }, [
     enableAudioOutput,
     isAudioEnabled,

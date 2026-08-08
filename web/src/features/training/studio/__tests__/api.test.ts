@@ -28,7 +28,6 @@ import {
   isRoomBackedTrainingSession,
   normalizeTrainingSession,
   normalizeRealtimeReadiness,
-  realtimeProviderRuntime,
   type TrainingSessionDTO,
 } from '../api'
 
@@ -87,11 +86,13 @@ describe('training studio adapter', () => {
       feedbackMode: 'assisted',
       pressure: 'hard',
       lengthProfile: 'complete',
+      voiceRouteId: 'cascade-standard',
     })
 
     assert.equal(request.mode, 'voice')
     assert.equal(request.task_config.metadata.source, 'newapi_training_studio')
     assert.equal(request.task_config.metadata.feedbackMode, 'assisted')
+    assert.equal(request.task_config.metadata.voiceRouteId, 'cascade-standard')
     assert.equal(request.task_config.framework, 'prep')
     assert.equal(request.task_config.question_count, 12)
     assert.equal(request.task_config.difficulty, 'hard')
@@ -145,33 +146,36 @@ describe('training studio adapter', () => {
     )
   })
 
-  test('binds realtime profile and latency semantics to the training session', () => {
+  test('binds the platform voice preset to the training session', () => {
     const request = buildStudioSessionRequest({
       role: 'Account manager',
       goal: 'Handle a pricing objection.',
       mode: 'realtime',
       feedbackMode: 'assisted',
-      realtimeProfile: 'speech_to_speech',
-      realtimeProvider: 'doubao',
+      voiceRouteId: 'doubao-native-standard',
     })
 
     assert.equal(request.mode, 'realtime')
+    assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.interactionMode, 'realtime')
     assert.equal(
-      request.task_config.metadata.realtimeProfile,
-      'speech_to_speech'
+      request.task_config.metadata.voiceRouteId,
+      'doubao-native-standard'
     )
-    assert.equal(request.task_config.metadata.latencyProfile, 'true_realtime')
-    assert.equal(request.task_config.metadata.realtimeProviderChoice, 'doubao')
-    assert.equal(
-      request.task_config.metadata.realtimeProvider,
-      'volcengine.doubao_realtime'
-    )
-    assert.equal(realtimeProviderRuntime('openai'), 'openai')
-    assert.throws(
-      () => realtimeProviderRuntime('hybrid'),
-      /Mixed Doubao and OpenAI realtime routing is not configured/
-    )
+  })
+
+  test('binds a cascade preset to turn-based voice without a standalone LLM', () => {
+    const request = buildStudioSessionRequest({
+      role: 'Account manager',
+      goal: 'Handle a pricing objection.',
+      mode: 'voice',
+      feedbackMode: 'assisted',
+      voiceRouteId: 'cascade-standard',
+      llmModel: 'standalone-text-model',
+    })
+
+    assert.equal(request.task_config.metadata.voiceRouteId, 'cascade-standard')
+    assert.equal('llmModel' in request.task_config.metadata, false)
   })
 
   test('restores a started realtime room from persisted session metadata', () => {
@@ -192,6 +196,8 @@ describe('training studio adapter', () => {
 
     assert.equal(isRoomBackedTrainingSession(session), true)
     assert.equal(session.roomId, '42')
+    assert.equal(session.modality, 'voice')
+    assert.equal(session.interactionMode, 'realtime')
     assert.equal(session.feedbackMode, 'assisted')
     assert.equal(session.realtimeProfile, 'speech_to_speech')
     assert.equal(session.realtimeProvider, 'volcengine.doubao_realtime')
@@ -224,7 +230,8 @@ describe('training studio adapter', () => {
     )
     assert.equal(request.task_config.metadata.interactionMode, 'realtime')
     assert.equal(request.task_config.metadata.realtimeProfile, 'cascade')
-    assert.equal(scenarioTraining.trainingMode, 'realtime')
+    assert.equal(request.task_config.metadata.trainingMode, 'voice')
+    assert.equal(scenarioTraining.trainingMode, 'voice')
     assert.equal(scenarioTraining.interactionMode, 'realtime')
     assert.equal('ownerUserId' in request.task_config.metadata, false)
     assert.equal('selectedPath' in request.task_config.metadata, false)
@@ -252,7 +259,8 @@ describe('training studio adapter', () => {
       request.opening_message?.content,
       'Your renewal price is too high.'
     )
-    assert.equal(request.opening_message?.metadata.trainingMode, 'realtime')
+    assert.equal(request.opening_message?.metadata.trainingMode, 'voice')
+    assert.equal(request.opening_message?.metadata.interactionMode, 'realtime')
   })
 
   test('preserves language intent in the live coach training context', () => {

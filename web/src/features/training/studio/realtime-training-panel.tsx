@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { LoaderCircle, Mic, Square } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -37,16 +44,29 @@ import {
   type RealtimeServerEvent,
   type RealtimeTrainingStatus,
 } from './realtime-client'
+import type {
+  TrainingRoomMediaControlHandle,
+  TrainingRoomPrimaryActionState,
+} from './training-room-media-control'
+import {
+  QUIET_WAVEFORM,
+  waveformLevelsFromPcmData,
+} from './turn-based-voice-waveform'
 
 interface RealtimeVoiceControlProps {
   apiBase: string
   disabled?: boolean
   onErrorChange?: (error: string | null) => void
   onMessagePersisted?: () => void
+  onPrimaryActionChange?: (
+    action: TrainingRoomPrimaryActionState | null
+  ) => void
+  onVoiceInputStateChange?: (active: boolean) => void
   profile: RealtimeProfile
   provider: string
   roomId: string
   sessionId: string
+  showPrimaryAction?: boolean
 }
 
 const ACTIVE_STATUSES = new Set<RealtimeTrainingStatus>([
@@ -74,16 +94,25 @@ function int16Samples(bytes: Uint8Array): Int16Array {
   return samples
 }
 
-export function RealtimeVoiceControl({
-  apiBase,
-  disabled = false,
-  onErrorChange,
-  onMessagePersisted,
-  profile,
-  provider,
-  roomId,
-  sessionId,
-}: RealtimeVoiceControlProps) {
+export const RealtimeVoiceControl = forwardRef<
+  TrainingRoomMediaControlHandle,
+  RealtimeVoiceControlProps
+>(function RealtimeVoiceControl(
+  {
+    apiBase,
+    disabled = false,
+    onErrorChange,
+    onMessagePersisted,
+    onPrimaryActionChange,
+    onVoiceInputStateChange,
+    profile,
+    provider,
+    roomId,
+    sessionId,
+    showPrimaryAction = true,
+  },
+  ref
+) {
   const { i18n, t } = useTranslation()
   const accessToken = useAuthStore((state) => state.auth.accessToken)
   const socketRef = useRef<WebSocket | null>(null)
@@ -94,12 +123,20 @@ export function RealtimeVoiceControl({
   const inputSilenceRef = useRef<GainNode | null>(null)
   const outputContextRef = useRef<AudioContext | null>(null)
   const nextOutputAtRef = useRef(0)
+  const outputScheduleRef = useRef<Promise<void>>(Promise.resolve())
+  const outputWaveformTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
   const stoppingRef = useRef(false)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [status, setStatus] = useState<RealtimeTrainingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
+  const [inputWaveform, setInputWaveform] =
+    useState<readonly number[]>(QUIET_WAVEFORM)
+  const [outputWaveform, setOutputWaveform] =
+    useState<readonly number[]>(QUIET_WAVEFORM)
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -123,6 +160,7 @@ export function RealtimeVoiceControl({
     streamRef.current = null
     void inputContextRef.current?.close().catch(() => undefined)
     inputContextRef.current = null
+    setInputWaveform(QUIET_WAVEFORM)
   }, [])
 
   const releaseRuntime = useCallback(() => {
@@ -130,6 +168,11 @@ export function RealtimeVoiceControl({
     void outputContextRef.current?.close().catch(() => undefined)
     outputContextRef.current = null
     nextOutputAtRef.current = 0
+    if (outputWaveformTimerRef.current) {
+      clearTimeout(outputWaveformTimerRef.current)
+      outputWaveformTimerRef.current = null
+    }
+    setOutputWaveform(QUIET_WAVEFORM)
   }, [releaseCapture])
 
   const closeRealtime = useCallback(
@@ -185,63 +228,61 @@ export function RealtimeVoiceControl({
 
   useEffect(() => () => closeRealtime('closed'), [closeRealtime])
 
-  const playAudio = useCallback(async (event: RealtimeServerEvent) => {
-    const audio = realtimeEventAudio(event)
-    if (!audio || audio.bytes.byteLength === 0) return
-    if (!audio.mimeType.toLowerCase().includes('pcm')) {
-      const audioBuffer = audio.bytes.buffer.slice(
-        audio.bytes.byteOffset,
-        audio.bytes.byteOffset + audio.bytes.byteLength
-      ) as ArrayBuffer
-      const objectUrl = URL.createObjectURL(
-        new Blob([audioBuffer], { type: audio.mimeType })
-      )
-      const element = new Audio(objectUrl)
-      try {
-        await element.play()
-        await new Promise<void>((resolve, reject) => {
-          element.addEventListener('ended', () => resolve(), { once: true })
-          element.addEventListener(
-            'error',
-            () => reject(new Error('Realtime audio playback failed.')),
-            { once: true }
-          )
-        })
-      } finally {
-        URL.revokeObjectURL(objectUrl)
+  const playAudio = useCallback(
+    async (event: RealtimeServerEvent) => {
+      const audio = realtimeEventAudio(event)
+      if (!audio || audio.bytes.byteLength === 0) return
+      let context = outputContextRef.current
+      if (!context || context.state === 'closed') {
+        context = new AudioContext({ latencyHint: 'interactive' })
+        outputContextRef.current = context
       }
-      return
-    }
+      if (context.state === 'suspended') await context.resume()
 
-    let context = outputContextRef.current
-    if (!context || context.state === 'closed') {
-      context = new AudioContext()
-      outputContextRef.current = context
-    }
-    if (context.state === 'suspended') await context.resume()
-    const samples = int16Samples(audio.bytes)
-    const buffer = context.createBuffer(
-      Math.max(1, audio.channels),
-      Math.floor(samples.length / Math.max(1, audio.channels)),
-      audio.sampleRate
-    )
-    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
-      const output = buffer.getChannelData(channel)
-      for (let index = 0; index < output.length; index += 1) {
-        output[index] =
-          samples[index * buffer.numberOfChannels + channel] / 0x8000
+      let buffer: AudioBuffer
+      if (audio.mimeType.toLowerCase().includes('pcm')) {
+        const samples = int16Samples(audio.bytes)
+        setOutputWaveform(waveformLevelsFromPcmData(samples, undefined, 0x8000))
+        buffer = context.createBuffer(
+          Math.max(1, audio.channels),
+          Math.floor(samples.length / Math.max(1, audio.channels)),
+          audio.sampleRate
+        )
+        for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+          const output = buffer.getChannelData(channel)
+          for (let index = 0; index < output.length; index += 1) {
+            output[index] =
+              samples[index * buffer.numberOfChannels + channel] / 0x8000
+          }
+        }
+      } else {
+        const encoded = audio.bytes.buffer.slice(
+          audio.bytes.byteOffset,
+          audio.bytes.byteOffset + audio.bytes.byteLength
+        ) as ArrayBuffer
+        buffer = await context.decodeAudioData(encoded)
+        setOutputWaveform(
+          waveformLevelsFromPcmData(buffer.getChannelData(0), undefined, 1)
+        )
       }
-    }
-    const source = context.createBufferSource()
-    source.buffer = buffer
-    source.connect(context.destination)
-    const startAt = Math.max(context.currentTime, nextOutputAtRef.current)
-    nextOutputAtRef.current = startAt + buffer.duration
-    await new Promise<void>((resolve) => {
-      source.addEventListener('ended', () => resolve(), { once: true })
+
+      const source = context.createBufferSource()
+      source.buffer = buffer
+      source.connect(context.destination)
+      const startAt = Math.max(context.currentTime, nextOutputAtRef.current)
+      nextOutputAtRef.current = startAt + buffer.duration
+      source.addEventListener('ended', scheduleSettledClose, { once: true })
       source.start(startAt)
-    })
-  }, [])
+      if (outputWaveformTimerRef.current) {
+        clearTimeout(outputWaveformTimerRef.current)
+      }
+      outputWaveformTimerRef.current = setTimeout(
+        () => setOutputWaveform(QUIET_WAVEFORM),
+        Math.max(250, Math.ceil(buffer.duration * 1000))
+      )
+    },
+    [scheduleSettledClose]
+  )
 
   const handleEvent = useCallback(
     (event: RealtimeServerEvent) => {
@@ -253,8 +294,9 @@ export function RealtimeVoiceControl({
         return
       }
       if (event.type === 'audio.output') {
-        void playAudio(event)
-          .then(scheduleSettledClose)
+        outputScheduleRef.current = outputScheduleRef.current
+          .catch(() => undefined)
+          .then(() => playAudio(event))
           .catch(() => {
             setError(
               localize(
@@ -298,7 +340,12 @@ export function RealtimeVoiceControl({
       })
       const bearerProtocol = talkWiseBearerProtocol(accessToken)
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error('Microphone capture is unavailable in this browser.')
+        throw new Error(
+          localize(
+            'Microphone capture is unavailable in this browser.',
+            '当前浏览器无法采集麦克风。'
+          )
+        )
       }
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -374,6 +421,9 @@ export function RealtimeVoiceControl({
 
       processor.onaudioprocess = (event) => {
         if (socket.readyState !== WebSocket.OPEN) return
+        setInputWaveform(
+          waveformLevelsFromPcmData(event.inputBuffer.getChannelData(0))
+        )
         const samples = downsamplePcm16(
           event.inputBuffer.getChannelData(0),
           inputContext.sampleRate,
@@ -425,6 +475,10 @@ export function RealtimeVoiceControl({
   }, [error, onErrorChange])
 
   useEffect(() => {
+    onVoiceInputStateChange?.(ACTIVE_STATUSES.has(status))
+  }, [onVoiceInputStateChange, status])
+
+  useEffect(() => {
     closeRealtime('idle')
     setError(null)
   }, [closeRealtime, roomId, sessionId])
@@ -460,21 +514,84 @@ export function RealtimeVoiceControl({
     actionLabel = localize('Finishing realtime voice', '正在结束实时语音')
   }
 
-  return (
-    <Button
-      aria-label={actionLabel}
-      aria-pressed={active}
-      disabled={
-        disabled || status === 'connecting' || isFinishing || !accessToken
-      }
-      size='icon-sm'
-      title={error || statusLabels[status]}
-      type='button'
-      variant={active || status === 'error' ? 'destructive' : 'ghost'}
-      onClick={active ? finishRealtime : startRealtime}
-    >
-      {actionIcon}
-      <span className='sr-only'>{actionLabel}</span>
-    </Button>
+  useImperativeHandle(
+    ref,
+    () => ({
+      trigger() {
+        if (active) finishRealtime()
+        else if (!busy) void startRealtime()
+      },
+    }),
+    [active, busy, finishRealtime, startRealtime]
   )
-}
+
+  useEffect(() => {
+    onPrimaryActionChange?.({
+      active,
+      disabled: disabled || busy || !accessToken,
+      icon: busy ? 'loader' : active ? 'square' : 'mic',
+      label: actionLabel,
+      title: error || actionLabel,
+      tone: active || status === 'error' ? 'destructive' : 'default',
+    })
+  }, [
+    accessToken,
+    actionLabel,
+    active,
+    busy,
+    disabled,
+    error,
+    onPrimaryActionChange,
+    status,
+  ])
+
+  useEffect(() => () => onPrimaryActionChange?.(null), [onPrimaryActionChange])
+
+  const visibleWaveform =
+    status === 'speaking' || outputWaveform.some((level) => level > 0.08)
+      ? outputWaveform
+      : inputWaveform
+  const hasWaveform = visibleWaveform.some((level) => level > 0.08)
+
+  return (
+    <div className='flex min-w-0 flex-1 items-center gap-2'>
+      {hasWaveform && (
+        <div
+          aria-label={localize(
+            'Realtime voice waveform',
+            '实时语音声波'
+          )}
+          className='flex h-7 min-w-24 flex-1 items-center gap-0.5 overflow-hidden px-1'
+          data-testid='realtime-voice-waveform'
+          role='img'
+        >
+          {visibleWaveform.map((level, index) => (
+            <span
+              aria-hidden='true'
+              className='bg-primary/70 w-0.5 shrink-0 rounded-full transition-[height] duration-75'
+              key={`realtime-${index}`}
+              style={{ height: `${Math.max(18, Math.round(level * 100))}%` }}
+            />
+          ))}
+        </div>
+      )}
+      {showPrimaryAction && (
+        <Button
+          aria-label={actionLabel}
+          aria-pressed={active}
+          disabled={
+            disabled || status === 'connecting' || isFinishing || !accessToken
+          }
+          size='icon-sm'
+          title={error || statusLabels[status]}
+          type='button'
+          variant={active || status === 'error' ? 'destructive' : 'ghost'}
+          onClick={active ? finishRealtime : startRealtime}
+        >
+          {actionIcon}
+          <span className='sr-only'>{actionLabel}</span>
+        </Button>
+      )}
+    </div>
+  )
+})

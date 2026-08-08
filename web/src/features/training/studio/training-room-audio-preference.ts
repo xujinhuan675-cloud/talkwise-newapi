@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TrainingRoomMessage } from './training-room-client'
 
 const AUDIO_OUTPUT_KEY = 'talkwise.training.voice-audio-enabled'
-const OPENING_PLAYBACK_PREFIX = 'talkwise.training.opening-audio-played'
+const OPENING_PLAYBACK_PREFIX = 'talkwise.training.opening-audio-played.v2'
 
 interface StorageLike {
   getItem(key: string): string | null
