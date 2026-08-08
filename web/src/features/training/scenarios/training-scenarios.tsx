@@ -42,6 +42,7 @@ import {
   useDataTable,
   useDataTableViewMode,
 } from '@/components/data-table'
+import { ModelSelector } from '@/components/model-group-selector'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -83,14 +84,22 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  usePlaygroundOptions,
+  usePlaygroundState,
+} from '@/features/playground/hooks'
 
 import { useTrainingHost } from '../host'
-import type { RealtimeProfile } from '../studio/realtime-client'
+import {
+  TRAINING_FEEDBACK_MODE_OPTIONS,
+  type TrainingFeedbackMode,
+} from '../training-feedback'
 import {
   scenarioPressure,
   type TrainingLengthProfile,
   type TrainingPressure,
 } from '../training-plan'
+import { listTrainingVoiceRoutes, type VoiceRoute } from '../voice-routes'
 import {
   type buildTrainingSessionRequest,
   filterTrainingScenarios,
@@ -426,12 +435,13 @@ export function TrainingScenarios() {
   const [modality, setModality] = useState<TrainingModality>('text')
   const [interactionMode, setInteractionMode] =
     useState<TrainingInteractionMode>('turn_based')
+  const [feedbackMode, setFeedbackMode] =
+    useState<TrainingFeedbackMode>('simulation')
   const [selectedFocus, setSelectedFocus] = useState<readonly string[]>([])
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
   const [lengthProfile, setLengthProfile] =
     useState<TrainingLengthProfile>('standard')
-  const [realtimeProfile, setRealtimeProfile] =
-    useState<RealtimeProfile>('cascade')
+  const [voiceRouteId, setVoiceRouteId] = useState('')
   const [retrySessionId, setRetrySessionId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useDataTableViewMode({
     storageKey: 'talkwise.training-scenarios.view-mode',
@@ -440,18 +450,72 @@ export function TrainingScenarios() {
   const localize = (english: string, chinese: string) =>
     i18n.language.startsWith('zh') ? chinese : t(english)
 
+  const {
+    config: playgroundConfig,
+    models: playgroundModels,
+    updateConfig: updatePlaygroundConfig,
+    setGroups: setPlaygroundGroups,
+    setModels: setPlaygroundModels,
+  } = usePlaygroundState()
+  usePlaygroundOptions({
+    currentGroup: playgroundConfig.group,
+    currentModel: playgroundConfig.model,
+    modelEndpointType: 'openai',
+    preferredModel: 'doubao-seed-2-0-pro-260215',
+    setGroups: setPlaygroundGroups,
+    setModels: setPlaygroundModels,
+    updateConfig: updatePlaygroundConfig,
+  })
+
   const scenariosQuery = useQuery({
     queryKey: ['training', 'scenarios', host.apiBase],
     queryFn: () => listTrainingScenarios(host.apiBase),
     enabled: host.authStatus === 'authenticated',
   })
+  const voiceRoutesQuery = useQuery<VoiceRoute[]>({
+    queryKey: ['training', 'voice-routes', host.apiBase],
+    queryFn: () => listTrainingVoiceRoutes(host.apiBase),
+    enabled: host.authStatus === 'authenticated',
+  })
+  const selectableVoiceRoutes = useMemo(
+    () =>
+      (voiceRoutesQuery.data ?? []).filter(
+        (route) => interactionMode === 'realtime' || route.mode === 'cascade'
+      ),
+    [interactionMode, voiceRoutesQuery.data]
+  )
+  const voiceRouteOptions = useMemo(
+    () =>
+      selectableVoiceRoutes.map((route) => ({
+        value: route.id,
+        label: route.name,
+        category: route.mode === 'cascade' ? 'Cascade' : 'Realtime',
+        description: route.description,
+      })),
+    [selectableVoiceRoutes]
+  )
+  useEffect(() => {
+    if (!selectableVoiceRoutes.length) {
+      if (voiceRouteId) setVoiceRouteId('')
+      return
+    }
+    if (selectableVoiceRoutes.some((route) => route.id === voiceRouteId)) {
+      return
+    }
+    const defaultRoute =
+      selectableVoiceRoutes.find((route) => route.default) ??
+      selectableVoiceRoutes[0]
+    setVoiceRouteId(defaultRoute.id)
+  }, [selectableVoiceRoutes, voiceRouteId])
 
   const createSessionMutation = useMutation({
     mutationFn: (request: {
       mode: TrainingSessionMode
+      feedbackMode: TrainingFeedbackMode
       plan: Parameters<typeof buildTrainingSessionRequest>[2]
       retrySessionId: string | null
-      realtimeProfile?: RealtimeProfile
+      voiceRouteId?: string
+      llmModel?: string
       scenario: TrainingScenario
     }) => {
       if (request.retrySessionId) {
@@ -461,6 +525,8 @@ export function TrainingScenarios() {
           request.scenario,
           request.mode,
           request.plan,
+          undefined,
+          request.feedbackMode
         )
       }
       return launchScenarioTrainingSession(
@@ -469,7 +535,9 @@ export function TrainingScenarios() {
         request.mode,
         request.plan,
         undefined,
-        request.realtimeProfile
+        request.feedbackMode,
+        request.llmModel,
+        request.voiceRouteId
       )
     },
     onSuccess: (session) => {
@@ -573,10 +641,11 @@ export function TrainingScenarios() {
     setRetrySessionId(null)
     setModality('text')
     setInteractionMode('turn_based')
+    setFeedbackMode('simulation')
     setSelectedFocus(scenario.trainingPoints)
     setPressure(scenarioPressure(scenario.difficulty))
     setLengthProfile('standard')
-    setRealtimeProfile('cascade')
+    setVoiceRouteId('')
     setSelectedScenario(scenario)
   }
   const closeScenario = () => {
@@ -593,6 +662,7 @@ export function TrainingScenarios() {
     })
     createSessionMutation.mutate({
       mode,
+      feedbackMode,
       scenario: selectedScenario,
       plan: {
         focusScope:
@@ -604,7 +674,10 @@ export function TrainingScenarios() {
         lengthProfile,
       },
       retrySessionId,
-      ...(mode === 'realtime' ? { realtimeProfile } : {}),
+      ...(modality === 'voice' ? { voiceRouteId } : {}),
+      ...(modality !== 'voice' && playgroundConfig.model
+        ? { llmModel: playgroundConfig.model }
+        : {}),
     })
   }
   let startButtonLabel = localize('Start training', '开始训练')
@@ -877,6 +950,39 @@ export function TrainingScenarios() {
                 </div>
 
                 <div className='space-y-2'>
+                  <Label>{localize('Feedback policy', '反馈方式')}</Label>
+                  <ToggleGroup
+                    aria-label={localize('Feedback policy', '反馈方式')}
+                    className='grid w-full grid-cols-3'
+                    disabled={createSessionMutation.isPending}
+                    onValueChange={(values) => {
+                      const nextFeedbackMode = values.find(
+                        (value) => value !== feedbackMode
+                      ) as TrainingFeedbackMode | undefined
+                      if (nextFeedbackMode) {
+                        setFeedbackMode(nextFeedbackMode)
+                      }
+                    }}
+                    value={[feedbackMode]}
+                    variant='outline'
+                  >
+                    {TRAINING_FEEDBACK_MODE_OPTIONS.map((option) => (
+                      <ToggleGroupItem
+                        className='h-auto min-h-9 w-full px-2 py-1.5'
+                        key={option.value}
+                        title={localize(
+                          option.description.english,
+                          option.description.chinese
+                        )}
+                        value={option.value}
+                      >
+                        {localize(option.label.english, option.label.chinese)}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+
+                <div className='space-y-2'>
                   <Label>{localize('Training modality', '训练媒介')}</Label>
                   <ToggleGroup
                     value={[modality]}
@@ -990,59 +1096,69 @@ export function TrainingScenarios() {
                   </div>
                 )}
 
-                {modality === 'voice' && interactionMode === 'realtime' && (
+                {modality === 'voice' ? (
                   <div className='space-y-2'>
                     <Label className='flex items-center gap-1.5'>
                       <Radio className='size-4' />
-                      {localize(
-                        'Realtime voice pipeline',
-                        '\u5b9e\u65f6\u8bed\u97f3\u94fe\u8def'
-                      )}
+                      {localize('Voice preset', '语音预设')}
                     </Label>
-                    <Select
+                    <ModelSelector
+                      variant='field'
+                      models={voiceRouteOptions}
+                      selectedModel={voiceRouteId}
+                      onModelChange={setVoiceRouteId}
                       disabled={
                         createSessionMutation.isPending ||
                         retrySessionId !== null
                       }
-                      value={realtimeProfile}
-                      onValueChange={(value) =>
-                        value && setRealtimeProfile(value as RealtimeProfile)
-                      }
-                    >
-                      <SelectTrigger
-                        aria-label={localize(
-                          'Realtime voice pipeline',
-                          '\u5b9e\u65f6\u8bed\u97f3\u94fe\u8def'
-                        )}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='cascade'>
-                          {localize(
-                            'Cascaded: STT + LLM + TTS',
-                            '\u7ea7\u8054\uff1aSTT + LLM + TTS'
-                          )}
-                        </SelectItem>
-                        <SelectItem value='speech_to_speech'>
-                          {localize(
-                            'Native speech-to-speech model',
-                            '\u539f\u751f\u5b9e\u65f6\u8bed\u97f3\u6a21\u578b'
-                          )}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                      placeholder={localize(
+                        'Select a platform preset',
+                        '选择平台预设'
+                      )}
+                      searchPlaceholder={localize(
+                        'Search voice presets...',
+                        '搜索语音预设...'
+                      )}
+                      emptyText={localize(
+                        'No voice preset found.',
+                        '没有找到语音预设'
+                      )}
+                      ariaLabel={localize('Voice preset', '语音预设')}
+                    />
                     <p className='text-muted-foreground text-xs leading-relaxed'>
-                      {realtimeProfile === 'cascade'
+                      {voiceRoutesQuery.isLoading
                         ? localize(
-                            'Uses the configured STT, LLM, and TTS services.',
-                            '\u4f7f\u7528\u540e\u7aef\u5df2\u914d\u7f6e\u7684 STT\u3001LLM \u548c TTS \u670d\u52a1\u3002'
+                            'Loading platform presets…',
+                            '正在加载平台预设…'
                           )
-                        : localize(
-                            'Uses one configured realtime audio model without separate STT or TTS selection.',
-                            '\u4f7f\u7528\u4e00\u4e2a\u5df2\u914d\u7f6e\u7684\u5b9e\u65f6\u97f3\u9891\u6a21\u578b\uff0c\u4e0d\u5355\u72ec\u9009\u62e9 STT \u6216 TTS\u3002'
+                        : selectableVoiceRoutes.find(
+                            (route) => route.id === voiceRouteId
+                          )?.description ||
+                          localize(
+                            'The platform controls the model combination and provider route.',
+                            '平台负责模型组合与上游渠道。'
                           )}
                     </p>
+                  </div>
+                ) : (
+                  <div className='space-y-2'>
+                    <Label>{localize('Language model', '语言模型')}</Label>
+                    <ModelSelector
+                      variant='field'
+                      models={playgroundModels}
+                      selectedModel={playgroundConfig.model}
+                      onModelChange={(value) =>
+                        updatePlaygroundConfig('model', value)
+                      }
+                      disabled={createSessionMutation.isPending}
+                      placeholder={localize('Select a model', '选择模型')}
+                      searchPlaceholder={localize(
+                        'Search models...',
+                        '搜索模型...'
+                      )}
+                      emptyText={localize('No model found.', '没有找到模型')}
+                      ariaLabel={localize('Language model', '语言模型')}
+                    />
                   </div>
                 )}
 
@@ -1079,7 +1195,10 @@ export function TrainingScenarios() {
                   disabled={
                     createSessionMutation.isPending ||
                     modality === 'video' ||
-                    selectedFocus.length === 0
+                    selectedFocus.length === 0 ||
+                    (modality === 'voice'
+                      ? !voiceRouteId
+                      : !playgroundConfig.model)
                   }
                 >
                   {createSessionMutation.isPending ? (

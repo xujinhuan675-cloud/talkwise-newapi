@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../../training-feedback'
+import { DEFAULT_TRAINING_VOICE_ID } from '../../training-voice'
 import {
   buildScenarioStartRequest,
   buildTrainingSessionRequest,
@@ -29,7 +31,6 @@ import {
   trainingSessionModeForSelection,
   trainingApiUrl,
 } from '../api'
-import { DEFAULT_TRAINING_VOICE_ID } from '../../training-voice'
 
 const template = {
   id: 'renewal-objection',
@@ -93,7 +94,10 @@ describe('training scenario contract', () => {
         pressure: 'hard',
         lengthProfile: 'quick',
       },
-      DEFAULT_TRAINING_VOICE_ID
+      DEFAULT_TRAINING_VOICE_ID,
+      'simulation',
+      undefined,
+      'cascade-standard'
     )
 
     assert.equal(request.mode, 'voice')
@@ -105,6 +109,7 @@ describe('training scenario contract', () => {
       value: 0.6,
     })
     assert.equal(request.task_config.metadata.trainingMode, 'voice')
+    assert.equal(request.task_config.metadata.voiceRouteId, 'cascade-standard')
     assert.equal(request.task_config.metadata.source, 'scenario_training')
     assert.equal(
       request.task_config.metadata.trainingVoiceId,
@@ -127,6 +132,65 @@ describe('training scenario contract', () => {
         }
       ).training_points,
       ['Clarify decision criteria']
+    )
+  })
+
+  test('keeps the restored feedback modes in one shared product contract', () => {
+    assert.deepEqual(
+      TRAINING_FEEDBACK_MODE_OPTIONS.map((option) => [
+        option.value,
+        option.label.chinese,
+      ]),
+      [
+        ['simulation', '完整模拟'],
+        ['assisted', '旁路提示'],
+        ['drill', '逐句纠正'],
+      ]
+    )
+  })
+
+  test('persists the selected feedback policy through create and start requests', () => {
+    const scenario = toTrainingScenario(template)
+    const createRequest = buildTrainingSessionRequest(
+      scenario,
+      'voice',
+      undefined,
+      DEFAULT_TRAINING_VOICE_ID,
+      'drill'
+    )
+    const startRequest = buildScenarioStartRequest(
+      scenario,
+      'voice',
+      undefined,
+      DEFAULT_TRAINING_VOICE_ID,
+      'drill'
+    )
+
+    assert.equal(createRequest.task_config.metadata.feedbackMode, 'drill')
+    assert.equal(
+      createRequest.task_config.metadata.trainingFeedbackMode,
+      'drill'
+    )
+    assert.deepEqual(createRequest.task_config.metadata.feedbackPolicy, {
+      mode: 'drill',
+      version: 1,
+      channelAgnostic: true,
+    })
+    assert.equal(
+      (
+        createRequest.task_config.metadata.scenario_training as {
+          feedbackMode: string
+        }
+      ).feedbackMode,
+      'drill'
+    )
+    assert.equal(startRequest.opening_message?.metadata.feedbackMode, 'drill')
+    if ('runtime' in startRequest || !startRequest.runtime_persona) {
+      throw new Error('voice drill must include a runtime persona')
+    }
+    assert.match(
+      startRequest.runtime_persona.style,
+      /after each learner answer/
     )
   })
 
@@ -153,10 +217,7 @@ describe('training scenario contract', () => {
     assert.equal(request.runtime_persona.name, template.persona.name)
     assert.equal(request.runtime_persona.role, template.persona.role)
     assert.equal(request.runtime_persona.difficulty, 'hard')
-    assert.equal(
-      request.runtime_persona.voice_id,
-      DEFAULT_TRAINING_VOICE_ID
-    )
+    assert.equal(request.runtime_persona.voice_id, DEFAULT_TRAINING_VOICE_ID)
     assert.deepEqual(request.runtime_persona.training_points, [
       'Clarify decision criteria',
     ])
@@ -184,10 +245,14 @@ describe('training scenario contract', () => {
     )
 
     if ('runtime' in request) {
-      throw new Error('persona asset scenario training must use a room-backed runtime')
+      throw new Error(
+        'persona asset scenario training must use a room-backed runtime'
+      )
     }
     if (request.runtime_persona) {
-      throw new Error('persona asset scenario must not create a runtime persona')
+      throw new Error(
+        'persona asset scenario must not create a runtime persona'
+      )
     }
     assert.equal(request.room_name, `Training: ${scenario.title}`)
     assert.equal(request.room_type, 'battle_prep')
@@ -195,22 +260,30 @@ describe('training scenario contract', () => {
     assert.equal('runtime_persona' in request, false)
   })
 
-  test('maps voice realtime selection to the legacy realtime session contract', () => {
+  test('persists the selected voice preset for realtime training', () => {
     const mode = trainingSessionModeForSelection({
       modality: 'voice',
       interactionMode: 'realtime',
     })
     const request = buildTrainingSessionRequest(
       toTrainingScenario(template),
-      mode
+      mode,
+      undefined,
+      undefined,
+      'simulation',
+      undefined,
+      'voice-route-standard'
     )
 
     assert.equal(mode, 'realtime')
     assert.equal(request.mode, 'realtime')
-    assert.equal(request.task_config.metadata.trainingMode, 'realtime')
+    assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.interactionMode, 'realtime')
-    assert.equal(request.task_config.metadata.realtimeProfile, 'cascade')
-    assert.equal(request.task_config.metadata.latencyProfile, 'near_realtime')
+    assert.equal(
+      request.task_config.metadata.voiceRouteId,
+      'voice-route-standard'
+    )
+    assert.equal('realtimeProfile' in request.task_config.metadata, false)
     assert.equal(
       (
         request.task_config.metadata.scenario_training as {
@@ -219,22 +292,47 @@ describe('training scenario contract', () => {
       ).interactionMode,
       'realtime'
     )
+    assert.equal(
+      (
+        request.task_config.metadata.scenario_training as {
+          trainingMode: string
+        }
+      ).trainingMode,
+      'voice'
+    )
   })
 
-  test('preserves a speech-to-speech realtime pipeline selection', () => {
+  test('uses the complete voice preset instead of a standalone LLM for turn-based voice', () => {
+    const request = buildTrainingSessionRequest(
+      toTrainingScenario(template),
+      'voice',
+      undefined,
+      undefined,
+      'simulation',
+      'standalone-text-model',
+      'cascade-standard'
+    )
+
+    assert.equal(request.task_config.metadata.voiceRouteId, 'cascade-standard')
+    assert.equal('llmModel' in request.task_config.metadata, false)
+  })
+
+  test('does not expose a realtime pipeline selector in the session request', () => {
     const request = buildTrainingSessionRequest(
       toTrainingScenario(template),
       'realtime',
       undefined,
       undefined,
-      'speech_to_speech'
+      'simulation',
+      undefined,
+      'voice-route-native'
     )
 
     assert.equal(
-      request.task_config.metadata.realtimeProfile,
-      'speech_to_speech'
+      request.task_config.metadata.voiceRouteId,
+      'voice-route-native'
     )
-    assert.equal(request.task_config.metadata.latencyProfile, 'true_realtime')
+    assert.equal('realtimeProfile' in request.task_config.metadata, false)
   })
 
   test('maps supported modality and interaction selections without changing session modes', () => {

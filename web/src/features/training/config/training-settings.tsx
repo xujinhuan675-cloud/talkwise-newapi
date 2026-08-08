@@ -698,15 +698,9 @@ export function TrainingSettings() {
             <TabsList variant='line'>
               <TabsTrigger value='scenarios'>
                 {localize('Scenarios', '训练场景')}
-                <Badge variant='secondary' className='ml-1'>
-                  {draft.scenarios.length}
-                </Badge>
               </TabsTrigger>
               <TabsTrigger value='dimensions'>
                 {localize('Scoring dimensions', '评分维度')}
-                <Badge variant='secondary' className='ml-1'>
-                  {draft.dimensions.length}
-                </Badge>
               </TabsTrigger>
             </TabsList>
 
@@ -761,7 +755,9 @@ export function TrainingSettings() {
                   <ScenarioForm
                     scenario={selectedScenario}
                     personaAssets={personaAssetsQuery.data ?? []}
-                    voiceOptions={voiceCatalogQuery.data ?? TRAINING_VOICE_OPTIONS}
+                    voiceOptions={
+                      voiceCatalogQuery.data ?? TRAINING_VOICE_OPTIONS
+                    }
                     dimensions={draft.dimensions}
                     isWeightValid={isWeightValid}
                     readOnly={!canManage}
@@ -932,7 +928,8 @@ function ScenarioForm(props: ScenarioFormProps) {
         role: asset.role,
         voiceId: asset.voiceId ?? props.scenario.persona.voiceId,
         voiceSpeed: asset.voiceSpeed ?? props.scenario.persona.voiceSpeed,
-        voiceLoudness: asset.voiceVolume ?? props.scenario.persona.voiceLoudness,
+        voiceLoudness:
+          asset.voiceVolume ?? props.scenario.persona.voiceLoudness,
         voiceStyle: asset.voiceStyle ?? props.scenario.persona.voiceStyle,
       },
     })
@@ -1004,7 +1001,10 @@ function ScenarioForm(props: ScenarioFormProps) {
             value={props.scenario.persona.personaId ?? '__scenario_profile__'}
             onValueChange={selectPersonaAsset}
           >
-            <SelectTrigger id='training-scenario-persona-asset' className='w-full'>
+            <SelectTrigger
+              id='training-scenario-persona-asset'
+              className='w-full'
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

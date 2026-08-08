@@ -21,6 +21,11 @@ import axios from 'axios'
 import { api } from '@/lib/http-client'
 
 import {
+  trainingFeedbackPolicy,
+  trainingFeedbackRuntimeInstruction,
+  type TrainingFeedbackMode,
+} from '../training-feedback'
+import {
   scenarioPressure,
   trainingPlanMetadata,
   trainingTurnBudget,
@@ -28,7 +33,6 @@ import {
   type TrainingPressure,
 } from '../training-plan'
 import type { TrainingVoiceId } from '../training-voice'
-import type { RealtimeProfile } from '../studio/realtime-client'
 import type {
   CreateTrainingSessionRequest,
   TrainingScenario,
@@ -208,9 +212,7 @@ export function toTrainingScenario(dto: ScenarioTemplateDTO): TrainingScenario {
     name: dto.persona.name,
     role: dto.persona.role,
     style: dto.persona.style,
-    ...(dto.persona.persona_id
-      ? { personaId: dto.persona.persona_id }
-      : {}),
+    ...(dto.persona.persona_id ? { personaId: dto.persona.persona_id } : {}),
     ...(dto.persona.voice_id ||
     dto.persona.voice_speed !== undefined ||
     dto.persona.voice_loudness !== undefined ||
@@ -284,6 +286,12 @@ export function isTrainingModeSelectionAvailable(
   )
 }
 
+function trainingModalityForMode(
+  mode: TrainingSessionMode
+): 'text' | 'voice' | 'video' {
+  return mode === 'realtime' ? 'voice' : mode
+}
+
 export function trainingSessionModeForSelection(
   selection: TrainingModeSelection
 ): TrainingSessionMode {
@@ -311,7 +319,9 @@ export function buildTrainingSessionRequest(
     lengthProfile: 'standard',
   },
   voiceId?: TrainingVoiceId,
-  realtimeProfile: RealtimeProfile = 'cascade'
+  feedbackMode: TrainingFeedbackMode = 'simulation',
+  llmModel?: string,
+  voiceRouteId?: string
 ): CreateTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const rubricWeights = Object.fromEntries(
@@ -322,6 +332,7 @@ export function buildTrainingSessionRequest(
   )
   const category =
     scenario.category === 'customer_service' ? 'workplace' : scenario.category
+  const trainingMode = trainingModalityForMode(mode)
   const interactionMode = mode === 'realtime' ? 'realtime' : 'turn_based'
 
   return {
@@ -335,6 +346,7 @@ export function buildTrainingSessionRequest(
         scenario.customerProfile,
         `category:${scenario.category}`,
         `opening:${scenario.openingLine}`,
+        `feedback:${feedbackMode}`,
       ],
       question_type_ratios: {
         behavioral: scenario.category === 'interview' ? 45 : 20,
@@ -350,11 +362,19 @@ export function buildTrainingSessionRequest(
         : {}),
       metadata: {
         source: 'scenario_training',
-        feedbackMode: 'simulation',
-        trainingFeedbackMode: 'simulation',
-        trainingMode: mode,
+        feedbackMode,
+        trainingFeedbackMode: feedbackMode,
+        feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
+        trainingMode,
         interactionMode,
         ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
+        ...(mode === 'voice' || mode === 'realtime'
+          ? voiceRouteId
+            ? { voiceRouteId }
+            : {}
+          : llmModel
+            ? { llmModel }
+            : {}),
         ...(mode !== 'text'
           ? {
               trainingVoiceSpeed: scenario.persona.voiceSpeed,
@@ -362,15 +382,6 @@ export function buildTrainingSessionRequest(
               trainingVoiceEmotion: scenario.persona.voiceEmotion,
               trainingVoiceEmotionScale: scenario.persona.voiceEmotionScale,
               trainingVoiceStyle: scenario.persona.voiceStyle,
-            }
-          : {}),
-        ...(mode === 'realtime'
-          ? {
-              realtimeProfile,
-              latencyProfile:
-                realtimeProfile === 'speech_to_speech'
-                  ? 'true_realtime'
-                  : 'near_realtime',
             }
           : {}),
         trainingPlan: trainingPlanMetadata(plan),
@@ -386,8 +397,8 @@ export function buildTrainingSessionRequest(
           difficulty: scenario.difficulty,
           training_points: [...plan.selectedFocus],
           dimension_weights: scenario.dimensionWeights,
-          feedbackMode: 'simulation',
-          trainingMode: mode,
+          feedbackMode,
+          trainingMode,
           interactionMode,
           ...(resolvedVoiceId ? { voice_id: resolvedVoiceId } : {}),
         },
@@ -427,9 +438,12 @@ export function buildScenarioStartRequest(
     pressure: scenarioPressure(scenario.difficulty),
     lengthProfile: 'standard',
   },
-  voiceId?: TrainingVoiceId
+  voiceId?: TrainingVoiceId,
+  feedbackMode: TrainingFeedbackMode = 'simulation'
 ): StartTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
+  const trainingMode = trainingModalityForMode(mode)
+  const interactionMode = mode === 'realtime' ? 'realtime' : 'turn_based'
   const trainingPoints =
     plan.selectedFocus.length > 0
       ? [...plan.selectedFocus]
@@ -438,6 +452,7 @@ export function buildScenarioStartRequest(
     scenario.description,
     scenario.customerProfile,
     scenario.openingLine ? `Opening line: ${scenario.openingLine}` : '',
+    `Feedback policy: ${trainingFeedbackRuntimeInstruction(feedbackMode)}`,
   ]
     .map((item) => item.trim())
     .filter(Boolean)
@@ -448,7 +463,11 @@ export function buildScenarioStartRequest(
         metadata: {
           source: 'scenario_training_opening',
           scenarioTrainingId: scenario.id,
-          trainingMode: mode,
+          trainingMode,
+          interactionMode,
+          feedbackMode,
+          trainingFeedbackMode: feedbackMode,
+          feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
           ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
           ...(mode !== 'text'
             ? {
@@ -485,9 +504,11 @@ export function buildScenarioStartRequest(
     runtime_persona: {
       name: scenario.persona.name || 'Training counterpart',
       role: scenario.persona.role || 'Scenario counterpart',
-      style:
+      style: [
         scenario.persona.style ||
-        'Stay in role, ask focused follow-up questions, and keep the exchange realistic.',
+          'Stay in role, ask focused follow-up questions, and keep the exchange realistic.',
+        trainingFeedbackRuntimeInstruction(feedbackMode),
+      ].join('\n'),
       scenario_context: context || scenario.title,
       training_points: trainingPoints,
       difficulty: runtimePersonaDifficulty(plan.pressure),
@@ -532,14 +553,15 @@ export async function startScenarioTrainingSession(
   scenario: TrainingScenario,
   mode: TrainingSessionMode,
   plan?: TrainingPlanInput,
-  voiceId?: TrainingVoiceId
+  voiceId?: TrainingVoiceId,
+  feedbackMode: TrainingFeedbackMode = 'simulation'
 ): Promise<TrainingSession> {
   const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
     trainingApiUrl(
       apiBase,
       `${TRAINING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/start`
     ),
-    buildScenarioStartRequest(scenario, mode, plan, voiceId),
+    buildScenarioStartRequest(scenario, mode, plan, voiceId, feedbackMode),
     { skipBusinessError: true, skipErrorHandler: true }
   )
   const session = requireTalkWiseData(response.data)
@@ -577,7 +599,9 @@ export async function launchScenarioTrainingSession(
   mode: TrainingSessionMode,
   plan?: TrainingPlanInput,
   voiceId?: TrainingVoiceId,
-  realtimeProfile: RealtimeProfile = 'cascade'
+  feedbackMode: TrainingFeedbackMode = 'simulation',
+  llmModel?: string,
+  voiceRouteId?: string
 ): Promise<TrainingSession> {
   const created = await createTrainingSession(
     apiBase,
@@ -586,7 +610,9 @@ export async function launchScenarioTrainingSession(
       mode,
       plan,
       voiceId,
-      realtimeProfile
+      feedbackMode,
+      llmModel,
+      voiceRouteId
     )
   )
   try {
@@ -596,7 +622,8 @@ export async function launchScenarioTrainingSession(
       scenario,
       mode,
       plan,
-      voiceId
+      voiceId,
+      feedbackMode
     )
   } catch (error) {
     throw new ScenarioTrainingStartError(created.sessionId, error)

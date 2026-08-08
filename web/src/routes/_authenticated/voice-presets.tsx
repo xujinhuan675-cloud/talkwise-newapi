@@ -16,5 +16,27 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export { TrainingSettings } from './training-settings'
-export { PlatformVoiceRouteSettings } from './platform-voice-route-settings'
+import { createFileRoute, redirect } from '@tanstack/react-router'
+
+import { PlatformVoiceRouteSettings } from '@/features/training/config'
+import { TrainingHostProvider } from '@/features/training/host'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
+
+export const Route = createFileRoute('/_authenticated/voice-presets')({
+  beforeLoad: () => {
+    const { auth } = useAuthStore.getState()
+    if (!auth.user || auth.user.role < ROLE.ADMIN) {
+      throw redirect({ to: '/403' })
+    }
+  },
+  component: VoicePresetsPage,
+})
+
+function VoicePresetsPage() {
+  return (
+    <TrainingHostProvider>
+      <PlatformVoiceRouteSettings />
+    </TrainingHostProvider>
+  )
+}
