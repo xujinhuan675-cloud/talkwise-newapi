@@ -30,8 +30,30 @@ import {
   talkWiseBearerProtocol,
   trainingRealtimeWebSocketUrl,
 } from '../realtime-client'
+import {
+  int16PcmSamples,
+  isPcmVoiceAudioMimeType,
+  sniffVoiceAudioMimeType,
+} from '../voice-audio'
 
 describe('training realtime client contract', () => {
+  test('prefers encoded container magic over a stale PCM declaration', () => {
+    const ogg = Uint8Array.from([
+      ...new TextEncoder().encode('OggS'),
+      0,
+      2,
+      ...new TextEncoder().encode('OpusHead'),
+    ])
+
+    assert.equal(sniffVoiceAudioMimeType(ogg, 'audio/pcm'), 'audio/ogg')
+    assert.equal(isPcmVoiceAudioMimeType('audio/pcm; rate=24000'), true)
+    assert.equal(isPcmVoiceAudioMimeType('audio/ogg'), false)
+    assert.deepEqual(
+      [...int16PcmSamples(Uint8Array.from([0x34, 0x12, 0xcc, 0xff]))],
+      [0x1234, -52]
+    )
+  })
+
   test('builds the same-origin proxy URL with session binding and profile', () => {
     const url = trainingRealtimeWebSocketUrl(
       '/api/talkwise/training',

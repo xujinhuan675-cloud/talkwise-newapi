@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { talkWiseBearerProtocol } from './realtime-client'
+import { decodeVoiceAudio } from './voice-audio'
 
 export const TALKWISE_TURN_BASED_VOICE_PROTOCOL = 'talkwise.voice'
 export const TURN_BASED_VOICE_SAMPLE_RATE = 16_000
@@ -369,9 +370,13 @@ export async function normalizeTurnBasedVoiceAudio(
 ): Promise<Blob> {
   const audioContext = new AudioContext()
   try {
-    const decoded = await audioContext.decodeAudioData(
-      await recordedAudio.arrayBuffer()
-    )
+    const bytes = new Uint8Array(await recordedAudio.arrayBuffer())
+    const { buffer: decoded } = await decodeVoiceAudio(audioContext, {
+      bytes,
+      channels: 1,
+      mimeType: recordedAudio.type,
+      sampleRate: TURN_BASED_VOICE_SAMPLE_RATE,
+    })
     const channels = Array.from(
       { length: decoded.numberOfChannels },
       (_, index) => decoded.getChannelData(index)

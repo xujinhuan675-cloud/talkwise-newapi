@@ -54,9 +54,13 @@ import {
 import {
   QUIET_WAVEFORM,
   quietWaveformLevels,
-  waveformBarCountForWidth,
   waveformLevelsFromFrequencyData,
 } from './turn-based-voice-waveform'
+import { useResponsiveVoiceWaveform } from './use-responsive-voice-waveform'
+import {
+  requestVoiceMicrophone,
+  VoiceCaptureUnavailableError,
+} from './voice-audio'
 
 interface TurnBasedVoicePanelProps {
   apiBase: string
@@ -123,11 +127,13 @@ export const TurnBasedVoicePanel = forwardRef<
   const analyserGainRef = useRef<GainNode | null>(null)
   const analyserDataRef = useRef<Uint8Array | null>(null)
   const waveformFrameRef = useRef<number | null>(null)
-  const waveformContainerRef = useRef<HTMLDivElement | null>(null)
-  const waveformBarCountRef = useRef(QUIET_WAVEFORM.length)
   const [status, setStatus] = useState<TurnBasedVoiceStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [waveform, setWaveform] = useState<readonly number[]>(QUIET_WAVEFORM)
+  const { waveformBarCountRef, waveformContainerRef } =
+    useResponsiveVoiceWaveform((barCount) => {
+      setWaveform(quietWaveformLevels(barCount))
+    })
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -169,7 +175,7 @@ export const TurnBasedVoicePanel = forwardRef<
       }
     }
     setWaveform(quietWaveformLevels(waveformBarCountRef.current))
-  }, [])
+  }, [waveformBarCountRef])
 
   const startWaveformMonitor = useCallback(
     (stream: MediaStream) => {
@@ -229,7 +235,7 @@ export const TurnBasedVoicePanel = forwardRef<
         stopWaveformMonitor()
       }
     },
-    [stopWaveformMonitor]
+    [stopWaveformMonitor, waveformBarCountRef]
   )
 
   const releaseCapture = useCallback(
@@ -360,14 +366,6 @@ export const TurnBasedVoicePanel = forwardRef<
         sessionId,
       })
       const protocols = turnBasedVoiceProtocols(accessToken)
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error(
-          localize(
-            'Microphone capture is unavailable in this browser.',
-            '当前浏览器无法采集麦克风。'
-          )
-        )
-      }
       if (typeof MediaRecorder === 'undefined') {
         throw new Error(
           localize(
@@ -377,14 +375,7 @@ export const TurnBasedVoicePanel = forwardRef<
         )
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          autoGainControl: true,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      })
+      const stream = await requestVoiceMicrophone()
       if (
         stream.getAudioTracks().length === 0 ||
         stream.getAudioTracks().every((track) => track.readyState === 'ended')
@@ -576,6 +567,11 @@ export const TurnBasedVoicePanel = forwardRef<
           'No microphone was detected.',
           '\u672a\u68c0\u6d4b\u5230\u9ea6\u514b\u98ce\u3002'
         )
+      } else if (nextError instanceof VoiceCaptureUnavailableError) {
+        message = localize(
+          'Microphone capture is unavailable in this browser.',
+          '\u5f53\u524d\u6d4f\u89c8\u5668\u65e0\u6cd5\u91c7\u96c6\u9ea6\u514b\u98ce\u3002'
+        )
       } else if (nextError instanceof Error) {
         message = nextError.message
       }
@@ -674,6 +670,9 @@ export const TurnBasedVoicePanel = forwardRef<
   let actionVariant: 'default' | 'destructive' | 'ghost' = 'ghost'
   if (status === 'error') actionVariant = 'destructive'
   else if (isRecording) actionVariant = 'default'
+  let primaryActionIcon: TrainingRoomPrimaryActionState['icon'] = 'mic'
+  if (busy) primaryActionIcon = 'loader'
+  else if (isRecording) primaryActionIcon = 'check'
 
   useImperativeHandle(
     ref,
@@ -690,7 +689,7 @@ export const TurnBasedVoicePanel = forwardRef<
     onPrimaryActionChange?.({
       active: isRecording,
       disabled: disabled || busy || !accessToken,
-      icon: busy ? 'loader' : isRecording ? 'check' : 'mic',
+      icon: primaryActionIcon,
       label: actionLabel,
       title: error || actionLabel,
       tone: status === 'error' ? 'destructive' : 'default',
@@ -703,6 +702,7 @@ export const TurnBasedVoicePanel = forwardRef<
     error,
     isRecording,
     onPrimaryActionChange,
+    primaryActionIcon,
     status,
   ])
 
@@ -716,28 +716,6 @@ export const TurnBasedVoicePanel = forwardRef<
     onVoiceInputStateChange?.(voiceInputActive)
     return () => onVoiceInputStateChange?.(false)
   }, [onVoiceInputStateChange, voiceInputActive])
-
-  useEffect(() => {
-    const container = waveformContainerRef.current
-    if (!container) return
-
-    const updateBarCount = (width: number) => {
-      const nextCount = waveformBarCountForWidth(width)
-      if (waveformBarCountRef.current === nextCount) return
-      waveformBarCountRef.current = nextCount
-      setWaveform(quietWaveformLevels(nextCount))
-    }
-
-    updateBarCount(container.getBoundingClientRect().width)
-    if (typeof ResizeObserver === 'undefined') return
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) updateBarCount(entry.contentRect.width)
-    })
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
 
   return (
     <div className='flex min-w-0 flex-1 items-center gap-2'>
