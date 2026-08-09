@@ -1,13 +1,17 @@
 package volcengine
 
 import (
+	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"net"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
@@ -22,15 +26,47 @@ import (
 )
 
 type realtimeV3SessionState struct {
-	mu            sync.Mutex
-	sessionID     string
-	started       bool
-	clientSession dto.RealtimeSession
-	asrText       string
-	assistantText strings.Builder
-	turnUsage     dto.RealtimeUsage
-	totalUsage    dto.RealtimeUsage
+	mu                       sync.Mutex
+	sessionID                string
+	startRequested           bool
+	started                  bool
+	clientSession            dto.RealtimeSession
+	asrText                  string
+	assistantText            strings.Builder
+	responseInterrupted      bool
+	awaitingResponseAfterCut bool
+	activeQuestionID         string
+	activeResponseID         string
+	responseGeneration       uint64
+	interruptionEpoch        uint64
+	interruptedResponseIDs   map[string]uint64
+	completedResponseIDs     map[string]struct{}
+	desynced                 bool
+	diagnosticStartedAt      time.Time
+	diagnosticEventSequence  uint64
+	turnUsage                dto.RealtimeUsage
+	totalUsage               dto.RealtimeUsage
 }
+
+type realtimeV3ResponseIdentity struct {
+	questionID string
+	responseID string
+	fieldNames []string
+}
+
+type realtimeV3WorkerSource uint8
+
+const (
+	realtimeV3ClientWorker realtimeV3WorkerSource = iota
+	realtimeV3ProviderWorker
+)
+
+type realtimeV3WorkerResult struct {
+	source realtimeV3WorkerSource
+	err    error
+}
+
+const realtimeCommitSilenceMilliseconds = 1600
 
 func handleRealtimeV3(c *gin.Context, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
 	if info == nil || info.ClientWs == nil || info.TargetWs == nil {
@@ -54,69 +90,83 @@ func handleRealtimeV3(c *gin.Context, info *relaycommon.RelayInfo) (any, *types.
 		return nil, realtimeV3Error("start connection", fmt.Errorf("unexpected event %s", message.EventType))
 	}
 
-	state := &realtimeV3SessionState{sessionID: newConnectID()}
+	state := &realtimeV3SessionState{
+		sessionID:              newConnectID(),
+		interruptedResponseIDs: make(map[string]uint64),
+		completedResponseIDs:   make(map[string]struct{}),
+		diagnosticStartedAt:    time.Now(),
+	}
 	if err := helper.WssObject(c, info.ClientWs, realtimeSessionEvent("session.created", info, state, false)); err != nil {
 		return nil, realtimeV3Error("notify client", err)
 	}
 
-	clientClosed := make(chan struct{})
-	targetClosed := make(chan struct{})
-	errChan := make(chan error, 2)
+	workerResults := make(chan realtimeV3WorkerResult, 2)
+	var shutdownStarted atomic.Bool
 
 	gopool.Go(func() {
-		defer close(clientClosed)
+		var workerErr error
+		defer func() {
+			workerResults <- realtimeV3WorkerResult{source: realtimeV3ClientWorker, err: workerErr}
+		}()
 		for {
 			_, raw, readErr := info.ClientWs.ReadMessage()
 			if readErr != nil {
-				if !websocket.IsCloseError(readErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					errChan <- fmt.Errorf("read realtime client: %w", readErr)
+				if !websocket.IsCloseError(readErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) &&
+					!(shutdownStarted.Load() && (errors.Is(readErr, net.ErrClosed) || errors.Is(readErr, websocket.ErrCloseSent))) {
+					workerErr = fmt.Errorf("read realtime client: %w", readErr)
 				}
 				return
 			}
 			if handleErr := handleRealtimeClientEvent(c, info, state, raw); handleErr != nil {
-				errChan <- handleErr
+				workerErr = handleErr
 				return
 			}
 		}
 	})
 
 	gopool.Go(func() {
-		defer close(targetClosed)
+		var workerErr error
+		defer func() {
+			workerResults <- realtimeV3WorkerResult{source: realtimeV3ProviderWorker, err: workerErr}
+		}()
 		for {
 			providerMessage, readErr := ReceiveMessage(info.TargetWs)
 			if readErr != nil {
-				if !websocket.IsCloseError(readErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-					errChan <- fmt.Errorf("read volcengine realtime: %w", readErr)
+				if !websocket.IsCloseError(readErr, websocket.CloseNormalClosure, websocket.CloseGoingAway) &&
+					!(shutdownStarted.Load() && (errors.Is(readErr, net.ErrClosed) || errors.Is(readErr, websocket.ErrCloseSent))) {
+					workerErr = fmt.Errorf("read volcengine realtime: %w", readErr)
 				}
 				return
 			}
 			info.SetFirstResponseTime()
 			if handleErr := handleRealtimeProviderEvent(c, info, state, providerMessage); handleErr != nil {
-				errChan <- handleErr
+				workerErr = handleErr
 				return
 			}
 		}
 	})
 
-	var relayErr error
+	results := make([]realtimeV3WorkerResult, 0, 2)
+	notifyProviderError := false
 	select {
-	case <-clientClosed:
-	case <-targetClosed:
-	case relayErr = <-errChan:
+	case result := <-workerResults:
+		results = append(results, result)
+		notifyProviderError = result.source == realtimeV3ProviderWorker && result.err != nil
 	case <-c.Done():
 	}
 
 	state.mu.Lock()
 	if state.started {
 		_ = sendRealtimeProtocolEvent(info.TargetWs, MsgTypeFullClientRequest, EventType_FinishSession, state.sessionID, []byte("{}"))
+	} else if state.startRequested {
+		_ = sendRealtimeProtocolEvent(info.TargetWs, MsgTypeFullClientRequest, EventType_CancelSession, state.sessionID, []byte("{}"))
 	}
 	_ = sendRealtimeProtocolEvent(info.TargetWs, MsgTypeFullClientRequest, EventType_FinishConnection, "", []byte("{}"))
-	consumeErr := consumeRealtimeTurn(c, info, state)
+	finalizeRealtimeTurn(state)
 	totalUsage := state.totalUsage
 	state.mu.Unlock()
 
-	if relayErr != nil {
-		logger.LogError(c, "volcengine realtime error: "+relayErr.Error())
+	if notifyProviderError {
 		_ = helper.WssObject(c, info.ClientWs, map[string]any{
 			"type": "error",
 			"error": map[string]any{
@@ -126,18 +176,32 @@ func handleRealtimeV3(c *gin.Context, info *relaycommon.RelayInfo) (any, *types.
 			},
 		})
 	}
-	if consumeErr != nil {
-		logger.LogError(c, "volcengine realtime billing error: "+consumeErr.Error())
-		_ = helper.WssObject(c, info.ClientWs, map[string]any{
-			"type": "error",
-			"error": map[string]any{
-				"type":    "billing_error",
-				"code":    "volcengine_realtime_billing_error",
-				"message": "Volcengine realtime usage settlement failed",
-			},
-		})
+
+	shutdownStarted.Store(true)
+	_ = info.TargetWs.Close()
+	_ = info.ClientWs.Close()
+	for len(results) < 2 {
+		results = append(results, <-workerResults)
+	}
+	relayErr := realtimeV3RelayError(results)
+	if relayErr != nil {
+		logger.LogError(c, "volcengine realtime error: "+relayErr.Error())
 	}
 	return &totalUsage, nil
+}
+
+func realtimeV3RelayError(results []realtimeV3WorkerResult) error {
+	for _, result := range results {
+		if result.source == realtimeV3ProviderWorker && result.err != nil {
+			return result.err
+		}
+	}
+	for _, result := range results {
+		if result.err != nil {
+			return result.err
+		}
+	}
+	return nil
 }
 
 func handleRealtimeClientEvent(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState, raw []byte) error {
@@ -158,7 +222,7 @@ func handleRealtimeClientEvent(c *gin.Context, info *relaycommon.RelayInfo, stat
 		if err := ensureRealtimeSessionStarted(info, state); err != nil {
 			return err
 		}
-		return helper.WssObject(c, info.ClientWs, realtimeSessionEvent("session.updated", info, state, true))
+		return nil
 	case dto.RealtimeEventInputAudioBufferAppend:
 		if err := ensureRealtimeSessionStarted(info, state); err != nil {
 			return err
@@ -173,19 +237,32 @@ func handleRealtimeClientEvent(c *gin.Context, info *relaycommon.RelayInfo, stat
 		addRealtimeAudioUsage(&state.turnUsage, len(audio), defaultRealtimeSampleRate, true)
 		return sendRealtimeProtocolEvent(info.TargetWs, MsgTypeAudioOnlyClient, EventType_TaskRequest, state.sessionID, audio)
 	case "input_audio_buffer.commit":
+		if err := ensureRealtimeSessionStarted(info, state); err != nil {
+			return err
+		}
+		if err := sendRealtimeCommitSilence(info.TargetWs, state.sessionID); err != nil {
+			return err
+		}
 		return helper.WssObject(c, info.ClientWs, map[string]any{
 			"event_id": helper.GetLocalRealtimeID(c),
 			"type":     "input_audio_buffer.committed",
 		})
 	case "response.cancel":
-		return nil
+		identity := interruptRealtimeResponse(state)
+		event := map[string]any{
+			"event_id": helper.GetLocalRealtimeID(c),
+			"type":     "response.cancelled",
+			"reason":   "client_cancel",
+		}
+		addRealtimeResponseIdentity(event, identity)
+		return helper.WssObject(c, info.ClientWs, event)
 	default:
 		return fmt.Errorf("unsupported realtime client event: %s", event.Type)
 	}
 }
 
 func ensureRealtimeSessionStarted(info *relaycommon.RelayInfo, state *realtimeV3SessionState) error {
-	if state.started {
+	if state.startRequested {
 		return nil
 	}
 	payload, err := buildRealtimeStartSessionPayload(info, state.clientSession)
@@ -195,7 +272,7 @@ func ensureRealtimeSessionStarted(info *relaycommon.RelayInfo, state *realtimeV3
 	if err := sendRealtimeProtocolEvent(info.TargetWs, MsgTypeFullClientRequest, EventType_StartSession, state.sessionID, payload); err != nil {
 		return fmt.Errorf("start volcengine realtime session: %w", err)
 	}
-	state.started = true
+	state.startRequested = true
 	if instructions := strings.TrimSpace(state.clientSession.Instructions); instructions != "" {
 		textTokens := service.CountTextToken(instructions, info.UpstreamModelName)
 		state.turnUsage.InputTokenDetails.TextTokens += textTokens
@@ -208,20 +285,18 @@ func ensureRealtimeSessionStarted(info *relaycommon.RelayInfo, state *realtimeV3
 func buildRealtimeStartSessionPayload(info *relaycommon.RelayInfo, session dto.RealtimeSession) ([]byte, error) {
 	voice := firstNonEmpty(session.Voice, info.ChannelOtherSettings.VolcengineVoice, defaultVolcengineVoice)
 	modelVersion := firstNonEmpty(info.UpstreamModelName, defaultRealtimeModel)
-	request := map[string]any{
-		"model_name":     "O2.0",
-		"model_version":  modelVersion,
-		"speaker":        voice,
-		"work_mode":      "pure-end-to-end",
-		"output_mode":    0,
-		"bot_name":       "TalkWise",
-		"system_role":    strings.TrimSpace(session.Instructions),
-		"speaking_style": "natural",
+	// Dialogue v3 reads asr, tts, and dialog directly from StartSession. Nesting
+	// them under request makes the service fall back to its encoded audio default.
+	payload := map[string]any{
 		"asr": map[string]any{"extra": map[string]any{
 			"end_smooth_window_ms": 1500,
 			"enable_custom_vad":    false,
 			"enable_asr_twopass":   false,
 			"context":              map[string]any{},
+		}, "audio_info": map[string]any{
+			"format":      "pcm",
+			"sample_rate": defaultRealtimeSampleRate,
+			"channel":     1,
 		}},
 		"tts": map[string]any{
 			"speaker": voice,
@@ -232,23 +307,19 @@ func buildRealtimeStartSessionPayload(info *relaycommon.RelayInfo, session dto.R
 			},
 			"extra": map[string]any{"speech_rate": 0, "loudness_rate": 0},
 		},
-		"dialog": map[string]any{"extra": map[string]any{
-			"strict_audit": true,
-			"input_mod":    "keep_alive",
-			"enable_music": false,
-		}},
-	}
-	payload := map[string]any{
-		"user": map[string]any{"uid": "new-api"},
-		"audio": map[string]any{
-			"format":      "pcm",
-			"sample_rate": defaultRealtimeSampleRate,
-			"channels":    1,
-			"codec":       "raw",
+		"dialog": map[string]any{
+			"bot_name":       "TalkWise",
+			"system_role":    strings.TrimSpace(session.Instructions),
+			"speaking_style": "natural",
+			"extra": map[string]any{
+				"strict_audit": true,
+				"input_mod":    "keep_alive",
+				"enable_music": false,
+				"model":        modelVersion,
+			},
 		},
-		"request": request,
 	}
-	return json.Marshal(payload)
+	return common.Marshal(payload)
 }
 
 func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState, message *Message) error {
@@ -261,9 +332,26 @@ func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, st
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	identity := realtimeProviderEventIdentity(message.Payload)
+	logRealtimeProviderEvent(c, state, message, identity.fieldNames)
+	if state.desynced {
+		return nil
+	}
 	switch message.EventType {
 	case EventType_SessionStarted:
+		state.started = true
 		return helper.WssObject(c, info.ClientWs, realtimeSessionEvent("session.updated", info, state, true))
+	case EventType_SessionFailed, EventType_ConnectionFailed:
+		return protocolMessageError(message)
+	case EventType_AudioMuted:
+		interruptedIdentity := interruptRealtimeResponse(state)
+		event := map[string]any{
+			"type":     "response.interrupted",
+			"event_id": helper.GetLocalRealtimeID(c),
+			"reason":   "provider_barge_in",
+		}
+		addRealtimeResponseIdentity(event, interruptedIdentity)
+		return helper.WssObject(c, info.ClientWs, event)
 	case EventType_ASRInfo:
 		return helper.WssObject(c, info.ClientWs, map[string]any{"type": "input_audio_buffer.speech_started", "event_id": helper.GetLocalRealtimeID(c)})
 	case EventType_ASRResponse:
@@ -279,6 +367,7 @@ func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, st
 			"type": "conversation.item.input_audio_transcription.delta", "event_id": helper.GetLocalRealtimeID(c), "delta": delta,
 		})
 	case EventType_ASREnded:
+		state.responseInterrupted = false
 		text := state.asrText
 		state.asrText = ""
 		if text == "" {
@@ -291,41 +380,264 @@ func handleRealtimeProviderEvent(c *gin.Context, info *relaycommon.RelayInfo, st
 		return helper.WssObject(c, info.ClientWs, map[string]any{
 			"type": "conversation.item.input_audio_transcription.completed", "event_id": helper.GetLocalRealtimeID(c), "transcript": text,
 		})
+	case EventType_TTSSentenceStart, EventType_TTSSentenceEnd, EventType_ChatEnded:
+		accepted, err := acceptRealtimeResponseIdentity(c, info, state, identity, message.EventType)
+		if err != nil || !accepted {
+			return err
+		}
+		return nil
 	case EventType_ChatResponse:
+		accepted, err := acceptRealtimeResponseIdentity(c, info, state, identity, message.EventType)
+		if err != nil || !accepted {
+			return err
+		}
 		text := extractRealtimeText(message.Payload)
 		if text == "" {
 			return nil
 		}
 		state.assistantText.WriteString(text)
-		return helper.WssObject(c, info.ClientWs, map[string]any{
+		event := map[string]any{
 			"type": "response.audio_transcript.delta", "event_id": helper.GetLocalRealtimeID(c), "delta": text,
-		})
-	case EventType_ChatEnded:
-		return emitRealtimeAssistantTranscript(c, info, state)
+		}
+		addRealtimeResponseIdentity(event, identity)
+		return helper.WssObject(c, info.ClientWs, event)
 	case EventType_TTSResponse:
-		return emitRealtimeAudio(c, info, state, message.Payload)
+		if state.responseInterrupted || state.awaitingResponseAfterCut {
+			return nil
+		}
+		if state.activeResponseID == "" {
+			return failRealtimeTurnDesync(c, info, state, message.EventType, "audio_without_response_id", identity.fieldNames)
+		}
+		return emitRealtimeAudio(c, info, state, message.Payload, activeRealtimeResponseIdentity(state))
 	case EventType_TTSEnded:
-		if err := emitRealtimeAssistantTranscript(c, info, state); err != nil {
+		if identity.responseID == "" {
+			return failRealtimeTurnDesync(c, info, state, message.EventType, "missing_response_id", identity.fieldNames)
+		}
+		if _, interrupted := state.interruptedResponseIDs[identity.responseID]; interrupted {
+			state.responseInterrupted = false
+			event := map[string]any{
+				"type":     "response.cancel.done",
+				"event_id": helper.GetLocalRealtimeID(c),
+			}
+			addRealtimeResponseIdentity(event, identity)
+			return helper.WssObject(c, info.ClientWs, event)
+		}
+		if state.awaitingResponseAfterCut && state.activeResponseID == "" {
+			state.interruptedResponseIDs[identity.responseID] = state.interruptionEpoch
+			state.responseInterrupted = false
+			state.assistantText.Reset()
+			event := map[string]any{
+				"type":     "response.cancel.done",
+				"event_id": helper.GetLocalRealtimeID(c),
+			}
+			addRealtimeResponseIdentity(event, identity)
+			return helper.WssObject(c, info.ClientWs, event)
+		}
+		if _, completed := state.completedResponseIDs[identity.responseID]; completed {
+			return nil
+		}
+		if state.activeResponseID == "" || identity.responseID != state.activeResponseID {
+			return failRealtimeTurnDesync(c, info, state, message.EventType, "response_id_mismatch", identity.fieldNames)
+		}
+		if err := emitRealtimeAssistantTranscript(c, info, state, identity); err != nil {
 			return err
 		}
-		if err := helper.WssObject(c, info.ClientWs, map[string]any{"type": "response.audio.done", "event_id": helper.GetLocalRealtimeID(c)}); err != nil {
+		audioDone := map[string]any{"type": "response.audio.done", "event_id": helper.GetLocalRealtimeID(c)}
+		addRealtimeResponseIdentity(audioDone, identity)
+		if err := helper.WssObject(c, info.ClientWs, audioDone); err != nil {
 			return err
 		}
-		if err := consumeRealtimeTurn(c, info, state); err != nil {
-			return err
+		finalizeRealtimeTurn(state)
+		if state.completedResponseIDs == nil {
+			state.completedResponseIDs = make(map[string]struct{})
 		}
-		return helper.WssObject(c, info.ClientWs, map[string]any{
+		state.completedResponseIDs[identity.responseID] = struct{}{}
+		state.activeQuestionID = ""
+		state.activeResponseID = ""
+		responseDone := map[string]any{
 			"type": "response.done", "event_id": helper.GetLocalRealtimeID(c),
 			"response": map[string]any{"status": "completed", "usage": state.totalUsage},
-		})
+		}
+		addRealtimeResponseIdentity(responseDone, identity)
+		return helper.WssObject(c, info.ClientWs, responseDone)
 	case EventType_SessionFinished, EventType_ConnectionFinished:
 		return nil
 	default:
 		if message.MsgType == MsgTypeAudioOnlyServer && len(message.Payload) > 0 {
-			return emitRealtimeAudio(c, info, state, message.Payload)
+			if state.responseInterrupted || state.awaitingResponseAfterCut {
+				return nil
+			}
+			if state.activeResponseID == "" {
+				return failRealtimeTurnDesync(c, info, state, message.EventType, "audio_without_response_id", identity.fieldNames)
+			}
+			return emitRealtimeAudio(c, info, state, message.Payload, activeRealtimeResponseIdentity(state))
 		}
 		return nil
 	}
+}
+
+func realtimeProviderEventIdentity(payload []byte) realtimeV3ResponseIdentity {
+	identity := realtimeV3ResponseIdentity{}
+	if len(payload) == 0 {
+		return identity
+	}
+	var value map[string]any
+	if common.Unmarshal(payload, &value) != nil {
+		return identity
+	}
+	identity.fieldNames = make([]string, 0, len(value))
+	for key := range value {
+		identity.fieldNames = append(identity.fieldNames, key)
+	}
+	sort.Strings(identity.fieldNames)
+	identity.questionID = firstRealtimeString(value, "question_id", "questionId")
+	identity.responseID = firstRealtimeString(value, "reply_id", "replyId", "response_id", "responseId")
+	return identity
+}
+
+func firstRealtimeString(value map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if text, ok := value[key].(string); ok && strings.TrimSpace(text) != "" {
+			return strings.TrimSpace(text)
+		}
+	}
+	return ""
+}
+
+func activeRealtimeResponseIdentity(state *realtimeV3SessionState) realtimeV3ResponseIdentity {
+	return realtimeV3ResponseIdentity{
+		questionID: state.activeQuestionID,
+		responseID: state.activeResponseID,
+	}
+}
+
+func addRealtimeResponseIdentity(event map[string]any, identity realtimeV3ResponseIdentity) {
+	if identity.responseID != "" {
+		event["response_id"] = identity.responseID
+		event["provider_response_id"] = identity.responseID
+	}
+	if identity.questionID != "" {
+		event["provider_question_id"] = identity.questionID
+	}
+}
+
+func acceptRealtimeResponseIdentity(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	state *realtimeV3SessionState,
+	identity realtimeV3ResponseIdentity,
+	eventType EventType,
+) (bool, error) {
+	if identity.responseID == "" {
+		return false, failRealtimeTurnDesync(c, info, state, eventType, "missing_response_id", identity.fieldNames)
+	}
+	if _, interrupted := state.interruptedResponseIDs[identity.responseID]; interrupted {
+		return false, nil
+	}
+	if state.activeResponseID == "" {
+		state.activeResponseID = identity.responseID
+		state.activeQuestionID = identity.questionID
+		state.responseGeneration++
+		state.responseInterrupted = false
+		state.awaitingResponseAfterCut = false
+		return true, nil
+	}
+	if state.activeResponseID != identity.responseID {
+		return false, failRealtimeTurnDesync(c, info, state, eventType, "response_id_mismatch", identity.fieldNames)
+	}
+	if state.activeQuestionID == "" {
+		state.activeQuestionID = identity.questionID
+	} else if identity.questionID != "" && state.activeQuestionID != identity.questionID {
+		return false, failRealtimeTurnDesync(c, info, state, eventType, "question_id_mismatch", identity.fieldNames)
+	}
+	return true, nil
+}
+
+func interruptRealtimeResponse(state *realtimeV3SessionState) realtimeV3ResponseIdentity {
+	identity := activeRealtimeResponseIdentity(state)
+	state.interruptionEpoch++
+	state.responseInterrupted = true
+	state.awaitingResponseAfterCut = true
+	if identity.responseID != "" {
+		if state.interruptedResponseIDs == nil {
+			state.interruptedResponseIDs = make(map[string]uint64)
+		}
+		state.interruptedResponseIDs[identity.responseID] = state.interruptionEpoch
+	}
+	state.activeQuestionID = ""
+	state.activeResponseID = ""
+	state.assistantText.Reset()
+	finalizeRealtimeTurn(state)
+	return identity
+}
+
+func failRealtimeTurnDesync(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	state *realtimeV3SessionState,
+	eventType EventType,
+	reason string,
+	payloadFieldNames []string,
+) error {
+	state.desynced = true
+	state.responseInterrupted = true
+	state.awaitingResponseAfterCut = false
+	state.assistantText.Reset()
+	logger.LogWarn(c, fmt.Sprintf(
+		"volcengine realtime turn desync: event_type=%s interruption_epoch=%d response_generation=%d reason=%s payload_fields=%s",
+		eventType,
+		state.interruptionEpoch,
+		state.responseGeneration,
+		reason,
+		strings.Join(payloadFieldNames, ","),
+	))
+	if err := helper.WssObject(c, info.ClientWs, map[string]any{
+		"type":     "response.interrupted",
+		"event_id": helper.GetLocalRealtimeID(c),
+		"reason":   "realtime_turn_desync",
+	}); err != nil {
+		return err
+	}
+	return helper.WssObject(c, info.ClientWs, map[string]any{
+		"type":          "error",
+		"code":          "REALTIME_TURN_DESYNC",
+		"message":       "Realtime provider turn identity could not be resolved",
+		"errorCategory": "protocol_desync",
+		"retryable":     false,
+		"fatal":         true,
+		"metadata": map[string]any{
+			"sourceEventType":    eventType.String(),
+			"interruptionEpoch":  state.interruptionEpoch,
+			"responseGeneration": state.responseGeneration,
+			"payloadFieldNames":  append([]string(nil), payloadFieldNames...),
+			"reason":             reason,
+		},
+	})
+}
+
+func logRealtimeProviderEvent(
+	c *gin.Context,
+	state *realtimeV3SessionState,
+	message *Message,
+	payloadFieldNames []string,
+) {
+	if state.diagnosticStartedAt.IsZero() {
+		state.diagnosticStartedAt = time.Now()
+	}
+	state.diagnosticEventSequence++
+	hasSequence := message.MsgTypeFlag == MsgTypeFlagPositiveSeq || message.MsgTypeFlag == MsgTypeFlagNegativeSeq
+	logger.LogDebug(
+		c,
+		"volcengine realtime provider event: event_type=%s diagnostic_sequence=%d provider_sequence=%d has_provider_sequence=%t relative_ms=%d interruption_epoch=%d response_generation=%d payload_fields=%s",
+		message.EventType,
+		state.diagnosticEventSequence,
+		message.Sequence,
+		hasSequence,
+		time.Since(state.diagnosticStartedAt).Milliseconds(),
+		state.interruptionEpoch,
+		state.responseGeneration,
+		strings.Join(payloadFieldNames, ","),
+	)
 }
 
 // Volcengine ASRResponse frames contain the current utterance hypothesis, not
@@ -352,17 +664,71 @@ func mergeRealtimeASRHypothesis(current *string, incoming string) string {
 	return ""
 }
 
-func emitRealtimeAudio(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState, audio []byte) error {
+func emitRealtimeAudio(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	state *realtimeV3SessionState,
+	audio []byte,
+	identity realtimeV3ResponseIdentity,
+) error {
 	if len(audio) == 0 {
 		return nil
 	}
+	mimeType := detectRealtimeAudioMimeType(audio)
+	if mimeType != "audio/pcm" {
+		return fmt.Errorf("volcengine realtime requested pcm_s16le but received %s; refusing to relay encoded audio as PCM", mimeType)
+	}
 	addRealtimeAudioUsage(&state.turnUsage, len(audio), defaultRealtimeOutputRate, false)
-	return helper.WssObject(c, info.ClientWs, map[string]any{
-		"type": "response.audio.delta", "event_id": helper.GetLocalRealtimeID(c), "delta": base64.StdEncoding.EncodeToString(audio),
-	})
+	return emitRealtimeAudioPayload(c, info, audio, mimeType, identity)
 }
 
-func emitRealtimeAssistantTranscript(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState) error {
+func emitRealtimeAudioPayload(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	audio []byte,
+	mimeType string,
+	identity realtimeV3ResponseIdentity,
+) error {
+	event := map[string]any{
+		"type":        "response.audio.delta",
+		"event_id":    helper.GetLocalRealtimeID(c),
+		"delta":       base64.StdEncoding.EncodeToString(audio),
+		"mime_type":   mimeType,
+		"sample_rate": defaultRealtimeOutputRate,
+		"channels":    1,
+	}
+	addRealtimeResponseIdentity(event, identity)
+	return helper.WssObject(c, info.ClientWs, event)
+}
+
+func detectRealtimeAudioMimeType(audio []byte) string {
+	if len(audio) >= 4 && bytes.Equal(audio[:4], []byte("OggS")) {
+		return "audio/ogg; codecs=opus"
+	}
+	if len(audio) >= 12 && bytes.Equal(audio[:4], []byte("RIFF")) && bytes.Equal(audio[8:12], []byte("WAVE")) {
+		return "audio/wav"
+	}
+	return "audio/pcm"
+}
+
+func sendRealtimeCommitSilence(target *websocket.Conn, sessionID string) error {
+	const frameMilliseconds = 100
+	frameBytes := defaultRealtimeSampleRate * 2 * frameMilliseconds / 1000
+	frame := make([]byte, frameBytes)
+	for sent := 0; sent < realtimeCommitSilenceMilliseconds; sent += frameMilliseconds {
+		if err := sendRealtimeProtocolEvent(target, MsgTypeAudioOnlyClient, EventType_TaskRequest, sessionID, frame); err != nil {
+			return fmt.Errorf("flush volcengine realtime input: %w", err)
+		}
+	}
+	return nil
+}
+
+func emitRealtimeAssistantTranscript(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	state *realtimeV3SessionState,
+	identity realtimeV3ResponseIdentity,
+) error {
 	text := state.assistantText.String()
 	if text == "" {
 		return nil
@@ -372,9 +738,11 @@ func emitRealtimeAssistantTranscript(c *gin.Context, info *relaycommon.RelayInfo
 	state.turnUsage.OutputTokenDetails.TextTokens += textTokens
 	state.turnUsage.OutputTokens += textTokens
 	state.turnUsage.TotalTokens += textTokens
-	return helper.WssObject(c, info.ClientWs, map[string]any{
+	event := map[string]any{
 		"type": "response.audio_transcript.done", "event_id": helper.GetLocalRealtimeID(c), "transcript": text,
-	})
+	}
+	addRealtimeResponseIdentity(event, identity)
+	return helper.WssObject(c, info.ClientWs, event)
 }
 
 func extractRealtimeText(payload []byte) string {
@@ -382,7 +750,7 @@ func extractRealtimeText(payload []byte) string {
 		return ""
 	}
 	var value map[string]any
-	if json.Unmarshal(payload, &value) != nil {
+	if common.Unmarshal(payload, &value) != nil {
 		return ""
 	}
 	for _, key := range []string{"content", "text", "transcript"} {
@@ -421,14 +789,13 @@ func addRealtimeAudioUsage(usage *dto.RealtimeUsage, byteCount, sampleRate int, 
 	}
 }
 
-func consumeRealtimeTurn(c *gin.Context, info *relaycommon.RelayInfo, state *realtimeV3SessionState) error {
+func finalizeRealtimeTurn(state *realtimeV3SessionState) {
 	usage := state.turnUsage
 	if usage.TotalTokens == 0 {
-		return nil
+		return
 	}
 	addRealtimeUsage(&state.totalUsage, &usage)
 	state.turnUsage = dto.RealtimeUsage{}
-	return service.PreWssConsumeQuota(c, info, &usage)
 }
 
 func addRealtimeUsage(target, source *dto.RealtimeUsage) {
