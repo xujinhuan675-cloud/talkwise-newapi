@@ -272,11 +272,12 @@ describe('training scenario contract', () => {
       undefined,
       'simulation',
       undefined,
-      'voice-route-standard'
+      'voice-route-standard',
+      'realtime'
     )
 
-    assert.equal(mode, 'realtime')
-    assert.equal(request.mode, 'realtime')
+    assert.equal(mode, 'voice')
+    assert.equal(request.mode, 'voice')
     assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.interactionMode, 'realtime')
     assert.equal(
@@ -347,6 +348,13 @@ describe('training scenario contract', () => {
       trainingSessionModeForSelection({
         modality: 'voice',
         interactionMode: 'turn_based',
+      }),
+      'voice'
+    )
+    assert.equal(
+      trainingSessionModeForSelection({
+        modality: 'voice',
+        interactionMode: 'realtime',
       }),
       'voice'
     )

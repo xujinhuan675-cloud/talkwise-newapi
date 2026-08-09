@@ -79,6 +79,7 @@ export interface StudioLaunchInput {
   role: string
   goal: string
   mode: TrainingStudioMode
+  interactionMode?: TrainingInteractionMode
   feedbackMode: TrainingFeedbackMode
   pressure?: TrainingPressure
   lengthProfile?: TrainingLengthProfile
@@ -402,15 +403,13 @@ function normalizeGuidance(snapshot: GuidanceSnapshotDTO): GuidanceSnapshot {
 function studioPersona(input: StudioLaunchInput) {
   const role = input.role.trim() || 'Learner'
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
+  const modality = input.mode === 'realtime' ? 'voice' : input.mode
   let difficulty: 'easy' | 'normal' | 'hard' = 'normal'
   if (input.pressure === 'easy') difficulty = 'easy'
   if (input.pressure === 'hard') difficulty = 'hard'
 
   return {
-    name:
-      input.mode === 'voice' || input.mode === 'realtime'
-        ? 'Voice practice partner'
-        : 'Practice partner',
+    name: modality === 'voice' ? 'Voice practice partner' : 'Practice partner',
     role: 'Training counterpart',
     style:
       'Keep the conversation focused, ask one clear follow-up at a time, and respond in role.',
@@ -429,9 +428,15 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
   const goal = input.goal.trim() || `Practice a ${role} conversation.`
   const pressure = input.pressure ?? 'medium'
   const lengthProfile = input.lengthProfile ?? 'standard'
+  const modality = input.mode === 'realtime' ? 'voice' : input.mode
+  const interactionMode =
+    modality === 'voice'
+      ? (input.interactionMode ??
+        (input.mode === 'realtime' ? 'realtime' : 'turn_based'))
+      : 'turn_based'
 
   return {
-    mode: input.mode,
+    mode: modality,
     task_config: {
       role,
       level: 'standard',
@@ -448,8 +453,8 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
       metadata: {
         source: 'newapi_training_studio',
         counterpartPersona: studioPersona(input),
-        trainingMode: input.mode === 'realtime' ? 'voice' : input.mode,
-        interactionMode: input.mode === 'realtime' ? 'realtime' : 'turn_based',
+        trainingMode: modality,
+        interactionMode,
         feedbackMode: input.feedbackMode,
         trainingGoal: goal,
         trainingPlan: trainingPlanMetadata({
@@ -458,13 +463,10 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
           pressure,
           lengthProfile,
         }),
-        ...((input.mode === 'voice' || input.mode === 'realtime') &&
-        input.voiceRouteId
+        ...(modality === 'voice' && input.voiceRouteId
           ? { voiceRouteId: input.voiceRouteId }
           : {}),
-        ...(input.mode !== 'voice' &&
-        input.mode !== 'realtime' &&
-        input.llmModel
+        ...(modality !== 'voice' && input.llmModel
           ? { llmModel: input.llmModel }
           : {}),
         ...(input.liveCoach
@@ -517,6 +519,7 @@ export function buildLiveCoachSessionInput(input: {
     role: 'Live coaching learner',
     goal: `${goal}\n${languageContext}`,
     mode: 'voice',
+    interactionMode: 'turn_based',
     feedbackMode: 'assisted',
     liveCoach: {
       sourceLanguage: input.sourceLanguage.trim() || 'default',

@@ -5,6 +5,18 @@ import { api } from '@/lib/http-client'
 import { trainingApiUrl } from './scenarios/api'
 
 export type VoiceRouteMode = 'cascade' | 'speech_to_speech'
+export type VoiceRouteAdapterStatus = 'runtime_integrated' | 'inventory_only'
+export type VoiceRouteInteractionMode = 'turn_based' | 'realtime'
+export type VoiceRoutePresetGroup = 'cascade' | 'native_voice' | 'curated_demo'
+
+export interface VoiceRouteReadiness {
+  status: 'ready' | 'blocked'
+  ready: boolean
+  code?: string | null
+  reason?: string | null
+  missingCredentials: string[]
+  missingDependencies: string[]
+}
 
 export interface VoiceRouteService {
   provider: string
@@ -20,14 +32,20 @@ export interface VoiceRoute {
   enabled: boolean
   default: boolean
   revision: number
+  adapterStatus: VoiceRouteAdapterStatus
+  interactionModes: VoiceRouteInteractionMode[]
+  presetGroup?: VoiceRoutePresetGroup
+  credentialEnv: string[]
   stt?: VoiceRouteService | null
   llm?: VoiceRouteService | null
   tts?: VoiceRouteService | null
   realtime?: VoiceRouteService | null
+  openingTts?: VoiceRouteService | null
   inputSampleRate: number
   outputSampleRate: number
   latencyProfile: string
   costProfile: string
+  readiness?: VoiceRouteReadiness
 }
 
 export interface VoiceRouteConfig {
@@ -39,6 +57,45 @@ export interface VoiceRouteConfig {
 export interface TrainingModelOption {
   label: string
   value: string
+}
+
+export function voiceRouteSupportsInteraction(
+  route: VoiceRoute,
+  mode: VoiceRouteInteractionMode
+): boolean {
+  if (route.interactionModes?.length) {
+    return route.interactionModes.includes(mode)
+  }
+  return mode === 'realtime' || route.mode === 'cascade'
+}
+
+export function voiceRoutePresetGroup(
+  route: VoiceRoute
+): VoiceRoutePresetGroup {
+  if (route.presetGroup) return route.presetGroup
+  if (route.adapterStatus === 'inventory_only') return 'curated_demo'
+  return route.mode === 'cascade' ? 'cascade' : 'native_voice'
+}
+
+export function voiceRouteIsReady(route: VoiceRoute): boolean {
+  return route.readiness?.ready !== false
+}
+
+export function voiceRouteDisabledReason(
+  route: VoiceRoute,
+  localize: (english: string, chinese: string) => string
+): string | undefined {
+  if (voiceRouteIsReady(route)) return undefined
+  if (route.readiness?.code === 'VOICE_ROUTE_ADAPTER_NOT_INTEGRATED') {
+    return localize(
+      'Unavailable: runtime adapter not integrated',
+      '暂不可用：运行适配器尚未接入'
+    )
+  }
+  return localize(
+    'Unavailable: provider configuration is incomplete',
+    '暂不可用：服务商配置不完整'
+  )
 }
 
 interface TalkWiseResponse<T> {

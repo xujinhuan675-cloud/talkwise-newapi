@@ -32,7 +32,7 @@ import {
   Search,
   Video,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -104,7 +104,14 @@ import {
   type TrainingLengthProfile,
   type TrainingPressure,
 } from '../training-plan'
-import { listTrainingVoiceRoutes, type VoiceRoute } from '../voice-routes'
+import {
+  listTrainingVoiceRoutes,
+  voiceRouteDisabledReason,
+  voiceRouteIsReady,
+  voiceRoutePresetGroup,
+  voiceRouteSupportsInteraction,
+  type VoiceRoute,
+} from '../voice-routes'
 import {
   type buildTrainingSessionRequest,
   filterTrainingScenarios,
@@ -452,8 +459,11 @@ export function TrainingScenarios() {
     storageKey: 'talkwise.training-scenarios.view-mode',
     defaultMode: 'table',
   })
-  const localize = (english: string, chinese: string) =>
-    i18n.language.startsWith('zh') ? chinese : t(english)
+  const localize = useCallback(
+    (english: string, chinese: string) =>
+      i18n.language.startsWith('zh') ? chinese : t(english),
+    [i18n.language, t]
+  )
 
   const {
     config: playgroundConfig,
@@ -484,41 +494,53 @@ export function TrainingScenarios() {
   })
   const selectableVoiceRoutes = useMemo(
     () =>
-      (voiceRoutesQuery.data ?? []).filter(
-        (route) => interactionMode === 'realtime' || route.mode === 'cascade'
+      (voiceRoutesQuery.data ?? []).filter((route) =>
+        voiceRouteSupportsInteraction(route, interactionMode)
       ),
     [interactionMode, voiceRoutesQuery.data]
   )
   const voiceRouteOptions = useMemo(
     () =>
-      selectableVoiceRoutes.map((route) => ({
-        value: route.id,
-        label: trainingVoiceRouteLocalizedName(route, localize),
-        category: localize(
-          route.mode === 'cascade' ? 'Cascade' : 'Realtime',
-          route.mode === 'cascade' ? '级联' : '实时'
-        ),
-        description: trainingVoiceRouteLocalizedDescription(route, localize),
-      })),
+      selectableVoiceRoutes.map((route) => {
+        const group = voiceRoutePresetGroup(route)
+        const category = {
+          cascade: localize('Cascade combinations', '级联组合'),
+          native_voice: localize('Native voice', '原生语音'),
+          curated_demo: localize('Curated demos', '精选 Demo'),
+        }[group]
+
+        return {
+          value: route.id,
+          label: trainingVoiceRouteLocalizedName(route, localize),
+          category,
+          description: trainingVoiceRouteLocalizedDescription(route, localize),
+          disabled: !voiceRouteIsReady(route),
+          disabledReason: voiceRouteDisabledReason(route, localize),
+        }
+      }),
     [localize, selectableVoiceRoutes]
   )
   useEffect(() => {
-    if (!selectableVoiceRoutes.length) {
+    const readyRoutes = selectableVoiceRoutes.filter(voiceRouteIsReady)
+    if (!readyRoutes.length) {
       if (voiceRouteId) setVoiceRouteId('')
       return
     }
-    if (selectableVoiceRoutes.some((route) => route.id === voiceRouteId)) {
+    if (readyRoutes.some((route) => route.id === voiceRouteId)) {
       return
     }
     const defaultRoute =
-      selectableVoiceRoutes.find((route) => route.default) ??
-      selectableVoiceRoutes[0]
+      readyRoutes.find((route) => route.default) ?? readyRoutes[0]
     setVoiceRouteId(defaultRoute.id)
   }, [selectableVoiceRoutes, voiceRouteId])
+  const selectedVoiceRoute = selectableVoiceRoutes.find(
+    (route) => route.id === voiceRouteId
+  )
 
   const createSessionMutation = useMutation({
     mutationFn: (request: {
       mode: TrainingSessionMode
+      interactionMode: TrainingInteractionMode
       feedbackMode: TrainingFeedbackMode
       plan: Parameters<typeof buildTrainingSessionRequest>[2]
       retrySessionId: string | null
@@ -534,7 +556,8 @@ export function TrainingScenarios() {
           request.mode,
           request.plan,
           undefined,
-          request.feedbackMode
+          request.feedbackMode,
+          request.interactionMode
         )
       }
       return launchScenarioTrainingSession(
@@ -545,7 +568,8 @@ export function TrainingScenarios() {
         undefined,
         request.feedbackMode,
         request.llmModel,
-        request.voiceRouteId
+        request.voiceRouteId,
+        request.interactionMode
       )
     },
     onSuccess: (session) => {
@@ -617,8 +641,11 @@ export function TrainingScenarios() {
   }
   const interactionModeLabel = (value: TrainingInteractionMode) => {
     const labels = {
-      turn_based: localize('Turn based', '回合制'),
-      realtime: localize('Realtime', '实时'),
+      turn_based: localize('Turn-by-turn conversation', '逐轮对话'),
+      realtime: localize(
+        'Natural conversation (interruptible)',
+        '自然对话（可打断）'
+      ),
     }
     return labels[value]
   }
@@ -670,6 +697,7 @@ export function TrainingScenarios() {
     })
     createSessionMutation.mutate({
       mode,
+      interactionMode,
       feedbackMode,
       scenario: selectedScenario,
       plan: {
@@ -1079,7 +1107,7 @@ export function TrainingScenarios() {
                           <ToggleGroupItem
                             key={option.value}
                             value={option.value}
-                            className='w-full'
+                            className='h-auto min-h-9 w-full gap-1 px-2 py-1.5 text-center whitespace-normal'
                             disabled={!available}
                             title={
                               available
@@ -1215,7 +1243,8 @@ export function TrainingScenarios() {
                     modality === 'video' ||
                     selectedFocus.length === 0 ||
                     (modality === 'voice'
-                      ? !voiceRouteId
+                      ? !selectedVoiceRoute ||
+                        !voiceRouteIsReady(selectedVoiceRoute)
                       : !playgroundConfig.model)
                   }
                 >

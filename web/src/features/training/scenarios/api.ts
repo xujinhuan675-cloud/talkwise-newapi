@@ -39,6 +39,7 @@ import type {
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
   TrainingScenarioFilters,
+  TrainingInteractionMode,
   TrainingModeSelection,
   TrainingSession,
   TrainingSessionMode,
@@ -300,12 +301,6 @@ export function trainingSessionModeForSelection(
       `${selection.modality} does not support ${selection.interactionMode} training`
     )
   }
-  if (
-    selection.modality === 'voice' &&
-    selection.interactionMode === 'realtime'
-  ) {
-    return 'realtime'
-  }
   return selection.modality
 }
 
@@ -321,7 +316,8 @@ export function buildTrainingSessionRequest(
   voiceId?: TrainingVoiceId,
   feedbackMode: TrainingFeedbackMode = 'simulation',
   llmModel?: string,
-  voiceRouteId?: string
+  voiceRouteId?: string,
+  interactionMode?: TrainingInteractionMode
 ): CreateTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const rubricWeights = Object.fromEntries(
@@ -333,10 +329,11 @@ export function buildTrainingSessionRequest(
   const category =
     scenario.category === 'customer_service' ? 'workplace' : scenario.category
   const trainingMode = trainingModalityForMode(mode)
-  const interactionMode = mode === 'realtime' ? 'realtime' : 'turn_based'
+  const resolvedInteractionMode =
+    interactionMode ?? (mode === 'realtime' ? 'realtime' : 'turn_based')
 
   return {
-    mode,
+    mode: trainingMode,
     scenario_template_id: scenario.id,
     task_config: {
       role: scenario.learnerRole,
@@ -366,7 +363,7 @@ export function buildTrainingSessionRequest(
         trainingFeedbackMode: feedbackMode,
         feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
         trainingMode,
-        interactionMode,
+        interactionMode: resolvedInteractionMode,
         ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
         ...(mode === 'voice' || mode === 'realtime'
           ? voiceRouteId
@@ -399,7 +396,7 @@ export function buildTrainingSessionRequest(
           dimension_weights: scenario.dimensionWeights,
           feedbackMode,
           trainingMode,
-          interactionMode,
+          interactionMode: resolvedInteractionMode,
           ...(resolvedVoiceId ? { voice_id: resolvedVoiceId } : {}),
         },
       },
@@ -439,11 +436,13 @@ export function buildScenarioStartRequest(
     lengthProfile: 'standard',
   },
   voiceId?: TrainingVoiceId,
-  feedbackMode: TrainingFeedbackMode = 'simulation'
+  feedbackMode: TrainingFeedbackMode = 'simulation',
+  interactionMode?: TrainingInteractionMode
 ): StartTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const trainingMode = trainingModalityForMode(mode)
-  const interactionMode = mode === 'realtime' ? 'realtime' : 'turn_based'
+  const resolvedInteractionMode =
+    interactionMode ?? (mode === 'realtime' ? 'realtime' : 'turn_based')
   const trainingPoints =
     plan.selectedFocus.length > 0
       ? [...plan.selectedFocus]
@@ -464,7 +463,7 @@ export function buildScenarioStartRequest(
           source: 'scenario_training_opening',
           scenarioTrainingId: scenario.id,
           trainingMode,
-          interactionMode,
+          interactionMode: resolvedInteractionMode,
           feedbackMode,
           trainingFeedbackMode: feedbackMode,
           feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
@@ -482,7 +481,7 @@ export function buildScenarioStartRequest(
       }
     : null
 
-  if (mode === 'text') {
+  if (trainingMode === 'text') {
     return {
       runtime: 'conversation_message_tree',
       ...(openingMessage ? { opening_message: openingMessage } : {}),
@@ -554,14 +553,22 @@ export async function startScenarioTrainingSession(
   mode: TrainingSessionMode,
   plan?: TrainingPlanInput,
   voiceId?: TrainingVoiceId,
-  feedbackMode: TrainingFeedbackMode = 'simulation'
+  feedbackMode: TrainingFeedbackMode = 'simulation',
+  interactionMode?: TrainingInteractionMode
 ): Promise<TrainingSession> {
   const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
     trainingApiUrl(
       apiBase,
       `${TRAINING_SESSIONS_PATH}/${encodeURIComponent(sessionId)}/start`
     ),
-    buildScenarioStartRequest(scenario, mode, plan, voiceId, feedbackMode),
+    buildScenarioStartRequest(
+      scenario,
+      mode,
+      plan,
+      voiceId,
+      feedbackMode,
+      interactionMode
+    ),
     { skipBusinessError: true, skipErrorHandler: true }
   )
   const session = requireTalkWiseData(response.data)
@@ -601,7 +608,8 @@ export async function launchScenarioTrainingSession(
   voiceId?: TrainingVoiceId,
   feedbackMode: TrainingFeedbackMode = 'simulation',
   llmModel?: string,
-  voiceRouteId?: string
+  voiceRouteId?: string,
+  interactionMode?: TrainingInteractionMode
 ): Promise<TrainingSession> {
   const created = await createTrainingSession(
     apiBase,
@@ -612,7 +620,8 @@ export async function launchScenarioTrainingSession(
       voiceId,
       feedbackMode,
       llmModel,
-      voiceRouteId
+      voiceRouteId,
+      interactionMode
     )
   )
   try {
@@ -623,7 +632,8 @@ export async function launchScenarioTrainingSession(
       mode,
       plan,
       voiceId,
-      feedbackMode
+      feedbackMode,
+      interactionMode
     )
   } catch (error) {
     throw new ScenarioTrainingStartError(created.sessionId, error)
