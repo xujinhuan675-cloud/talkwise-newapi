@@ -250,7 +250,11 @@ export function TrainingRoomTimeline({
   )
 
   const startReplay = useCallback(
-    async (messageId: string, synthesizeMissing = false): Promise<boolean> => {
+    async (
+      messageId: string,
+      synthesizeMissing = false,
+      notifyResynthesis = true
+    ): Promise<boolean> => {
       stopAudio()
       stopReplay(false)
       const generation = replayGenerationRef.current
@@ -281,12 +285,14 @@ export function TrainingRoomTimeline({
               controller.signal
             )
         if (synthesizeMissing) {
-          toast.info(
-            localize(
-              'Historical audio was recreated with the current voice configuration; it is not the original playback.',
-              '历史音频已按当前语音配置重新合成并保存，不是此前播放的原始音频。'
+          if (notifyResynthesis) {
+            toast.info(
+              localize(
+                'Historical audio was recreated with the current voice configuration; it is not the original playback.',
+                '历史音频已按当前语音配置重新合成并保存，不是此前播放的原始音频。'
+              )
             )
-          )
+          }
           void loadMessages()
         }
         for (const segment of manifest.segments) {
@@ -566,7 +572,7 @@ export function TrainingRoomTimeline({
     if (hasPlayedTrainingOpening(sessionStorage, sessionId, opening.id)) return
     openingPlaybackAttemptRef.current = playbackId
 
-    void startReplay(opening.id, shouldSynthesize).then((played) => {
+    void startReplay(opening.id, shouldSynthesize, false).then((played) => {
       if (played) {
         markTrainingOpeningPlayed(sessionStorage, sessionId, opening.id)
       }

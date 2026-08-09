@@ -17,6 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
+import { sniffVoiceAudioMimeType } from './voice-audio'
+
 export type RealtimeProfile = 'cascade' | 'speech_to_speech'
 
 export type RealtimeTrainingStatus =
@@ -201,7 +203,7 @@ export function realtimeEventAudio(event: RealtimeServerEvent): {
           typeof record.channels === 'number'
             ? Math.max(1, record.channels)
             : 1,
-        mimeType,
+        mimeType: sniffVoiceAudioMimeType(bytes, mimeType),
         sampleRate,
       }
     } catch {

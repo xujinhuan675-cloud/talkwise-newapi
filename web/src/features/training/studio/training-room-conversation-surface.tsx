@@ -304,8 +304,6 @@ export function TrainingRoomConversationSurface({
   )
 
   useEffect(() => {
-    mediaControlRef.current = null
-    setMediaAction(null)
     setIsVoiceInputActive(false)
     setIsVideoPanelOpen(false)
   }, [interactionMode, mode, roomId, trainingSession.sessionId])
@@ -372,13 +370,13 @@ export function TrainingRoomConversationSurface({
 
   const fallbackMediaAction: TrainingRoomPrimaryActionState = {
     active: false,
-    disabled: trainingSession.status !== 'active',
+    disabled: true,
     icon: mode === 'video' ? 'camera' : 'mic',
     label:
       mode === 'video'
         ? localize('Enable camera', '开启摄像头')
         : localize('Voice input', '语音输入'),
-    title: localize('Use the shared room action', '使用房间统一操作'),
+    title: localize('Preparing media controls', '正在准备媒体控制'),
     tone: 'default',
   }
   const resolvedMediaAction = mediaAction ?? fallbackMediaAction
