@@ -50,25 +50,31 @@ import {
 } from '../training-display-labels'
 import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../training-feedback'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
-import { listTrainingVoiceRoutes, type VoiceRoute } from '../voice-routes'
+import {
+  listTrainingVoiceRoutes,
+  voiceRouteDisabledReason,
+  voiceRouteIsReady,
+  voiceRoutePresetGroup,
+  voiceRouteSupportsInteraction,
+  type VoiceRoute,
+} from '../voice-routes'
 import {
   launchTrainingSession,
   trainingStudioErrorMessage,
   type TrainingFeedbackMode,
-  type TrainingStudioMode,
+  type TrainingInteractionMode,
+  type TrainingModality,
 } from './api'
 
-const MODES: Array<{ value: TrainingStudioMode; label: string }> = [
+const MODALITIES: Array<{ value: TrainingModality; label: string }> = [
   { value: 'text', label: 'Text' },
   { value: 'voice', label: 'Voice' },
-  { value: 'realtime', label: 'Realtime' },
   { value: 'video', label: 'Video' },
 ]
 
 function chineseModeLabel(label: string): string {
   if (label === 'Text') return '文本'
   if (label === 'Voice') return '语音'
-  if (label === 'Realtime') return '实时'
   return '视频'
 }
 
@@ -84,7 +90,9 @@ function TrainingStudioContent({
   const navigate = useNavigate()
   const [role, setRole] = useState('')
   const [goal, setGoal] = useState('')
-  const [mode, setMode] = useState<TrainingStudioMode>('voice')
+  const [mode, setMode] = useState<TrainingModality>('voice')
+  const [interactionMode, setInteractionMode] =
+    useState<TrainingInteractionMode>('turn_based')
   const [voiceRouteId, setVoiceRouteId] = useState('')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
@@ -121,37 +129,51 @@ function TrainingStudioContent({
   })
   const selectableVoiceRoutes = useMemo(
     () =>
-      (voiceRoutesQuery.data ?? []).filter(
-        (route) => mode === 'realtime' || route.mode === 'cascade'
+      (voiceRoutesQuery.data ?? []).filter((route) =>
+        voiceRouteSupportsInteraction(
+          route,
+          mode === 'voice' ? interactionMode : 'turn_based'
+        )
       ),
-    [mode, voiceRoutesQuery.data]
+    [interactionMode, mode, voiceRoutesQuery.data]
   )
   const voiceRouteOptions = useMemo(
     () =>
-      selectableVoiceRoutes.map((route) => ({
-        value: route.id,
-        label: trainingVoiceRouteLocalizedName(route, localize),
-        category: localize(
-          route.mode === 'cascade' ? 'Cascade' : 'Realtime',
-          route.mode === 'cascade' ? '级联' : '实时'
-        ),
-        description: trainingVoiceRouteLocalizedDescription(route, localize),
-      })),
+      selectableVoiceRoutes.map((route) => {
+        const group = voiceRoutePresetGroup(route)
+        const category = {
+          cascade: localize('Cascade combinations', '级联组合'),
+          native_voice: localize('Native voice', '原生语音'),
+          curated_demo: localize('Curated demos', '精选 Demo'),
+        }[group]
+
+        return {
+          value: route.id,
+          label: trainingVoiceRouteLocalizedName(route, localize),
+          category,
+          description: trainingVoiceRouteLocalizedDescription(route, localize),
+          disabled: !voiceRouteIsReady(route),
+          disabledReason: voiceRouteDisabledReason(route, localize),
+        }
+      }),
     [localize, selectableVoiceRoutes]
   )
   useEffect(() => {
-    if (!selectableVoiceRoutes.length) {
+    const readyRoutes = selectableVoiceRoutes.filter(voiceRouteIsReady)
+    if (!readyRoutes.length) {
       if (voiceRouteId) setVoiceRouteId('')
       return
     }
-    if (selectableVoiceRoutes.some((route) => route.id === voiceRouteId)) {
+    if (readyRoutes.some((route) => route.id === voiceRouteId)) {
       return
     }
     const defaultRoute =
-      selectableVoiceRoutes.find((route) => route.default) ??
-      selectableVoiceRoutes[0]
+      readyRoutes.find((route) => route.default) ?? readyRoutes[0]
     setVoiceRouteId(defaultRoute.id)
   }, [selectableVoiceRoutes, voiceRouteId])
+  const selectedVoiceRoute = selectableVoiceRoutes.find(
+    (route) => route.id === voiceRouteId
+  )
 
   useEffect(() => {
     if (!initialSessionId) return
@@ -170,10 +192,11 @@ function TrainingStudioContent({
         role,
         goal,
         mode,
+        interactionMode,
         feedbackMode,
         pressure,
         lengthProfile,
-        ...(mode === 'voice' || mode === 'realtime'
+        ...(mode === 'voice'
           ? { voiceRouteId }
           : { llmModel: playgroundConfig.model }),
       })
@@ -246,21 +269,21 @@ function TrainingStudioContent({
                     />
                   </div>
                   <div className='space-y-2'>
-                    <Label>{localize('Training mode', '训练模式')}</Label>
+                    <Label>{localize('Training modality', '训练媒介')}</Label>
                     <ToggleGroup
                       value={[mode]}
                       onValueChange={(values) => {
                         const nextMode = values.find((value) => value !== mode)
                         if (nextMode) {
-                          setMode(nextMode as TrainingStudioMode)
+                          setMode(nextMode as TrainingModality)
                         }
                       }}
                       variant='outline'
-                      className='grid w-full grid-cols-4'
+                      className='grid w-full grid-cols-3'
                       disabled={isLaunching}
-                      aria-label={localize('Training mode', '训练模式')}
+                      aria-label={localize('Training modality', '训练媒介')}
                     >
-                      {MODES.map((option) => (
+                      {MODALITIES.map((option) => (
                         <ToggleGroupItem
                           key={option.value}
                           value={option.value}
@@ -276,13 +299,52 @@ function TrainingStudioContent({
                   </div>
                 </div>
 
+                {mode === 'voice' && (
+                  <div className='space-y-2'>
+                    <Label>{localize('Interaction mode', '交互方式')}</Label>
+                    <ToggleGroup
+                      value={[interactionMode]}
+                      onValueChange={(values) => {
+                        const nextMode = values.find(
+                          (value) => value !== interactionMode
+                        )
+                        if (nextMode) {
+                          setInteractionMode(
+                            nextMode as TrainingInteractionMode
+                          )
+                        }
+                      }}
+                      variant='outline'
+                      className='grid w-full grid-cols-2'
+                      disabled={isLaunching}
+                      aria-label={localize('Interaction mode', '交互方式')}
+                    >
+                      <ToggleGroupItem
+                        value='turn_based'
+                        className='h-auto min-h-9 w-full px-2 py-1.5 text-center whitespace-normal'
+                      >
+                        {localize('Turn-by-turn conversation', '逐轮对话')}
+                      </ToggleGroupItem>
+                      <ToggleGroupItem
+                        value='realtime'
+                        className='h-auto min-h-9 w-full px-2 py-1.5 text-center whitespace-normal'
+                      >
+                        {localize(
+                          'Natural conversation (interruptible)',
+                          '自然对话（可打断）'
+                        )}
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
+                )}
+
                 <div className='space-y-2'>
                   <Label>
-                    {mode === 'voice' || mode === 'realtime'
+                    {mode === 'voice'
                       ? localize('Voice preset', '语音预设')
                       : localize('Language model', '语言模型')}
                   </Label>
-                  {mode === 'voice' || mode === 'realtime' ? (
+                  {mode === 'voice' ? (
                     <ModelSelector
                       variant='field'
                       models={voiceRouteOptions}
@@ -445,8 +507,9 @@ function TrainingStudioContent({
                   disabled={
                     isLaunching ||
                     authStatus !== 'authenticated' ||
-                    (mode === 'voice' || mode === 'realtime'
-                      ? !voiceRouteId
+                    (mode === 'voice'
+                      ? !selectedVoiceRoute ||
+                        !voiceRouteIsReady(selectedVoiceRoute)
                       : !playgroundConfig.model)
                   }
                 >

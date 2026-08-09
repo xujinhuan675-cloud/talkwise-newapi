@@ -72,6 +72,8 @@ export interface ModelOption {
   value: string
   category?: string
   description?: string
+  disabled?: boolean
+  disabledReason?: string
 }
 
 interface GroupOption {
@@ -268,11 +270,12 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
 
     const handleModelChange = useCallback(
       (value: string) => {
+        if (models.find((model) => model.value === value)?.disabled) return
         onModelChange(value)
         setOpen(false)
         setSearchQuery('')
       },
-      [onModelChange]
+      [models, onModelChange]
     )
 
     // Shared command content
@@ -319,6 +322,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                     <CommandItem
                       key={model.value}
                       value={model.value}
+                      disabled={model.disabled}
+                      aria-disabled={model.disabled}
+                      title={model.disabledReason}
                       onSelect={handleModelChange}
                       className={cn(
                         'mb-0.5 flex items-center justify-between rounded-lg px-2 py-1.5 text-xs',
@@ -327,17 +333,23 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                         'data-[selected=true]:bg-accent'
                       )}
                     >
-                      <div className='flex min-w-0 flex-1 items-center gap-1'>
+                      <div className='flex min-w-0 flex-1 items-start gap-1'>
                         <div
                           className={cn(
-                            'font-medium',
+                            'min-w-0 flex-1 font-medium',
                             variant === 'field'
                               ? 'break-all whitespace-normal text-left'
                               : 'truncate',
                             isMobile ? 'text-sm' : 'text-[11px]'
                           )}
                         >
-                          <span className='inline'>{model.label}</span>
+                          <span className='block'>{model.label}</span>
+                          {variant === 'field' &&
+                            (model.disabledReason || model.description) && (
+                              <span className='text-muted-foreground mt-0.5 block text-[10px] leading-4 font-normal'>
+                                {model.disabledReason || model.description}
+                              </span>
+                            )}
                         </div>
                         <Check
                           className={cn(

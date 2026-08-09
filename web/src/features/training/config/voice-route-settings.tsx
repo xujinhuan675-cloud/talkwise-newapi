@@ -7,6 +7,7 @@ import {
   type ModelOption,
 } from '@/components/model-group-selector'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -75,6 +76,9 @@ function newVoiceRoute(localize: Localize): VoiceRoute {
     enabled: true,
     default: false,
     revision: 1,
+    adapterStatus: 'runtime_integrated',
+    interactionModes: ['turn_based', 'realtime'],
+    credentialEnv: [],
     stt: { provider: 'openai', model: 'gpt-4o-mini-transcribe' },
     llm: { provider: 'openai', model: 'gpt-4.1-mini' },
     tts: { provider: 'openai', model: 'gpt-4o-mini-tts', voice: 'marin' },
@@ -90,6 +94,7 @@ function routeForMode(route: VoiceRoute, mode: VoiceRouteMode): VoiceRoute {
     return {
       ...route,
       mode,
+      interactionModes: ['turn_based', 'realtime'],
       stt: route.stt ?? { provider: 'openai', model: 'gpt-4o-mini-transcribe' },
       llm: route.llm ?? { provider: 'openai', model: 'gpt-4.1-mini' },
       tts: route.tts ?? {
@@ -105,6 +110,7 @@ function routeForMode(route: VoiceRoute, mode: VoiceRouteMode): VoiceRoute {
   return {
     ...route,
     mode,
+    interactionModes: ['realtime'],
     stt: null,
     llm: null,
     tts: null,
@@ -422,6 +428,37 @@ export function VoiceRouteSettings({
               }
             />
           </div>
+          <div className='flex items-start gap-3 border-y py-3 sm:col-span-2'>
+            <Badge
+              variant={selectedRoute.readiness?.ready ? 'default' : 'secondary'}
+              className='mt-0.5 shrink-0'
+            >
+              {selectedRoute.readiness?.ready
+                ? localize('Ready', '已接入')
+                : localize('Unavailable', '暂不可用')}
+            </Badge>
+            <div className='min-w-0 text-sm'>
+              <p className='font-medium'>
+                {selectedRoute.adapterStatus === 'runtime_integrated'
+                  ? localize('TalkWise runtime adapter', 'TalkWise 运行适配器')
+                  : localize('Curated Pipecat demo', '精选 Pipecat Demo')}
+              </p>
+              {!selectedRoute.readiness?.ready && (
+                <p className='text-muted-foreground mt-0.5 text-xs leading-relaxed'>
+                  {selectedRoute.readiness?.code ===
+                  'VOICE_ROUTE_ADAPTER_NOT_INTEGRATED'
+                    ? localize(
+                        'Published in the catalog, but its runtime adapter has not been integrated yet.',
+                        '已发布到预设目录，但对应运行适配器尚未接入。'
+                      )
+                    : localize(
+                        'Provider configuration is incomplete.',
+                        '服务商配置尚未完成。'
+                      )}
+                </p>
+              )}
+            </div>
+          </div>
           {selectedRoute.mode === 'cascade' ? (
             <CascadeFields
               route={selectedRoute}
@@ -471,6 +508,18 @@ function CascadeFields({
 }) {
   return (
     <>
+      <ServiceProvider
+        label={localize('STT provider', 'STT 提供商')}
+        value={route.stt?.provider ?? 'openai'}
+        options={['openai', 'volcengine.doubao']}
+        readOnly={readOnly}
+        onChange={(provider) =>
+          update((current) => ({
+            ...current,
+            stt: { provider, model: current.stt?.model ?? '' },
+          }))
+        }
+      />
       <ServiceModel
         label={localize('STT model', 'STT 模型')}
         value={route.stt?.model ?? ''}
@@ -480,7 +529,7 @@ function CascadeFields({
         onChange={(model) =>
           update((current) => ({
             ...current,
-            stt: { provider: 'openai', model },
+            stt: { provider: current.stt?.provider ?? 'openai', model },
           }))
         }
       />
@@ -503,6 +552,12 @@ function CascadeFields({
           <SelectContent>
             <SelectItem value='openai'>OpenAI</SelectItem>
             <SelectItem value='openrouter'>OpenRouter</SelectItem>
+            {route.llm?.provider &&
+              !['openai', 'openrouter'].includes(route.llm.provider) && (
+                <SelectItem value={route.llm.provider}>
+                  {route.llm.provider}
+                </SelectItem>
+              )}
           </SelectContent>
         </Select>
       </div>
@@ -519,6 +574,22 @@ function CascadeFields({
           }))
         }
       />
+      <ServiceProvider
+        label={localize('TTS provider', 'TTS 提供商')}
+        value={route.tts?.provider ?? 'openai'}
+        options={['openai', 'volcengine.doubao']}
+        readOnly={readOnly}
+        onChange={(provider) =>
+          update((current) => ({
+            ...current,
+            tts: {
+              provider,
+              model: current.tts?.model ?? '',
+              voice: current.tts?.voice,
+            },
+          }))
+        }
+      />
       <ServiceModel
         label={localize('TTS model', 'TTS 模型')}
         value={route.tts?.model ?? ''}
@@ -528,7 +599,11 @@ function CascadeFields({
         onChange={(model) =>
           update((current) => ({
             ...current,
-            tts: { provider: 'openai', model, voice: current.tts?.voice },
+            tts: {
+              provider: current.tts?.provider ?? 'openai',
+              model,
+              voice: current.tts?.voice,
+            },
           }))
         }
       />
@@ -541,7 +616,11 @@ function CascadeFields({
         onChange={(voice) =>
           update((current) => ({
             ...current,
-            tts: { provider: 'openai', model: current.tts?.model ?? '', voice },
+            tts: {
+              provider: current.tts?.provider ?? 'openai',
+              model: current.tts?.model ?? '',
+              voice,
+            },
           }))
         }
       />
@@ -591,6 +670,14 @@ function NativeFields({
             <SelectItem value='volcengine.doubao_realtime'>
               Volcengine Doubao
             </SelectItem>
+            {route.realtime?.provider &&
+              !['openai', 'volcengine.doubao_realtime'].includes(
+                route.realtime.provider
+              ) && (
+                <SelectItem value={route.realtime.provider}>
+                  {route.realtime.provider}
+                </SelectItem>
+              )}
           </SelectContent>
         </Select>
       </div>
@@ -629,6 +716,43 @@ function NativeFields({
         }
       />
     </>
+  )
+}
+
+function ServiceProvider({
+  label,
+  value,
+  options,
+  readOnly,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: string[]
+  readOnly: boolean
+  onChange: (value: string) => void
+}) {
+  const values = [...new Set([...options, value].filter(Boolean))]
+  return (
+    <div className='space-y-2'>
+      <Label>{label}</Label>
+      <Select
+        disabled={readOnly}
+        value={value}
+        onValueChange={(provider) => provider && onChange(provider)}
+      >
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {values.map((provider) => (
+            <SelectItem key={provider} value={provider}>
+              {provider}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   )
 }
 

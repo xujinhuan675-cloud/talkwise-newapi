@@ -150,12 +150,13 @@ describe('training studio adapter', () => {
     const request = buildStudioSessionRequest({
       role: 'Account manager',
       goal: 'Handle a pricing objection.',
-      mode: 'realtime',
+      mode: 'voice',
+      interactionMode: 'realtime',
       feedbackMode: 'assisted',
       voiceRouteId: 'doubao-native-standard',
     })
 
-    assert.equal(request.mode, 'realtime')
+    assert.equal(request.mode, 'voice')
     assert.equal(request.task_config.metadata.trainingMode, 'voice')
     assert.equal(request.task_config.metadata.interactionMode, 'realtime')
     assert.equal(
