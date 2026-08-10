@@ -70,6 +70,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import {
   trainingDifficultyDisplayLabel,
+  trainingInteractionModeDisplayLabel,
   trainingRoleLocalizedLabel,
   trainingSessionStatusDisplayLabel,
 } from '../training-display-labels'
@@ -341,6 +342,10 @@ function ContextTab({
   const completionStatus = textValue(completion?.status)
   const title = session.title || scenario.title
   const description = session.description || scenario.description
+  const interactionModeLabel = trainingInteractionModeDisplayLabel(
+    session.interactionMode,
+    language
+  )
   const hasDetails = Boolean(
     title ||
     description ||
@@ -348,7 +353,8 @@ function ContextTab({
     scenario.personaName ||
     scenario.personaRole ||
     scenario.personaStyle ||
-    scenario.trainingPoints.length
+    scenario.trainingPoints.length ||
+    interactionModeLabel
   )
 
   if (!hasDetails) {
@@ -390,6 +396,9 @@ function ContextTab({
             <Badge variant='secondary'>
               {trainingSessionStatusDisplayLabel(session.status, language)}
             </Badge>
+          )}
+          {interactionModeLabel && (
+            <Badge variant='outline'>{interactionModeLabel}</Badge>
           )}
         </div>
 

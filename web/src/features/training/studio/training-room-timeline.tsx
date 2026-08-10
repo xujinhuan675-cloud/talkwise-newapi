@@ -58,7 +58,10 @@ import {
   type TrainingRoomEvent,
   type TrainingRoomMessage,
 } from './training-room-client'
-import { trainingRoomPlaygroundMessages } from './training-room-message-adapter'
+import {
+  trainingRoomPlaygroundMessages,
+  trainingRoomPlaygroundMessagesWithTranscriptPreview,
+} from './training-room-message-adapter'
 
 interface TrainingRoomTimelineProps {
   assistantParticipant?: TrainingMessageParticipant
@@ -72,6 +75,7 @@ interface TrainingRoomTimelineProps {
   roomId: string
   sessionActive?: boolean
   sessionId: string
+  transcriptPreview?: string | null
   userParticipant?: TrainingMessageParticipant
 }
 
@@ -115,6 +119,7 @@ export function TrainingRoomTimeline({
   roomId,
   sessionActive = true,
   sessionId,
+  transcriptPreview = null,
   userParticipant,
 }: TrainingRoomTimelineProps) {
   const { i18n, t } = useTranslation()
@@ -596,6 +601,14 @@ export function TrainingRoomTimeline({
       ),
     [localize, messages]
   )
+  const displayedMessages = useMemo(
+    () =>
+      trainingRoomPlaygroundMessagesWithTranscriptPreview(
+        playgroundMessages,
+        transcriptPreview
+      ),
+    [playgroundMessages, transcriptPreview]
+  )
   const roomMessagesById = useMemo(
     () => new Map(messages.map((message) => [message.id, message])),
     [messages]
@@ -758,7 +771,7 @@ export function TrainingRoomTimeline({
           isGenerating={isReplying}
           isLoadingMessages={isLoading}
           getMessageActions={getMessageActions}
-          messages={playgroundMessages}
+          messages={displayedMessages}
           renderMessageHeader={(message) => {
             const roomMessage = roomMessagesById.get(message.key)
             const emotionLabel = trainingEmotionDisplayLabel(

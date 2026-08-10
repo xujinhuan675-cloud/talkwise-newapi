@@ -28,6 +28,12 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import {
+  AuthSessionExpiredError,
+  getFreshAccessToken,
+  redirectToSignIn,
+  refreshAuthentication,
+} from '@/lib/auth-session'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -36,8 +42,12 @@ import {
   downsamplePcm16,
   pcm16ToBase64,
   realtimeAudioContract,
+  realtimeAuthRenewalDelayMs,
+  realtimeCommitTranscriptSettled,
   realtimeEventAudio,
   realtimeEventError,
+  realtimeEventNeedsAuthRefresh,
+  realtimeTranscriptPreviewAction,
   TALKWISE_REALTIME_PROTOCOL,
   talkWiseBearerProtocol,
   trainingRealtimeWebSocketUrl,
@@ -67,6 +77,7 @@ interface RealtimeVoiceControlProps {
   disabled?: boolean
   onErrorChange?: (error: string | null) => void
   onMessagePersisted?: () => void
+  onTranscriptPreviewChange?: (text: string | null) => void
   onPrimaryActionChange?: (
     action: TrainingRoomPrimaryActionState | null
   ) => void
@@ -85,6 +96,7 @@ const ACTIVE_STATUSES = new Set<RealtimeTrainingStatus>([
   'processing',
   'speaking',
 ])
+const REALTIME_STOP_DEADLINE_MS = 35_000
 
 function isPermissionError(error: unknown): boolean {
   return (
@@ -103,6 +115,7 @@ export const RealtimeVoiceControl = forwardRef<
     onErrorChange,
     onMessagePersisted,
     onPrimaryActionChange,
+    onTranscriptPreviewChange,
     onVoiceInputStateChange,
     profile,
     provider,
@@ -132,6 +145,19 @@ export const RealtimeVoiceControl = forwardRef<
   const stoppingRef = useRef(false)
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const stopDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const commitAcknowledgedRef = useRef(false)
+  const transcriptPersistedRef = useRef(false)
+  const closeRealtimeRef = useRef<(nextStatus?: RealtimeTrainingStatus) => void>(
+    () => undefined
+  )
+  const transcriptPreviewChangeRef = useRef(onTranscriptPreviewChange)
+  transcriptPreviewChangeRef.current = onTranscriptPreviewChange
+  const authRenewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const authRecoveryRef = useRef(false)
+  const authRetryCountRef = useRef(0)
+  const startRealtimeRef = useRef<(force?: boolean) => Promise<void>>(
+    async () => undefined
+  )
   const [status, setStatus] = useState<RealtimeTrainingStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
@@ -194,6 +220,10 @@ export const RealtimeVoiceControl = forwardRef<
   }, [waveformBarCountRef])
 
   const releaseRuntime = useCallback(() => {
+    if (authRenewTimerRef.current) {
+      clearTimeout(authRenewTimerRef.current)
+      authRenewTimerRef.current = null
+    }
     releaseCapture()
     interruptOutputPlayback()
     void outputContextRef.current?.close().catch(() => undefined)
@@ -213,6 +243,9 @@ export const RealtimeVoiceControl = forwardRef<
       if (stopDeadlineRef.current) clearTimeout(stopDeadlineRef.current)
       settleTimerRef.current = null
       stopDeadlineRef.current = null
+      commitAcknowledgedRef.current = false
+      transcriptPersistedRef.current = false
+      transcriptPreviewChangeRef.current?.(null)
       const socket = socketRef.current
       socketRef.current = null
       if (socket?.readyState === WebSocket.OPEN) {
@@ -232,8 +265,63 @@ export const RealtimeVoiceControl = forwardRef<
     [releaseRuntime]
   )
 
+  const recoverRealtimeAuthentication = useCallback(
+    async (reason: 'handshake' | 'renewal' | 'server') => {
+      if (authRecoveryRef.current || stoppingRef.current) return
+      if (reason !== 'renewal' && authRetryCountRef.current >= 1) {
+        setError(
+          localize(
+            'The refreshed session was rejected by realtime training.',
+            '实时训练未接受刷新后的登录状态。'
+          )
+        )
+        closeRealtime('error')
+        return
+      }
+
+      authRecoveryRef.current = true
+      if (authRenewTimerRef.current) {
+        clearTimeout(authRenewTimerRef.current)
+        authRenewTimerRef.current = null
+      }
+      const outcome = await refreshAuthentication()
+      if (outcome.kind === 'authenticated') {
+        authRetryCountRef.current =
+          reason === 'renewal' ? 0 : authRetryCountRef.current + 1
+        closeRealtime('closed')
+        authRecoveryRef.current = false
+        await startRealtimeRef.current(true)
+        return
+      }
+
+      authRecoveryRef.current = false
+      if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
+        closeRealtime('error')
+        setError(localize('Session expired!', '登录状态已过期'))
+        redirectToSignIn()
+        return
+      }
+      setError(
+        localize(
+          'The sign-in session could not be refreshed.',
+          '登录状态刷新失败，请稍后重试。'
+        )
+      )
+      closeRealtime('error')
+    },
+    [closeRealtime, localize]
+  )
+
   const scheduleSettledClose = useCallback(() => {
     if (!stoppingRef.current) return
+    if (
+      !realtimeCommitTranscriptSettled({
+        commitAcknowledged: commitAcknowledgedRef.current,
+        transcriptPersisted: transcriptPersistedRef.current,
+      })
+    ) {
+      return
+    }
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current)
     const context = outputContextRef.current
     const remainingOutputMilliseconds = context
@@ -253,6 +341,7 @@ export const RealtimeVoiceControl = forwardRef<
     }
     stoppingRef.current = true
     setIsFinishing(true)
+    commitAcknowledgedRef.current = false
     releaseCapture()
     setStatus('processing')
     try {
@@ -261,10 +350,22 @@ export const RealtimeVoiceControl = forwardRef<
       closeRealtime('closed')
       return
     }
-    stopDeadlineRef.current = setTimeout(() => closeRealtime('closed'), 15000)
-  }, [closeRealtime, releaseCapture])
+    stopDeadlineRef.current = setTimeout(() => {
+      setError(
+        localize(
+          'Speech recognition did not finish in time. Try again.',
+          '语音识别未能及时完成，请重试。'
+        )
+      )
+      closeRealtime('error')
+    }, REALTIME_STOP_DEADLINE_MS)
+  }, [closeRealtime, localize, releaseCapture])
 
-  useEffect(() => () => closeRealtime('closed'), [closeRealtime])
+  useEffect(() => {
+    closeRealtimeRef.current = closeRealtime
+  }, [closeRealtime])
+
+  useEffect(() => () => closeRealtimeRef.current('closed'), [])
 
   const playAudio = useCallback(
     async (event: RealtimeServerEvent, generation: number) => {
@@ -339,16 +440,30 @@ export const RealtimeVoiceControl = forwardRef<
   const handleEvent = useCallback(
     (event: RealtimeServerEvent) => {
       if (event.status) setStatus(event.status)
-      const nextError = realtimeEventError(event)
+      if (event.type === 'audio.committed') {
+        commitAcknowledgedRef.current = true
+        void outputScheduleRef.current.then(
+          scheduleSettledClose,
+          scheduleSettledClose
+        )
+      }
+      const previewAction = realtimeTranscriptPreviewAction(event)
+      if (previewAction.type === 'update') {
+        transcriptPreviewChangeRef.current?.(previewAction.text)
+      } else if (previewAction.type === 'clear') {
+        transcriptPreviewChangeRef.current?.(null)
+      }
+      if (realtimeEventNeedsAuthRefresh(event)) {
+        void recoverRealtimeAuthentication('server')
+        return
+      }
+      const nextError = realtimeEventError(event, localize)
       if (nextError) {
         setError(nextError)
         closeRealtime('error')
         return
       }
-      if (
-        event.type === 'interrupted' ||
-        event.type === 'response.cancelled'
-      ) {
+      if (event.type === 'interrupted' || event.type === 'response.cancelled') {
         interruptOutputPlayback()
         setStatus('listening')
         return
@@ -361,6 +476,10 @@ export const RealtimeVoiceControl = forwardRef<
         if (activeOutputSourcesRef.current.size === 0) setStatus('listening')
       }
       if (event.type === 'audio.output') {
+        if (settleTimerRef.current) {
+          clearTimeout(settleTimerRef.current)
+          settleTimerRef.current = null
+        }
         const generation = outputGenerationRef.current
         outputScheduleRef.current = outputScheduleRef.current
           .catch(() => undefined)
@@ -382,6 +501,9 @@ export const RealtimeVoiceControl = forwardRef<
         event.type === 'transcript.done' ||
         event.type === 'transcript.persisted'
       ) {
+        if (event.type === 'transcript.persisted') {
+          transcriptPersistedRef.current = true
+        }
         void outputScheduleRef.current.then(
           scheduleSettledClose,
           scheduleSettledClose
@@ -395,150 +517,181 @@ export const RealtimeVoiceControl = forwardRef<
       localize,
       onMessagePersisted,
       playAudio,
+      recoverRealtimeAuthentication,
       scheduleSettledClose,
     ]
   )
 
-  const startRealtime = useCallback(async () => {
-    if (disabled || !accessToken || ACTIVE_STATUSES.has(status)) return
-    setError(null)
-    setStatus('connecting')
-    setIsFinishing(false)
-    stoppingRef.current = false
+  const startRealtime = useCallback(
+    async (force = false) => {
+      if (disabled || !accessToken || (!force && ACTIVE_STATUSES.has(status))) {
+        return
+      }
+      if (!force) authRetryCountRef.current = 0
+      setError(null)
+      transcriptPreviewChangeRef.current?.(null)
+      setStatus('connecting')
+      setIsFinishing(false)
+      stoppingRef.current = false
 
-    try {
-      const socketUrl = trainingRealtimeWebSocketUrl(apiBase, {
-        profile,
-        provider,
-        roomId,
-        sessionId,
-      })
-      const bearerProtocol = talkWiseBearerProtocol(accessToken)
-      const stream = await requestVoiceMicrophone()
-      streamRef.current = stream
+      try {
+        const socketUrl = trainingRealtimeWebSocketUrl(apiBase, {
+          profile,
+          provider,
+          roomId,
+          sessionId,
+        })
+        const freshAccessToken = await getFreshAccessToken()
+        const bearerProtocol = talkWiseBearerProtocol(freshAccessToken)
+        const stream = await requestVoiceMicrophone()
+        streamRef.current = stream
 
-      const inputContext = new AudioContext()
-      inputContextRef.current = inputContext
-      if (inputContext.state === 'suspended') await inputContext.resume()
-      const source = inputContext.createMediaStreamSource(stream)
-      const processor = inputContext.createScriptProcessor(4096, 1, 1)
-      const silence = inputContext.createGain()
-      silence.gain.value = 0
-      source.connect(processor)
-      processor.connect(silence)
-      silence.connect(inputContext.destination)
-      inputSourceRef.current = source
-      inputProcessorRef.current = processor
-      inputSilenceRef.current = silence
+        const inputContext = new AudioContext()
+        inputContextRef.current = inputContext
+        if (inputContext.state === 'suspended') await inputContext.resume()
+        const source = inputContext.createMediaStreamSource(stream)
+        const processor = inputContext.createScriptProcessor(4096, 1, 1)
+        const silence = inputContext.createGain()
+        silence.gain.value = 0
+        source.connect(processor)
+        processor.connect(silence)
+        silence.connect(inputContext.destination)
+        inputSourceRef.current = source
+        inputProcessorRef.current = processor
+        inputSilenceRef.current = silence
 
-      const socket = new WebSocket(socketUrl, [
-        TALKWISE_REALTIME_PROTOCOL,
-        bearerProtocol,
-      ])
-      socketRef.current = socket
-      socket.addEventListener('open', () => {
-        if (socketRef.current !== socket) return
-        setStatus('preparing')
-        socket.send(
-          JSON.stringify({
-            roomId,
-            sessionId,
-            type: 'session.configure',
-          })
-        )
-      })
-      socket.addEventListener('message', (message) => {
-        if (socketRef.current !== socket) return
-        const event = decodeRealtimeServerEvent(message.data)
-        if (event) handleEvent(event)
-      })
-      socket.addEventListener('error', () => {
-        if (socketRef.current !== socket) return
-        setError(
-          localize(
-            'The realtime training channel could not be opened.',
-            '实时训练通道无法建立。'
+        const socket = new WebSocket(socketUrl, [
+          TALKWISE_REALTIME_PROTOCOL,
+          bearerProtocol,
+        ])
+        let opened = false
+        socketRef.current = socket
+        socket.addEventListener('open', () => {
+          if (socketRef.current !== socket) return
+          opened = true
+          setStatus('preparing')
+          socket.send(
+            JSON.stringify({
+              roomId,
+              sessionId,
+              type: 'session.configure',
+            })
           )
-        )
-        closeRealtime('error')
-      })
-      socket.addEventListener('close', (event) => {
-        if (socketRef.current === socket) socketRef.current = null
-        releaseRuntime()
-        if (stoppingRef.current) return
-        if (event.code === 1008) {
+          const renewalDelay = realtimeAuthRenewalDelayMs(
+            useAuthStore.getState().auth.accessExpiresAt
+          )
+          if (renewalDelay !== null) {
+            authRenewTimerRef.current = setTimeout(
+              () => void recoverRealtimeAuthentication('renewal'),
+              renewalDelay
+            )
+          }
+        })
+        socket.addEventListener('message', (message) => {
+          if (socketRef.current !== socket) return
+          const event = decodeRealtimeServerEvent(message.data)
+          if (event) handleEvent(event)
+        })
+        socket.addEventListener('error', () => {
+          if (socketRef.current !== socket) return
+          if (!opened && authRetryCountRef.current < 1) {
+            void recoverRealtimeAuthentication('handshake')
+            return
+          }
           setError(
             localize(
-              'Realtime training access was rejected. Sign in again or check session ownership.',
-              '实时训练访问被拒绝，请重新登录或检查会话权限。'
+              'The realtime training channel could not be opened.',
+              '实时训练通道无法建立。'
             )
           )
-          setStatus('error')
-          return
-        }
-        setStatus((current) => (current === 'error' ? current : 'closed'))
-      })
+          closeRealtime('error')
+        })
+        socket.addEventListener('close', (event) => {
+          if (socketRef.current !== socket) return
+          socketRef.current = null
+          releaseRuntime()
+          transcriptPreviewChangeRef.current?.(null)
+          if (stoppingRef.current) return
+          if (event.code === 1008) {
+            setError(
+              localize(
+                'Realtime training access was rejected. Sign in again or check session ownership.',
+                '实时训练访问被拒绝，请重新登录或检查会话权限。'
+              )
+            )
+            setStatus('error')
+            return
+          }
+          setStatus((current) => (current === 'error' ? current : 'closed'))
+        })
 
-      processor.onaudioprocess = (event) => {
-        if (socket.readyState !== WebSocket.OPEN) return
-        const inputSamples = event.inputBuffer.getChannelData(0)
-        setInputWaveform(
-          waveformLevelsFromPcmData(
-            inputSamples,
-            waveformBarCountRef.current
+        processor.onaudioprocess = (event) => {
+          if (socket.readyState !== WebSocket.OPEN) return
+          const inputSamples = event.inputBuffer.getChannelData(0)
+          setInputWaveform(
+            waveformLevelsFromPcmData(inputSamples, waveformBarCountRef.current)
           )
+          const samples = downsamplePcm16(
+            inputSamples,
+            inputContext.sampleRate,
+            contract.inputSampleRate
+          )
+          socket.send(
+            JSON.stringify({
+              audio: pcm16ToBase64(samples),
+              mimeType: 'audio/pcm',
+              type: 'audio.input',
+            })
+          )
+        }
+      } catch (nextError) {
+        releaseRuntime()
+        let message = localize(
+          'Realtime training could not be started.',
+          '实时训练无法启动。'
         )
-        const samples = downsamplePcm16(
-          inputSamples,
-          inputContext.sampleRate,
-          contract.inputSampleRate
-        )
-        socket.send(
-          JSON.stringify({
-            audio: pcm16ToBase64(samples),
-            mimeType: 'audio/pcm',
-            type: 'audio.input',
-          })
-        )
+        if (isPermissionError(nextError)) {
+          message = localize(
+            'Microphone permission was not granted.',
+            '未获得麦克风权限。'
+          )
+        } else if (nextError instanceof VoiceCaptureUnavailableError) {
+          message = localize(
+            'Microphone capture is unavailable in this browser.',
+            '当前浏览器无法采集麦克风。'
+          )
+        } else if (nextError instanceof AuthSessionExpiredError) {
+          redirectToSignIn()
+          return
+        } else if (nextError instanceof Error) {
+          message = nextError.message
+        }
+        setError(message)
+        setStatus('error')
       }
-    } catch (nextError) {
-      releaseRuntime()
-      let message = localize(
-        'Realtime training could not be started.',
-        '实时训练无法启动。'
-      )
-      if (isPermissionError(nextError)) {
-        message = localize(
-          'Microphone permission was not granted.',
-          '未获得麦克风权限。'
-        )
-      } else if (nextError instanceof VoiceCaptureUnavailableError) {
-        message = localize(
-          'Microphone capture is unavailable in this browser.',
-          '当前浏览器无法采集麦克风。'
-        )
-      } else if (nextError instanceof Error) {
-        message = nextError.message
-      }
-      setError(message)
-      setStatus('error')
-    }
-  }, [
-    accessToken,
-    apiBase,
-    contract.inputSampleRate,
-    disabled,
-    closeRealtime,
-    localize,
-    profile,
-    provider,
-    releaseRuntime,
-    roomId,
-    sessionId,
-    status,
-    handleEvent,
-    waveformBarCountRef,
-  ])
+    },
+    [
+      accessToken,
+      apiBase,
+      contract.inputSampleRate,
+      disabled,
+      closeRealtime,
+      localize,
+      profile,
+      provider,
+      recoverRealtimeAuthentication,
+      releaseRuntime,
+      roomId,
+      sessionId,
+      status,
+      handleEvent,
+      waveformBarCountRef,
+    ]
+  )
+
+  useEffect(() => {
+    startRealtimeRef.current = startRealtime
+  }, [startRealtime])
 
   useEffect(() => {
     onErrorChange?.(error)
@@ -549,9 +702,9 @@ export const RealtimeVoiceControl = forwardRef<
   }, [onVoiceInputStateChange, status])
 
   useEffect(() => {
-    closeRealtime('idle')
+    if (socketRef.current) closeRealtimeRef.current('idle')
     setError(null)
-  }, [closeRealtime, roomId, sessionId])
+  }, [roomId, sessionId])
 
   useEffect(() => {
     if (!disabled) return
@@ -667,7 +820,7 @@ export const RealtimeVoiceControl = forwardRef<
           title={error || statusLabels[status]}
           type='button'
           variant={active || status === 'error' ? 'destructive' : 'ghost'}
-          onClick={active ? finishRealtime : startRealtime}
+          onClick={active ? finishRealtime : () => void startRealtime()}
         >
           {actionIcon}
           <span className='sr-only'>{actionLabel}</span>

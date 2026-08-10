@@ -32,6 +32,7 @@ export interface TrainingConversationSessionContext {
   readonly description?: string
   readonly difficulty?: string
   readonly status?: string
+  readonly interactionMode?: 'turn_based' | 'realtime'
   readonly reportId?: string | null
   readonly metadata?: Readonly<Record<string, unknown>>
 }

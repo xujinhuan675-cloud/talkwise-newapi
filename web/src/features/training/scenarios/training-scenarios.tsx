@@ -504,9 +504,8 @@ export function TrainingScenarios() {
       selectableVoiceRoutes.map((route) => {
         const group = voiceRoutePresetGroup(route)
         const category = {
-          cascade: localize('Cascade combinations', '级联组合'),
-          native_voice: localize('Native voice', '原生语音'),
-          curated_demo: localize('Curated demos', '精选 Demo'),
+          cascade: localize('Cascade', '级联'),
+          realtime: localize('Realtime', '实时'),
         }[group]
 
         return {
@@ -659,9 +658,12 @@ export function TrainingScenarios() {
   }
   const lengthProfileLabel = (value: TrainingLengthProfile) => {
     const labels = {
-      quick: localize('Quick · 6 turns', '快速 · 6 轮'),
-      standard: localize('Standard · 9 turns', '标准 · 9 轮'),
-      complete: localize('Complete · 12 turns', '完整 · 12 轮'),
+      quick: localize('Quick · 6 target answers', '快速 · 6 个目标回答'),
+      standard: localize('Standard · 9 target answers', '标准 · 9 个目标回答'),
+      complete: localize(
+        'Complete · 12 target answers',
+        '完整 · 12 个目标回答'
+      ),
     }
     return labels[value]
   }
@@ -1143,6 +1145,8 @@ export function TrainingScenarios() {
                     </Label>
                     <ModelSelector
                       variant='field'
+                      showOptionDescriptions={false}
+                      plainCategoryLabels
                       models={voiceRouteOptions}
                       selectedModel={voiceRouteId}
                       onModelChange={setVoiceRouteId}
@@ -1164,27 +1168,6 @@ export function TrainingScenarios() {
                       )}
                       ariaLabel={localize('Voice preset', '语音预设')}
                     />
-                    <p className='text-muted-foreground text-xs leading-relaxed'>
-                      {voiceRoutesQuery.isLoading
-                        ? localize(
-                            'Loading platform presets…',
-                            '正在加载平台预设…'
-                          )
-                        : (() => {
-                            const selectedRoute = selectableVoiceRoutes.find(
-                              (route) => route.id === voiceRouteId
-                            )
-                            return selectedRoute
-                              ? trainingVoiceRouteLocalizedDescription(
-                                  selectedRoute,
-                                  localize
-                                )
-                              : localize(
-                                  'The platform controls the model combination and provider route.',
-                                  '平台负责模型组合与上游渠道。'
-                                )
-                          })()}
-                    </p>
                   </div>
                 ) : (
                   <div className='space-y-2'>

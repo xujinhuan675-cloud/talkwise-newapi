@@ -23,6 +23,7 @@ import type { TrainingRoomMessage } from '../training-room-client'
 import {
   trainingRoomConversationMessages,
   trainingRoomPlaygroundMessages,
+  trainingRoomPlaygroundMessagesWithTranscriptPreview,
 } from '../training-room-message-adapter'
 
 test('adapts persisted room messages to the shared Playground chat contract', () => {
@@ -126,4 +127,46 @@ test('projects room messages into the shared training insight contract', () => {
       createdAt: '2026-08-05T02:01:03.000Z',
     },
   ])
+})
+
+test('keeps cumulative realtime deltas in one non-persistent user bubble', () => {
+  const persisted = trainingRoomPlaygroundMessages(
+    [
+      {
+        content: 'What is your budget?',
+        emotionLabel: null,
+        emotionScore: null,
+        id: 'persona-3',
+        metadata: {},
+        roomId: 'room-3',
+        senderId: 'persona-3',
+        senderType: 'persona',
+        timestamp: '2026-08-05T02:02:00.000Z',
+        videoAnswer: null,
+      },
+    ],
+    () => 'No message content.'
+  )
+  const first = trainingRoomPlaygroundMessagesWithTranscriptPreview(
+    persisted,
+    '我想先从试点开始'
+  )
+  const second = trainingRoomPlaygroundMessagesWithTranscriptPreview(
+    persisted,
+    '我想先从试点开始，然后再扩大范围。'
+  )
+
+  assert.equal(first.length, 2)
+  assert.equal(second.length, 2)
+  assert.equal(first[1]?.key, 'realtime-transcript-preview')
+  assert.equal(second[1]?.key, 'realtime-transcript-preview')
+  assert.equal(
+    second[1]?.versions[0]?.content,
+    '我想先从试点开始，然后再扩大范围。'
+  )
+  assert.equal(second[1]?.status, 'streaming')
+  assert.equal(
+    trainingRoomPlaygroundMessagesWithTranscriptPreview(persisted, null).length,
+    1
+  )
 })

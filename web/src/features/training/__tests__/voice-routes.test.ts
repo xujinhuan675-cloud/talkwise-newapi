@@ -54,6 +54,13 @@ describe('training voice route selection', () => {
     assert.equal(voiceRouteSupportsInteraction(hybrid, 'realtime'), false)
   })
 
+  test('does not infer interaction support from a legacy route mode', () => {
+    const legacyShape = route({ interactionModes: [] })
+
+    assert.equal(voiceRouteSupportsInteraction(legacyShape, 'turn_based'), false)
+    assert.equal(voiceRouteSupportsInteraction(legacyShape, 'realtime'), false)
+  })
+
   test('does not equate a cascade route with turn-by-turn interaction', () => {
     const streamingCascade = route({
       mode: 'cascade',
@@ -67,7 +74,7 @@ describe('training voice route selection', () => {
     assert.equal(voiceRoutePresetGroup(streamingCascade), 'cascade')
   })
 
-  test('groups native routes separately from curated demo inventory', () => {
+  test('keeps only cascade and realtime preset groups', () => {
     const native = route({ mode: 'speech_to_speech' })
     const nativeDemo = route({
       mode: 'speech_to_speech',
@@ -75,18 +82,18 @@ describe('training voice route selection', () => {
     })
     const cascadeDemo = route({ adapterStatus: 'inventory_only' })
 
-    assert.equal(voiceRoutePresetGroup(native), 'native_voice')
-    assert.equal(voiceRoutePresetGroup(nativeDemo), 'curated_demo')
-    assert.equal(voiceRoutePresetGroup(cascadeDemo), 'curated_demo')
+    assert.equal(voiceRoutePresetGroup(native), 'realtime')
+    assert.equal(voiceRoutePresetGroup(nativeDemo), 'realtime')
+    assert.equal(voiceRoutePresetGroup(cascadeDemo), 'cascade')
   })
 
   test('uses the server-provided preset group as the catalog source of truth', () => {
     const groupedByCatalog = route({
       mode: 'cascade',
-      presetGroup: 'curated_demo',
+      presetGroup: 'realtime',
     })
 
-    assert.equal(voiceRoutePresetGroup(groupedByCatalog), 'curated_demo')
+    assert.equal(voiceRoutePresetGroup(groupedByCatalog), 'realtime')
   })
 
   test('keeps a published curated demo visible but unavailable', () => {

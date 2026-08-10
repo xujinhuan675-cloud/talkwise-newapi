@@ -122,7 +122,12 @@ describe('training scenario contract', () => {
       kind: 'conversation',
       focus: { scope: 'custom', selected: ['Clarify decision criteria'] },
       pressure: 'hard',
-      length: { profile: 'quick', turnBudget: 6 },
+      length: {
+        profile: 'quick',
+        turnBudget: 6,
+        minimumTurns: 3,
+        hardCapTurns: 8,
+      },
       completion: { strategy: 'adaptive', explicitFinish: true },
     })
     assert.deepEqual(

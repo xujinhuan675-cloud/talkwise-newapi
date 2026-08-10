@@ -62,6 +62,11 @@ import { TrainingConversationComposer } from '../conversation-workspace/training
 import { TrainingConversationHeaderActions } from '../conversation-workspace/training-conversation-header-actions'
 import { TrainingConversationInsights } from '../conversation-workspace/training-conversation-insights'
 import type { TrainingConversationSession } from '../conversations/api'
+import {
+  resolveTrainingProgress,
+  trainingProgressIsInputLocked,
+} from '../training-plan'
+import { TrainingProgressIndicator } from '../training-progress'
 import { RealtimeVoiceControl } from './realtime-training-panel'
 import {
   completeTrainingRoomSession,
@@ -98,6 +103,7 @@ interface TrainingRoomConversationSurfaceProps {
   readonly onCompletionConfirmed?: (
     result: TrainingRoomCompletionResult
   ) => void | Promise<void>
+  readonly onProgressChanged?: () => void | Promise<void>
   readonly realtimeProfile: TrainingConversationSession['realtimeProfile']
   readonly realtimeProvider: string | null
   readonly roomId: string
@@ -126,6 +132,7 @@ export function TrainingRoomConversationSurface({
   interactionMode,
   mode,
   onCompletionConfirmed,
+  onProgressChanged,
   realtimeProfile,
   realtimeProvider,
   roomId,
@@ -138,6 +145,9 @@ export function TrainingRoomConversationSurface({
   const [isReplying, setIsReplying] = useState(false)
   const [isSendingText, setIsSendingText] = useState(false)
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
+  const [transcriptPreview, setTranscriptPreview] = useState<string | null>(
+    null
+  )
   const mediaControlRef = useRef<TrainingRoomMediaControlHandle | null>(null)
   const [mediaAction, setMediaAction] =
     useState<TrainingRoomPrimaryActionState | null>(null)
@@ -204,10 +214,26 @@ export function TrainingRoomConversationSurface({
       ),
     [localize, roomMessages]
   )
+  const localLearnerTurnCount = roomMessages.filter(
+    (message) => message.senderType === 'user'
+  ).length
+  const trainingProgress = useMemo(
+    () =>
+      resolveTrainingProgress(trainingSession.metadata, localLearnerTurnCount),
+    [localLearnerTurnCount, trainingSession.metadata]
+  )
+  const trainingProgressInputLocked =
+    trainingProgressIsInputLocked(trainingProgress)
+  const trainingInputLocked =
+    trainingSession.status !== 'active' || trainingProgressInputLocked
   const selectedTailId = insightMessages.at(-1)?.publicId ?? null
   const refreshMessages = useCallback(() => {
     setRefreshVersion((current) => current + 1)
   }, [])
+  const handleMessagePersisted = useCallback(() => {
+    refreshMessages()
+    void onProgressChanged?.()
+  }, [onProgressChanged, refreshMessages])
   const notifyComposerError = useCallback(
     (error: string | null) => {
       notifyTrainingRoomError(error, localize)
@@ -217,11 +243,7 @@ export function TrainingRoomConversationSurface({
 
   const handleSendText = useCallback(
     async (content: string) => {
-      if (
-        trainingSession.status !== 'active' ||
-        isSendingText ||
-        isVoiceInputActive
-      ) {
+      if (trainingInputLocked || isSendingText || isVoiceInputActive) {
         return
       }
       setIsSendingText(true)
@@ -245,7 +267,7 @@ export function TrainingRoomConversationSurface({
             trainingVoiceStyle: trainingSession.metadata?.trainingVoiceStyle,
           },
         })
-        refreshMessages()
+        handleMessagePersisted()
       } catch (error) {
         notifyComposerError(
           error instanceof Error
@@ -264,9 +286,10 @@ export function TrainingRoomConversationSurface({
       localize,
       mode,
       notifyComposerError,
-      refreshMessages,
+      handleMessagePersisted,
       roomId,
       trainingSession,
+      trainingInputLocked,
     ]
   )
 
@@ -305,6 +328,7 @@ export function TrainingRoomConversationSurface({
 
   useEffect(() => {
     setIsVoiceInputActive(false)
+    setTranscriptPreview(null)
     setIsVideoPanelOpen(false)
   }, [interactionMode, mode, roomId, trainingSession.sessionId])
 
@@ -320,10 +344,10 @@ export function TrainingRoomConversationSurface({
       return (
         <TurnBasedVoicePanel
           apiBase={apiBase}
-          disabled={trainingSession.status !== 'active'}
+          disabled={trainingInputLocked}
           model={config.model}
           onErrorChange={notifyComposerError}
-          onMessagePersisted={refreshMessages}
+          onMessagePersisted={handleMessagePersisted}
           onPrimaryActionChange={setMediaAction}
           onVoiceInputStateChange={setIsVoiceInputActive}
           roomId={roomId}
@@ -338,9 +362,10 @@ export function TrainingRoomConversationSurface({
       return (
         <RealtimeVoiceControl
           apiBase={apiBase}
-          disabled={trainingSession.status !== 'active'}
+          disabled={trainingInputLocked}
           onErrorChange={notifyComposerError}
-          onMessagePersisted={refreshMessages}
+          onMessagePersisted={handleMessagePersisted}
+          onTranscriptPreviewChange={setTranscriptPreview}
           onPrimaryActionChange={setMediaAction}
           onVoiceInputStateChange={setIsVoiceInputActive}
           profile={realtimeProfile}
@@ -357,7 +382,7 @@ export function TrainingRoomConversationSurface({
       <Button
         aria-label={localize('Open camera controls', '打开摄像头控制')}
         aria-pressed={isVideoPanelOpen}
-        disabled={trainingSession.status !== 'active'}
+        disabled={trainingInputLocked}
         size='icon-sm'
         type='button'
         variant={isVideoPanelOpen ? 'secondary' : 'ghost'}
@@ -435,6 +460,12 @@ export function TrainingRoomConversationSurface({
             </Button>
           )}
         </TrainingConversationHeaderActions>
+        {trainingProgress && (
+          <TrainingProgressIndicator
+            localize={localize}
+            progress={trainingProgress}
+          />
+        )}
         <TrainingRoomTimeline
           assistantParticipant={assistantParticipant}
           enableAudioOutput={mode === 'voice'}
@@ -442,6 +473,7 @@ export function TrainingRoomConversationSurface({
           onLoadingChange={setIsLoadingMessages}
           onMessagesChange={setRoomMessages}
           onReplyingChange={setIsReplying}
+          transcriptPreview={transcriptPreview}
           headerActionsTarget={headerActionsTarget}
           refreshVersion={refreshVersion}
           roomId={roomId}
@@ -453,7 +485,7 @@ export function TrainingRoomConversationSurface({
             capabilities={ROOM_INPUT_CAPABILITIES}
             compact
             config={config}
-            disabled={trainingSession.status !== 'active'}
+            disabled={trainingInputLocked}
             disableTextInput
             groups={groups}
             groupValue={config.group}
@@ -477,7 +509,7 @@ export function TrainingRoomConversationSurface({
             <div className='mt-3 [&>section]:border-t-0'>
               <VideoAnswerPanel
                 apiBase={apiBase}
-                disabled={trainingSession.status !== 'active'}
+                disabled={trainingInputLocked}
                 feedbackMode={feedbackMode}
                 onPrimaryActionChange={setMediaAction}
                 onPersisted={refreshMessages}

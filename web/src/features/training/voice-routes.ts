@@ -7,7 +7,7 @@ import { trainingApiUrl } from './scenarios/api'
 export type VoiceRouteMode = 'cascade' | 'speech_to_speech'
 export type VoiceRouteAdapterStatus = 'runtime_integrated' | 'inventory_only'
 export type VoiceRouteInteractionMode = 'turn_based' | 'realtime'
-export type VoiceRoutePresetGroup = 'cascade' | 'native_voice' | 'curated_demo'
+export type VoiceRoutePresetGroup = 'cascade' | 'realtime'
 
 export interface VoiceRouteReadiness {
   status: 'ready' | 'blocked'
@@ -66,15 +66,14 @@ export function voiceRouteSupportsInteraction(
   if (route.interactionModes?.length) {
     return route.interactionModes.includes(mode)
   }
-  return mode === 'realtime' || route.mode === 'cascade'
+  return false
 }
 
 export function voiceRoutePresetGroup(
   route: VoiceRoute
 ): VoiceRoutePresetGroup {
   if (route.presetGroup) return route.presetGroup
-  if (route.adapterStatus === 'inventory_only') return 'curated_demo'
-  return route.mode === 'cascade' ? 'cascade' : 'native_voice'
+  return route.mode === 'cascade' ? 'cascade' : 'realtime'
 }
 
 export function voiceRouteIsReady(route: VoiceRoute): boolean {

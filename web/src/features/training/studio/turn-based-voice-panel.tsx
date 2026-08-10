@@ -28,6 +28,11 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import {
+  AuthSessionExpiredError,
+  getFreshAccessToken,
+  redirectToSignIn,
+} from '@/lib/auth-session'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -365,7 +370,8 @@ export const TurnBasedVoicePanel = forwardRef<
         roomId,
         sessionId,
       })
-      const protocols = turnBasedVoiceProtocols(accessToken)
+      const freshAccessToken = await getFreshAccessToken()
+      const protocols = turnBasedVoiceProtocols(freshAccessToken)
       if (typeof MediaRecorder === 'undefined') {
         throw new Error(
           localize(
@@ -572,6 +578,9 @@ export const TurnBasedVoicePanel = forwardRef<
           'Microphone capture is unavailable in this browser.',
           '\u5f53\u524d\u6d4f\u89c8\u5668\u65e0\u6cd5\u91c7\u96c6\u9ea6\u514b\u98ce\u3002'
         )
+      } else if (nextError instanceof AuthSessionExpiredError) {
+        redirectToSignIn()
+        return
       } else if (nextError instanceof Error) {
         message = nextError.message
       }

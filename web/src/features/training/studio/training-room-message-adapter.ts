@@ -54,6 +54,29 @@ export function trainingRoomPlaygroundMessages(
   })
 }
 
+export const REALTIME_TRANSCRIPT_PREVIEW_MESSAGE_KEY =
+  'realtime-transcript-preview'
+
+export function trainingRoomPlaygroundMessagesWithTranscriptPreview(
+  messages: readonly Message[],
+  transcriptPreview?: string | null
+): Message[] {
+  const text = transcriptPreview?.trim()
+  if (!text) return [...messages]
+  return [
+    ...messages,
+    {
+      key: REALTIME_TRANSCRIPT_PREVIEW_MESSAGE_KEY,
+      from: 'user',
+      versions: [
+        { id: REALTIME_TRANSCRIPT_PREVIEW_MESSAGE_KEY, content: text },
+      ],
+      isContentComplete: false,
+      status: 'streaming',
+    },
+  ]
+}
+
 function trainingConversationRole(
   senderType: TrainingRoomMessage['senderType']
 ): TrainingConversationMessage['role'] {

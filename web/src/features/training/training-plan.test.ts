@@ -21,7 +21,9 @@ import { describe, test } from 'node:test'
 
 import {
   resolveBattlePrepPlan,
+  resolveTrainingProgress,
   resolveTrainingPlan,
+  trainingProgressIsInputLocked,
   trainingPlanMetadata,
 } from './training-plan'
 
@@ -39,7 +41,12 @@ describe('training plan metadata', () => {
         kind: 'conversation',
         focus: { scope: 'custom', selected: ['Objection handling'] },
         pressure: 'hard',
-        length: { profile: 'quick', turnBudget: 6 },
+        length: {
+          profile: 'quick',
+          turnBudget: 6,
+          minimumTurns: 3,
+          hardCapTurns: 8,
+        },
         completion: { strategy: 'adaptive', explicitFinish: true },
       }
     )
@@ -58,7 +65,10 @@ describe('training plan metadata', () => {
         kind: 'defense',
         focusScope: 'all',
         selectedFocus: ['Risk'],
+        lengthProfile: null,
         turnBudget: 12,
+        minimumTurns: 8,
+        hardCapTurns: 16,
       }
     )
     assert.equal(resolveTrainingPlan({ trainingPlan: {} }), null)
@@ -83,5 +93,103 @@ describe('training plan metadata', () => {
       }),
       null
     )
+  })
+
+  test('prefers the server progress contract and keeps target length separate from hard cap', () => {
+    const progress = resolveTrainingProgress({
+      source: 'scenario_training',
+      trainingPlan: trainingPlanMetadata({
+        focusScope: 'all',
+        selectedFocus: ['Explain the decision'],
+        pressure: 'medium',
+        lengthProfile: 'standard',
+      }),
+      training_progress: {
+        status: 'ready_to_finish',
+        learner_turn_count: 9,
+        minimum_turns: 4,
+        target_turns: 9,
+        hardCap: 12,
+        objectives: { covered_count: 2, total_count: 3 },
+        evidence: { sufficient: true },
+        completionReason: 'evidence_coverage',
+      },
+    })
+
+    assert.deepEqual(progress, {
+      state: 'ready_to_finish',
+      source: 'server',
+      learnerTurnCount: 9,
+      minimumTurns: 4,
+      targetTurns: 9,
+      hardCapTurns: 12,
+      coveredCount: 2,
+      totalCount: 3,
+      evidenceSufficient: true,
+      reasonCodes: [],
+      completionReason: 'evidence_coverage',
+    })
+    assert.equal(trainingProgressIsInputLocked(progress), false)
+  })
+
+  test('falls back to local answer count without claiming evidence or hard limit', () => {
+    const progress = resolveTrainingProgress(
+      {
+        source: 'scenario_training',
+        trainingPlan: trainingPlanMetadata({
+          focusScope: 'recommended',
+          selectedFocus: [],
+          pressure: 'easy',
+          lengthProfile: 'quick',
+        }),
+      },
+      6
+    )
+
+    assert.equal(progress?.source, 'local')
+    assert.equal(progress?.learnerTurnCount, 6)
+    assert.equal(progress?.targetTurns, 6)
+    assert.equal(progress?.hardCapTurns, null)
+    assert.equal(progress?.evidenceSufficient, null)
+    assert.equal(progress?.completionReason, null)
+    assert.equal(trainingProgressIsInputLocked(progress), false)
+  })
+
+  test('shows battle preparation progress without replacing its fixed turn limit', () => {
+    const progress = resolveTrainingProgress(
+      {
+        training_source: 'battle_prep',
+        trainingPlan: trainingPlanMetadata({
+          focusScope: 'recommended',
+          selectedFocus: [],
+          pressure: 'medium',
+          lengthProfile: 'standard',
+        }),
+      },
+      3
+    )
+
+    assert.equal(progress?.source, 'local')
+    assert.equal(progress?.learnerTurnCount, 3)
+    assert.equal(progress?.targetTurns, 9)
+    assert.equal(progress?.hardCapTurns, null)
+  })
+
+  test('locks input only for authoritative terminal progress states', () => {
+    const progress = resolveTrainingProgress({
+      source: 'scenario_training',
+      trainingProgress: {
+        state: 'hard_limit_reached',
+        learnerTurnCount: 8,
+        targetTurns: 6,
+        hardCapTurns: 8,
+        reasonCodes: ['hard_cap'],
+      },
+    })
+
+    assert.equal(progress?.source, 'server')
+    assert.equal(progress?.completionReason, null)
+    assert.deepEqual(progress?.reasonCodes, ['hard_cap'])
+    assert.equal(trainingProgressIsInputLocked(progress), true)
   })
 })
