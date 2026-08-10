@@ -23,6 +23,7 @@ import { toast } from 'sonner'
 import {
   applyAuthRotation,
   clearAuthentication,
+  redirectToSignIn,
   refreshAuthentication,
 } from '@/lib/auth-session'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
@@ -67,15 +68,6 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
   inFlightGet.set(key, request)
   return request
 }) as typeof api.get
-
-function redirectToSignIn(): void {
-  if (
-    typeof window !== 'undefined' &&
-    window.location.pathname !== '/sign-in'
-  ) {
-    window.location.replace('/sign-in')
-  }
-}
 
 api.interceptors.response.use(
   (response) => {

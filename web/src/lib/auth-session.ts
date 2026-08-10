@@ -66,6 +66,13 @@ export class AuthRotationError extends Error {
   }
 }
 
+export class AuthSessionExpiredError extends Error {
+  constructor() {
+    super(t('Session expired!'))
+    this.name = 'AuthSessionExpiredError'
+  }
+}
+
 const authClient = axios.create({
   baseURL: '',
   withCredentials: true,
@@ -200,6 +207,15 @@ export function clearAuthenticatedClientState(
 ): void {
   queryClient.clear()
   clearAuthentication(synchronizeTabs)
+}
+
+export function redirectToSignIn(): void {
+  if (
+    typeof window !== 'undefined' &&
+    window.location.pathname !== '/sign-in'
+  ) {
+    window.location.replace('/sign-in')
+  }
 }
 
 function waitForRefreshRace(delay: number): Promise<void> {
@@ -388,7 +404,7 @@ export function getCommonHeaders(): Record<string, string> {
   return headers
 }
 
-export async function getFreshAuthHeaders(): Promise<Record<string, string>> {
+export async function getFreshAccessToken(): Promise<string> {
   const auth = useAuthStore.getState().auth
   const refreshBefore = Math.floor(Date.now() / 1000) + 60
   if (
@@ -396,12 +412,12 @@ export async function getFreshAuthHeaders(): Promise<Record<string, string>> {
     auth.accessExpiresAt &&
     auth.accessExpiresAt > refreshBefore
   ) {
-    return getCommonHeaders()
+    return auth.accessToken
   }
 
   const outcome = await refreshAuthentication()
   if (outcome.kind === 'authenticated') {
-    return getCommonHeaders()
+    return outcome.bundle.access_token
   }
 
   const current = useAuthStore.getState().auth
@@ -410,11 +426,16 @@ export async function getFreshAuthHeaders(): Promise<Record<string, string>> {
     current.accessExpiresAt &&
     current.accessExpiresAt > Math.floor(Date.now() / 1000)
   ) {
-    return getCommonHeaders()
+    return current.accessToken
   }
 
   if (outcome.kind === 'transient_error') {
     throw new Error(t('Request failed'), { cause: outcome.error })
   }
-  throw new Error(t('Session expired!'))
+  throw new AuthSessionExpiredError()
+}
+
+export async function getFreshAuthHeaders(): Promise<Record<string, string>> {
+  await getFreshAccessToken()
+  return getCommonHeaders()
 }
