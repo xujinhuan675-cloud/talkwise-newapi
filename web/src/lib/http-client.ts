@@ -23,6 +23,7 @@ import {
   applyAuthRotation,
   clearAuthentication,
   getFreshAuthHeaders,
+  redirectToSignIn,
   refreshAuthentication,
 } from '@/lib/auth-session'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -73,15 +74,6 @@ api.get = ((url: string, config: ApiRequestConfig = {}) => {
   inFlightGet.set(key, request)
   return request
 }) as typeof api.get
-
-function redirectToSignIn(): void {
-  if (
-    typeof window !== 'undefined' &&
-    window.location.pathname !== '/sign-in'
-  ) {
-    window.location.replace('/sign-in')
-  }
-}
 
 api.interceptors.response.use(
   (response) => {
