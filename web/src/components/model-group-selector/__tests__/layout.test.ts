@@ -20,7 +20,9 @@ import { describe, expect, test } from 'vitest'
 
 import {
   modelGroupSelectorLayoutClasses,
+  modelSelectorCategoryHeading,
   scrollSelectedOptionIntoView,
+  shouldShowModelOptionSecondaryText,
 } from '../layout'
 
 describe('model group selector layout', () => {
@@ -63,5 +65,30 @@ describe('model group selector layout', () => {
     scrollSelectedOptionIntoView(selectedOption)
 
     expect(scrollCalls).toEqual([{ block: 'center', inline: 'nearest' }])
+  })
+
+  test('can keep field options name-only without changing other selectors', () => {
+    assert.equal(
+      shouldShowModelOptionSecondaryText('field', false, 'Not ready'),
+      false
+    )
+    assert.equal(
+      shouldShowModelOptionSecondaryText('field', true, 'Model description'),
+      true
+    )
+    assert.equal(
+      shouldShowModelOptionSecondaryText('compact', true, 'Description'),
+      false
+    )
+  })
+
+  test('can render voice preset group names without the shared model suffix', () => {
+    const withSuffix = (category: string) => `${category} Models`
+
+    assert.equal(modelSelectorCategoryHeading('级联', true, withSuffix), '级联')
+    assert.equal(
+      modelSelectorCategoryHeading('Realtime', false, withSuffix),
+      'Realtime Models'
+    )
   })
 })

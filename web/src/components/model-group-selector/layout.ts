@@ -37,6 +37,24 @@ export const modelGroupSelectorLayoutClasses = {
   unselectedModelText: 'font-medium',
 } as const
 
+export function shouldShowModelOptionSecondaryText(
+  variant: 'compact' | 'field',
+  showOptionDescriptions: boolean,
+  secondaryText?: string
+): boolean {
+  return (
+    variant === 'field' && showOptionDescriptions && Boolean(secondaryText)
+  )
+}
+
+export function modelSelectorCategoryHeading(
+  category: string,
+  plainCategoryLabels: boolean,
+  withModelSuffix: (category: string) => string
+): string {
+  return plainCategoryLabels ? category : withModelSuffix(category)
+}
+
 type ScrollableOption = {
   offsetHeight?: number
   offsetTop?: number

@@ -64,7 +64,9 @@ import { cn } from '@/lib/utils'
 
 import {
   modelGroupSelectorLayoutClasses,
+  modelSelectorCategoryHeading,
   scrollSelectedOptionIntoView,
+  shouldShowModelOptionSecondaryText,
 } from './model-group-selector/layout'
 
 export interface ModelOption {
@@ -92,6 +94,10 @@ interface ModelSelectorProps {
   disabled?: boolean
   /** Use the matched-width trigger and popup treatment for form fields. */
   variant?: 'compact' | 'field'
+  /** Keep field options name-only when descriptions are not part of the workflow. */
+  showOptionDescriptions?: boolean
+  /** Render category names verbatim instead of appending the shared model suffix. */
+  plainCategoryLabels?: boolean
   placeholder?: string
   searchPlaceholder?: string
   emptyText?: string
@@ -214,6 +220,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
     className,
     disabled = false,
     variant = 'compact',
+    showOptionDescriptions = true,
+    plainCategoryLabels = false,
     placeholder,
     searchPlaceholder,
     emptyText,
@@ -316,7 +324,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                       isMobile ? 'text-xs' : 'text-[10px]'
                     )}
                   >
-                    {t('{{category}} Models', { category })}
+                    {modelSelectorCategoryHeading(
+                      category,
+                      plainCategoryLabels,
+                      (value) => t('{{category}} Models', { category: value })
+                    )}
                   </div>
                   {categoryModels.map((model) => (
                     <CommandItem
@@ -344,8 +356,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
                           )}
                         >
                           <span className='block'>{model.label}</span>
-                          {variant === 'field' &&
-                            (model.disabledReason || model.description) && (
+                          {shouldShowModelOptionSecondaryText(
+                            variant,
+                            showOptionDescriptions,
+                            model.disabledReason || model.description
+                          ) && (
                               <span className='text-muted-foreground mt-0.5 block text-[10px] leading-4 font-normal'>
                                 {model.disabledReason || model.description}
                               </span>
