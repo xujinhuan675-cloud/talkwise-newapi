@@ -24,9 +24,13 @@ import {
   downsamplePcm16,
   pcm16ToBase64,
   realtimeAudioContract,
+  realtimeAuthRenewalDelayMs,
+  realtimeCommitTranscriptSettled,
   realtimeEventAudio,
   realtimeEventError,
+  realtimeEventNeedsAuthRefresh,
   realtimeEventText,
+  realtimeTranscriptPreviewAction,
   talkWiseBearerProtocol,
   trainingRealtimeWebSocketUrl,
 } from '../realtime-client'
@@ -164,6 +168,29 @@ describe('training realtime client contract', () => {
     assert.deepEqual([...decodedAudio.bytes], [0, 1, 2, 3])
   })
 
+  test('treats transcript deltas as one replaceable provisional bubble', () => {
+    const preview = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'transcript.delta',
+        payload: { delta: '为了降低风险我们可以分成两个阶段' },
+        metadata: { preview: true, replace: true },
+      })
+    )
+    assert.ok(preview)
+    assert.deepEqual(realtimeTranscriptPreviewAction(preview), {
+      type: 'update',
+      text: '为了降低风险我们可以分成两个阶段',
+    })
+
+    const persisted = decodeRealtimeServerEvent(
+      JSON.stringify({ type: 'transcript.persisted' })
+    )
+    assert.ok(persisted)
+    assert.deepEqual(realtimeTranscriptPreviewAction(persisted), {
+      type: 'clear',
+    })
+  })
+
   test('normalizes realtime failures for the native error notification', () => {
     const error = decodeRealtimeServerEvent(
       JSON.stringify({
@@ -174,5 +201,110 @@ describe('training realtime client contract', () => {
 
     assert.ok(error)
     assert.equal(realtimeEventError(error), 'Realtime provider is unavailable.')
+  })
+
+  test('provides actionable copy when no speech was recognized', () => {
+    const error = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: {
+          code: 'REALTIME_INPUT_AUDIO_UNRECOGNIZED',
+          sourceCode: 'DOUBAO_VOICE_TRANSCRIPT_EMPTY',
+          message: 'No clear speech was recognized.',
+        },
+      })
+    )
+
+    assert.ok(error)
+    assert.equal(
+      realtimeEventError(error),
+      'No clear speech was recognized. Move closer to the microphone and try again.'
+    )
+    assert.equal(
+      realtimeEventError(error, (_english, chinese) => chinese),
+      '没有识别到清晰语音，请靠近麦克风后重试。'
+    )
+  })
+
+  test('provides localized provider and worker failure guidance', () => {
+    const providerUnavailable = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: {
+          code: 'REALTIME_PROVIDER_UNAVAILABLE',
+          errorCategory: 'provider_unavailable',
+        },
+      })
+    )
+    const workerFailure = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: { code: 'REALTIME_EVENT_PUMP_FAILED' },
+      })
+    )
+
+    assert.ok(providerUnavailable)
+    assert.ok(workerFailure)
+    assert.equal(
+      realtimeEventError(providerUnavailable, (_english, chinese) => chinese),
+      '实时语音服务暂时不可用，请稍后重试。'
+    )
+    assert.equal(
+      realtimeEventError(workerFailure, (_english, chinese) => chinese),
+      '实时语音处理失败，请重新开始实时语音后重试。'
+    )
+  })
+
+  test('only treats TalkWise session failures as refreshable authentication errors', () => {
+    const expired = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: {
+          code: 'REALTIME_PROVIDER_FAILED',
+          sourceCode: 'TALKWISE_SESSION_AUTHENTICATION_FAILED',
+        },
+      })
+    )
+    const providerCredential = decodeRealtimeServerEvent(
+      JSON.stringify({
+        type: 'error',
+        payload: { sourceCode: 'DOUBAO_VOICE_AUTHENTICATION_FAILED' },
+      })
+    )
+
+    assert.ok(expired)
+    assert.ok(providerCredential)
+    assert.equal(realtimeEventNeedsAuthRefresh(expired), true)
+    assert.equal(realtimeEventNeedsAuthRefresh(providerCredential), false)
+  })
+
+  test('renews a realtime socket one minute before access-token expiry', () => {
+    assert.equal(realtimeAuthRenewalDelayMs(1000, 800_000), 140_000)
+    assert.equal(realtimeAuthRenewalDelayMs(800, 800_000), 1000)
+    assert.equal(realtimeAuthRenewalDelayMs(null, 800_000), null)
+  })
+
+  test('does not settle a committed turn on audio completion alone', () => {
+    assert.equal(
+      realtimeCommitTranscriptSettled({
+        commitAcknowledged: false,
+        transcriptPersisted: false,
+      }),
+      false
+    )
+    assert.equal(
+      realtimeCommitTranscriptSettled({
+        commitAcknowledged: true,
+        transcriptPersisted: false,
+      }),
+      false
+    )
+    assert.equal(
+      realtimeCommitTranscriptSettled({
+        commitAcknowledged: true,
+        transcriptPersisted: true,
+      }),
+      true
+    )
   })
 })

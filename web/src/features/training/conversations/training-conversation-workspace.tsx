@@ -146,6 +146,14 @@ function TrainingConversationWorkspaceContent({
     enabled: host.authStatus === 'authenticated',
   })
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data])
+  const refreshSessionProgress = useCallback(
+    () =>
+      queryClient.refetchQueries({
+        queryKey: ['training', 'conversation-sessions', host.apiBase],
+        type: 'active',
+      }),
+    [host.apiBase, queryClient]
+  )
   const [isNewConversationOpen, setIsNewConversationOpen] = useState(false)
   const [isListCollapsed, setIsListCollapsed] = useState(
     () =>
@@ -561,6 +569,7 @@ function TrainingConversationWorkspaceContent({
                 conversation: result.trainingSession.conversationId,
               })
             }}
+            onProgressChanged={refreshSessionProgress}
             onSelectedTailChange={(nextMessageId) =>
               onSessionChange({
                 ...sessionSearch(activeSession),
@@ -577,6 +586,7 @@ function TrainingConversationWorkspaceContent({
                 description: activeSession.description,
                 difficulty: activeSession.difficulty,
                 status: activeSession.status,
+                interactionMode: activeSession.interactionMode,
                 reportId: activeSession.reportId,
                 metadata: activeSession.metadata,
               } satisfies TrainingConversationSessionContext
@@ -591,6 +601,7 @@ function TrainingConversationWorkspaceContent({
             interactionMode={activeSession.interactionMode}
             mode={activeSession.modality}
             onCompletionConfirmed={handleCompletionConfirmed}
+            onProgressChanged={refreshSessionProgress}
             realtimeProfile={activeSession.realtimeProfile}
             realtimeProvider={activeSession.realtimeProvider}
             roomId={activeSession.roomId}
@@ -602,6 +613,7 @@ function TrainingConversationWorkspaceContent({
                 description: activeSession.description,
                 difficulty: activeSession.difficulty,
                 status: activeSession.status,
+                interactionMode: activeSession.interactionMode,
                 reportId: activeSession.reportId,
                 metadata: activeSession.metadata,
               } satisfies TrainingConversationSessionContext

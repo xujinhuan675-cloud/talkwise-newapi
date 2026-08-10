@@ -47,7 +47,28 @@ export interface RealtimeServerEvent {
   type: string
 }
 
+/**
+ * A client-initiated audio commit is only safe to close after the server has
+ * acknowledged the commit and persisted the resulting transcript. The output
+ * stream may finish before either event, so audio completion is not a commit
+ * settlement signal by itself.
+ */
+export function realtimeCommitTranscriptSettled(input: {
+  commitAcknowledged: boolean
+  transcriptPersisted: boolean
+}): boolean {
+  return input.commitAcknowledged && input.transcriptPersisted
+}
+
 const AUTH_PROTOCOL_PREFIX = 'talkwise.bearer.'
+const SESSION_AUTH_ERROR_CODES = new Set([
+  'AUTH_SESSION_REVOKED',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_UNAUTHORIZED',
+  'AUTH_USER_DISABLED',
+  'AUTH_USER_INVALID',
+  'TALKWISE_SESSION_AUTHENTICATION_FAILED',
+])
 
 export const TALKWISE_REALTIME_PROTOCOL = 'talkwise.realtime'
 
@@ -158,7 +179,7 @@ function eventRecords(event: RealtimeServerEvent): Record<string, unknown>[] {
 
 export function realtimeEventText(event: RealtimeServerEvent): string | null {
   for (const record of eventRecords(event)) {
-    for (const key of ['text', 'transcript', 'message']) {
+    for (const key of ['text', 'transcript', 'message', 'delta']) {
       const value = record[key]
       if (typeof value === 'string' && value.trim()) return value.trim()
     }
@@ -166,9 +187,137 @@ export function realtimeEventText(event: RealtimeServerEvent): string | null {
   return null
 }
 
-export function realtimeEventError(event: RealtimeServerEvent): string | null {
+export type RealtimeTranscriptPreviewAction =
+  | { type: 'clear' }
+  | { text: string; type: 'update' }
+  | { type: 'ignore' }
+
+/**
+ * Transcript deltas are display-only. They update one provisional bubble;
+ * persistence remains server-owned and is acknowledged separately.
+ */
+export function realtimeTranscriptPreviewAction(
+  event: RealtimeServerEvent
+): RealtimeTranscriptPreviewAction {
+  if (event.type === 'transcript.persisted') return { type: 'clear' }
+  if (event.type !== 'transcript.delta') return { type: 'ignore' }
+  const text = realtimeEventText(event)
+  return text ? { text, type: 'update' } : { type: 'ignore' }
+}
+
+export function realtimeEventError(
+  event: RealtimeServerEvent,
+  localize?: (english: string, chinese: string) => string
+): string | null {
   if (event.type !== 'error') return null
+  for (const record of eventRecords(event)) {
+    const code = String(record.sourceCode || record.code || '')
+      .trim()
+      .toUpperCase()
+    const category = String(record.errorCategory || record.error_category || '')
+      .trim()
+      .toLowerCase()
+    if (
+      code === 'DOUBAO_VOICE_TRANSCRIPT_EMPTY' ||
+      code === 'REALTIME_INPUT_AUDIO_UNRECOGNIZED' ||
+      category === 'input_audio'
+    ) {
+      const english =
+        'No clear speech was recognized. Move closer to the microphone and try again.'
+      return localize
+        ? localize(english, '没有识别到清晰语音，请靠近麦克风后重试。')
+        : english
+    }
+    if (category === 'authentication') {
+      const english =
+        'Realtime speech authentication failed. Check the voice service configuration and try again.'
+      return localize
+        ? localize(english, '实时语音服务认证失败，请检查语音服务配置后重试。')
+        : english
+    }
+    if (category === 'rate_limit') {
+      const english =
+        'Realtime speech requests are too frequent. Wait a moment and try again.'
+      return localize
+        ? localize(english, '实时语音请求过于频繁，请稍后重试。')
+        : english
+    }
+    if (category === 'provider_unavailable') {
+      const english =
+        'The realtime speech service is temporarily unavailable. Try again shortly.'
+      return localize
+        ? localize(english, '实时语音服务暂时不可用，请稍后重试。')
+        : english
+    }
+    if (category === 'bad_request') {
+      const english =
+        'The realtime speech request is invalid. Check the voice route configuration.'
+      return localize
+        ? localize(english, '实时语音请求配置无效，请检查语音路由配置。')
+        : english
+    }
+    if (category === 'protocol_desync' || code === 'REALTIME_TURN_DESYNC') {
+      const english =
+        'The realtime speech turn became inconsistent. Restart realtime voice and try again.'
+      return localize
+        ? localize(english, '实时语音回合状态异常，请重新开始实时语音。')
+        : english
+    }
+    if (
+      category === 'provider_error' ||
+      code.startsWith('PIPECAT_') ||
+      code === 'REALTIME_EVENT_PUMP_FAILED'
+    ) {
+      const english =
+        'Realtime speech processing failed. Restart realtime voice and try again.'
+      return localize
+        ? localize(english, '实时语音处理失败，请重新开始实时语音后重试。')
+        : english
+    }
+  }
   return realtimeEventText(event) || 'Realtime training failed.'
+}
+
+export function isTalkWiseSessionAuthCode(value: unknown): boolean {
+  return (
+    typeof value === 'string' &&
+    SESSION_AUTH_ERROR_CODES.has(value.trim().toUpperCase())
+  )
+}
+
+export function realtimeEventNeedsAuthRefresh(
+  event: RealtimeServerEvent
+): boolean {
+  if (event.type !== 'error') return false
+  for (const record of eventRecords(event)) {
+    if (
+      isTalkWiseSessionAuthCode(record.code) ||
+      isTalkWiseSessionAuthCode(record.sourceCode)
+    ) {
+      return true
+    }
+    const metadata = record.metadata
+    if (
+      metadata &&
+      typeof metadata === 'object' &&
+      !Array.isArray(metadata) &&
+      (isTalkWiseSessionAuthCode((metadata as Record<string, unknown>).code) ||
+        isTalkWiseSessionAuthCode(
+          (metadata as Record<string, unknown>).sourceCode
+        ))
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+export function realtimeAuthRenewalDelayMs(
+  accessExpiresAt: number | null | undefined,
+  nowMilliseconds = Date.now()
+): number | null {
+  if (!accessExpiresAt || !Number.isFinite(accessExpiresAt)) return null
+  return Math.max(1000, accessExpiresAt * 1000 - nowMilliseconds - 60_000)
 }
 
 export function realtimeEventAudio(event: RealtimeServerEvent): {

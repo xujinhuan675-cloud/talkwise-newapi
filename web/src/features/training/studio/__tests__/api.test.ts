@@ -101,7 +101,12 @@ describe('training studio adapter', () => {
       kind: 'conversation',
       focus: { scope: 'custom', selected: ['Handle a pricing objection.'] },
       pressure: 'hard',
-      length: { profile: 'complete', turnBudget: 12 },
+      length: {
+        profile: 'complete',
+        turnBudget: 12,
+        minimumTurns: 7,
+        hardCapTurns: 16,
+      },
       completion: { strategy: 'adaptive', explicitFinish: true },
     })
     assert.equal('user_id' in request, false)

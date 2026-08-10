@@ -81,7 +81,12 @@ import {
   formatTrainingMessageForDisplay,
   trainingMessagePresentation,
 } from '../training-message-presentation'
-import { resolveBattlePrepPlan } from '../training-plan'
+import {
+  resolveBattlePrepPlan,
+  resolveTrainingProgress,
+  trainingProgressIsInputLocked,
+} from '../training-plan'
+import { TrainingProgressIndicator } from '../training-progress'
 import {
   completeTrainingConversationSession,
   editTrainingConversationMessage,
@@ -132,6 +137,7 @@ export interface TrainingConversationSurfaceProps {
   readonly onForkCreated: (
     result: TrainingSessionConversationForkResult
   ) => void | Promise<void>
+  readonly onProgressChanged?: () => void | Promise<void>
   readonly onSelectedTailChange: (messageId: string | null) => void
   readonly selectedTailId?: string
   readonly trainingApiBase: string
@@ -326,6 +332,7 @@ export function TrainingConversationSurface({
   headerActionsTarget,
   onCompletionConfirmed,
   onForkCreated,
+  onProgressChanged,
   onSelectedTailChange,
   selectedTailId,
   trainingApiBase,
@@ -412,6 +419,16 @@ export function TrainingConversationSurface({
   const battleTurnLimitReached = Boolean(
     battlePlan && completedBattleTurns >= battlePlan.turnBudget
   )
+  const localLearnerTurnCount = treeProjection.path.filter(
+    (message) => message.role === 'user'
+  ).length
+  const trainingProgress = useMemo(
+    () =>
+      resolveTrainingProgress(trainingSession.metadata, localLearnerTurnCount),
+    [localLearnerTurnCount, trainingSession.metadata]
+  )
+  const trainingProgressInputLocked =
+    trainingProgressIsInputLocked(trainingProgress)
   const localize = useCallback(
     (english: string, chinese: string) =>
       t(english, {
@@ -625,6 +642,7 @@ export function TrainingConversationSurface({
                       : item
                   )
                 )
+                void onProgressChanged?.()
                 return
               }
 
@@ -749,6 +767,7 @@ export function TrainingConversationSurface({
       applyLoadedMessages,
       localize,
       mutateMessages,
+      onProgressChanged,
       parameterEnabled.max_tokens,
       parameterEnabled.temperature,
       trainingSession,
@@ -757,7 +776,7 @@ export function TrainingConversationSurface({
 
   const handleSendMessage = useCallback(
     (text: string) => {
-      if (battleTurnLimitReached) return
+      if (battleTurnLimitReached || trainingProgressInputLocked) return
       const tail = lastPersistedMessage(
         messagesRef.current,
         messageRecordsRef.current
@@ -767,7 +786,7 @@ export function TrainingConversationSurface({
         branchId: tail?.branchId,
       })
     },
-    [battleTurnLimitReached, startStream]
+    [battleTurnLimitReached, startStream, trainingProgressInputLocked]
   )
 
   const handleRegenerateMessage = useCallback(
@@ -1079,7 +1098,8 @@ export function TrainingConversationSurface({
 
   const isBusy = isGenerating || isSavingEdit || isForking || isCompleting
   const isSessionReadOnly = trainingSession.status !== 'active'
-  const isInputLocked = isSessionReadOnly || battleTurnLimitReached
+  const isInputLocked =
+    isSessionReadOnly || battleTurnLimitReached || trainingProgressInputLocked
   const canComplete =
     !isBusy &&
     !isLoadingConversation &&
@@ -1207,6 +1227,12 @@ export function TrainingConversationSurface({
             )}
           </div>
         </div>
+      )}
+      {trainingProgress && (
+        <TrainingProgressIndicator
+          localize={localize}
+          progress={trainingProgress}
+        />
       )}
       <div className='flex min-h-0 flex-1 overflow-hidden'>
         <div className='flex min-w-0 flex-1 flex-col overflow-hidden'>

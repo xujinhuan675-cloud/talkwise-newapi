@@ -183,3 +183,15 @@ export function trainingSessionStatusDisplayLabel(
   if (value === 'failed') return chinese ? '失败' : 'Failed'
   return chinese ? '已创建' : 'Created'
 }
+
+export function trainingInteractionModeDisplayLabel(
+  mode: 'turn_based' | 'realtime' | undefined,
+  language: string
+): string | null {
+  if (!mode) return null
+  const chinese = usesChinese(language)
+  if (mode === 'realtime') {
+    return chinese ? '自然对话（可打断）' : 'Natural conversation (interruptible)'
+  }
+  return chinese ? '逐轮对话' : 'Turn-by-turn conversation'
+}

@@ -19,6 +19,7 @@ import { describe, test } from 'node:test'
 
 import {
   trainingDifficultyDisplayLabel,
+  trainingInteractionModeDisplayLabel,
   trainingEmotionDisplayLabel,
   trainingRoleLocalizedLabel,
   trainingRoleDisplayLabel,
@@ -47,6 +48,14 @@ describe('training display labels', () => {
   test('localizes stable session enums and catalog roles', () => {
     assert.equal(trainingDifficultyDisplayLabel('medium', 'zh-CN'), '中等')
     assert.equal(trainingSessionStatusDisplayLabel('active', 'zh-CN'), '进行中')
+    assert.equal(
+      trainingInteractionModeDisplayLabel('turn_based', 'zh-CN'),
+      '逐轮对话'
+    )
+    assert.equal(
+      trainingInteractionModeDisplayLabel('realtime', 'zh-CN'),
+      '自然对话（可打断）'
+    )
     assert.equal(
       trainingRoleDisplayLabel('Project Lead', 'zh-CN'),
       '项目负责人'

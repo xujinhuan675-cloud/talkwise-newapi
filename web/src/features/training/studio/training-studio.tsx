@@ -142,9 +142,8 @@ function TrainingStudioContent({
       selectableVoiceRoutes.map((route) => {
         const group = voiceRoutePresetGroup(route)
         const category = {
-          cascade: localize('Cascade combinations', '级联组合'),
-          native_voice: localize('Native voice', '原生语音'),
-          curated_demo: localize('Curated demos', '精选 Demo'),
+          cascade: localize('Cascade', '级联'),
+          realtime: localize('Realtime', '实时'),
         }[group]
 
         return {
@@ -347,6 +346,8 @@ function TrainingStudioContent({
                   {mode === 'voice' ? (
                     <ModelSelector
                       variant='field'
+                      showOptionDescriptions={false}
+                      plainCategoryLabels
                       models={voiceRouteOptions}
                       selectedModel={voiceRouteId}
                       onModelChange={setVoiceRouteId}
