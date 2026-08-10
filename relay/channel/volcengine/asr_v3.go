@@ -83,6 +83,10 @@ func convertASRV3Request(c *gin.Context, info *relaycommon.RelayInfo, request dt
 	if err != nil {
 		return nil, err
 	}
+	audio, audioFormat, err = prepareASRStreamingAudio(audio, audioFormat)
+	if err != nil {
+		return nil, err
+	}
 	asrRequest := asrV3Request{
 		Audio:          audio,
 		AudioFormat:    audioFormat,
@@ -127,6 +131,71 @@ func normalizeASRFormat(filename, contentType string) (string, error) {
 		return "pcm", nil
 	}
 	return "", errors.New("volcengine ASR supports wav, mp3, ogg/opus, or pcm audio; convert WebM before upload")
+}
+
+func prepareASRStreamingAudio(audio []byte, audioFormat string) ([]byte, string, error) {
+	switch audioFormat {
+	case "wav":
+		pcm, err := extractPCM16MonoWAV(audio)
+		if err != nil {
+			return nil, "", err
+		}
+		return pcm, "pcm", nil
+	case "raw":
+		return audio, "pcm", nil
+	default:
+		return audio, audioFormat, nil
+	}
+}
+
+func extractPCM16MonoWAV(audio []byte) ([]byte, error) {
+	if len(audio) < 12 || !bytes.Equal(audio[:4], []byte("RIFF")) || !bytes.Equal(audio[8:12], []byte("WAVE")) {
+		return nil, errors.New("volcengine ASR WAV input must be a RIFF/WAVE file")
+	}
+
+	var formatFound bool
+	var data []byte
+	for offset := 12; offset+8 <= len(audio); {
+		chunkID := string(audio[offset : offset+4])
+		chunkSize := int(binary.LittleEndian.Uint32(audio[offset+4 : offset+8]))
+		offset += 8
+		if chunkSize < 0 || chunkSize > len(audio)-offset {
+			return nil, errors.New("volcengine ASR WAV input contains a truncated chunk")
+		}
+		chunk := audio[offset : offset+chunkSize]
+		switch chunkID {
+		case "fmt ":
+			if len(chunk) < 16 {
+				return nil, errors.New("volcengine ASR WAV input has an invalid format chunk")
+			}
+			formatFound = true
+			audioEncoding := binary.LittleEndian.Uint16(chunk[0:2])
+			channels := binary.LittleEndian.Uint16(chunk[2:4])
+			sampleRate := binary.LittleEndian.Uint32(chunk[4:8])
+			bitsPerSample := binary.LittleEndian.Uint16(chunk[14:16])
+			if audioEncoding != 1 || channels != 1 || sampleRate != defaultASRSampleRate || bitsPerSample != 16 {
+				return nil, fmt.Errorf(
+					"volcengine ASR WAV input must be PCM16, mono, and %d Hz",
+					defaultASRSampleRate,
+				)
+			}
+		case "data":
+			if len(chunk) > 0 {
+				data = append(data, chunk...)
+			}
+		}
+		offset += chunkSize
+		if chunkSize%2 != 0 && offset < len(audio) {
+			offset++
+		}
+	}
+	if !formatFound {
+		return nil, errors.New("volcengine ASR WAV input is missing a format chunk")
+	}
+	if len(data) == 0 {
+		return nil, errors.New("volcengine ASR WAV input contains no PCM audio")
+	}
+	return data, nil
 }
 
 func doASRV3Request(c *gin.Context, info *relaycommon.RelayInfo) (*http.Response, error) {
@@ -196,6 +265,7 @@ func doASRV3Request(c *gin.Context, info *relaycommon.RelayInfo) (*http.Response
 	}
 
 	var result map[string]any
+	text := ""
 	for {
 		parsed, err := receiveASRFrame(conn)
 		if err != nil {
@@ -203,14 +273,11 @@ func doASRV3Request(c *gin.Context, info *relaycommon.RelayInfo) (*http.Response
 		}
 		if parsed.Payload != nil {
 			result = parsed.Payload
+			text = retainASRTranscript(text, parsed.Payload)
 		}
 		if parsed.Flags == asrFlagNegativeSequence || parsed.Sequence < 0 || isASRFinal(parsed.Payload) {
 			break
 		}
-	}
-	text := extractASRText(result)
-	if text == "" {
-		return nil, errors.New("volcengine ASR returned no transcript")
 	}
 	duration := extractASRDuration(result)
 	if duration <= 0 {
@@ -395,6 +462,13 @@ func extractASRText(payload map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func retainASRTranscript(current string, payload map[string]any) string {
+	if text := extractASRText(payload); text != "" {
+		return text
+	}
+	return current
 }
 
 func extractASRDuration(payload map[string]any) float64 {
