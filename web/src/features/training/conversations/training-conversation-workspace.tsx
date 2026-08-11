@@ -22,7 +22,8 @@ import {
   ChevronRight,
   CircleAlert,
   LoaderCircle,
-  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Trash2,
 } from 'lucide-react'
@@ -357,13 +358,14 @@ function TrainingConversationWorkspaceContent({
                         'Collapse conversation list',
                         '折叠会话列表'
                       )}
+                      className='bg-transparent aria-expanded:bg-transparent'
                       size='icon-sm'
                       variant='ghost'
                       onClick={() => setIsListCollapsed(true)}
                     />
                   }
                 >
-                  <PanelLeft />
+                  <PanelLeftClose />
                 </TooltipTrigger>
                 <TooltipContent>
                   {localize('Collapse conversation list', '折叠会话列表')}
@@ -494,14 +496,14 @@ function TrainingConversationWorkspaceContent({
                         'Expand conversation list',
                         '展开会话列表'
                       )}
-                      className='hidden md:inline-flex'
+                      className='hidden bg-transparent aria-expanded:bg-transparent md:inline-flex'
                       size='icon-sm'
-                      variant='outline'
+                      variant='ghost'
                       onClick={() => setIsListCollapsed(false)}
                     />
                   }
                 >
-                  <PanelLeft />
+                  <PanelLeftOpen />
                 </TooltipTrigger>
                 <TooltipContent>
                   {localize('Expand conversation list', '展开会话列表')}

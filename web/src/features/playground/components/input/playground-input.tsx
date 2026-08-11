@@ -50,6 +50,7 @@ interface PlaygroundInputProps {
   hideSubmitButton?: boolean
   hideModelSelector?: boolean
   disableTextInput?: boolean
+  leadingContent?: ReactNode
   extraTools?: ReactNode
   extraActions?: ReactNode
   isGenerating?: boolean
@@ -85,6 +86,7 @@ export function PlaygroundInput({
   hideSubmitButton = false,
   hideModelSelector = false,
   disableTextInput = false,
+  leadingContent,
   extraTools,
   extraActions,
   isGenerating,
@@ -121,6 +123,7 @@ export function PlaygroundInput({
         groupClassName='bg-card text-card-foreground border-border rounded-lg border shadow-md overflow-hidden transition-[border-color,box-shadow] duration-200 has-disabled:bg-card has-disabled:opacity-100 focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/20'
         onSubmit={handleSubmit}
       >
+        {leadingContent}
         <PromptInputTextarea
           autoComplete='off'
           autoCorrect='off'
