@@ -89,10 +89,7 @@ function TeamScenarioSummary({
       ),
     },
     {
-      title: localize(
-        'Average task outcome',
-        '\u5e73\u5747\u4efb\u52a1\u8868\u73b0'
-      ),
+      title: localize('Average score', '\u5e73\u5747\u8bc4\u5206'),
       value: averageScore === null ? '-' : `${averageScore}/100`,
       description: localize(
         'Across scored scenario rankings on this page',
@@ -203,10 +200,7 @@ function TeamScenariosContent() {
       },
       {
         id: 'score',
-        header: localize(
-          'Average task outcome',
-          '\u5e73\u5747\u4efb\u52a1\u8868\u73b0'
-        ),
+        header: localize('Average score', '\u5e73\u5747\u8bc4\u5206'),
         cell: ({ row }) =>
           row.original.averageScore === null
             ? '-'
@@ -339,7 +333,7 @@ function TeamScenariosContent() {
                     {row.original.completedSessions}
                   </span>
                   <span className='text-right'>
-                    {localize('Task outcome', '\u4efb\u52a1\u8868\u73b0')}:{' '}
+                    {localize('Average score', '\u5e73\u5747\u8bc4\u5206')}:{' '}
                     {row.original.averageScore ?? '-'}
                   </span>
                   <span className='col-span-2'>

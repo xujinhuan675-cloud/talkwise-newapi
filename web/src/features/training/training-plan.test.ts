@@ -155,7 +155,7 @@ describe('training plan metadata', () => {
     assert.equal(trainingProgressIsInputLocked(progress), false)
   })
 
-  test('shows battle preparation progress without replacing its fixed turn limit', () => {
+  test('shows battle preparation progress without replacing its target length', () => {
     const progress = resolveTrainingProgress(
       {
         training_source: 'battle_prep',

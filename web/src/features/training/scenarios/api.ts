@@ -317,7 +317,8 @@ export function buildTrainingSessionRequest(
   feedbackMode: TrainingFeedbackMode = 'simulation',
   llmModel?: string,
   voiceRouteId?: string,
-  interactionMode?: TrainingInteractionMode
+  interactionMode?: TrainingInteractionMode,
+  replyLanguage?: string
 ): CreateTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const rubricWeights = Object.fromEntries(
@@ -364,6 +365,9 @@ export function buildTrainingSessionRequest(
         feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
         trainingMode,
         interactionMode: resolvedInteractionMode,
+        ...(replyLanguage?.trim()
+          ? { replyLanguage: replyLanguage.trim() }
+          : {}),
         ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
         ...(mode === 'voice' || mode === 'realtime'
           ? voiceRouteId
@@ -397,6 +401,9 @@ export function buildTrainingSessionRequest(
           feedbackMode,
           trainingMode,
           interactionMode: resolvedInteractionMode,
+          ...(replyLanguage?.trim()
+            ? { replyLanguage: replyLanguage.trim() }
+            : {}),
           ...(resolvedVoiceId ? { voice_id: resolvedVoiceId } : {}),
         },
       },
@@ -437,7 +444,8 @@ export function buildScenarioStartRequest(
   },
   voiceId?: TrainingVoiceId,
   feedbackMode: TrainingFeedbackMode = 'simulation',
-  interactionMode?: TrainingInteractionMode
+  interactionMode?: TrainingInteractionMode,
+  replyLanguage?: string
 ): StartTrainingSessionRequest {
   const resolvedVoiceId = voiceId ?? scenario.persona.voiceId ?? undefined
   const trainingMode = trainingModalityForMode(mode)
@@ -467,6 +475,9 @@ export function buildScenarioStartRequest(
           feedbackMode,
           trainingFeedbackMode: feedbackMode,
           feedbackPolicy: trainingFeedbackPolicy(feedbackMode),
+          ...(replyLanguage?.trim()
+            ? { replyLanguage: replyLanguage.trim() }
+            : {}),
           ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
           ...(mode !== 'text'
             ? {
@@ -554,7 +565,8 @@ export async function startScenarioTrainingSession(
   plan?: TrainingPlanInput,
   voiceId?: TrainingVoiceId,
   feedbackMode: TrainingFeedbackMode = 'simulation',
-  interactionMode?: TrainingInteractionMode
+  interactionMode?: TrainingInteractionMode,
+  replyLanguage?: string
 ): Promise<TrainingSession> {
   const response = await api.post<TalkWiseResponse<TrainingSessionDTO>>(
     trainingApiUrl(
@@ -567,7 +579,8 @@ export async function startScenarioTrainingSession(
       plan,
       voiceId,
       feedbackMode,
-      interactionMode
+      interactionMode,
+      replyLanguage
     ),
     { skipBusinessError: true, skipErrorHandler: true }
   )
@@ -595,9 +608,21 @@ export async function startTextTrainingSession(
 
 export async function launchTextScenarioTrainingSession(
   apiBase: string,
-  scenario: TrainingScenario
+  scenario: TrainingScenario,
+  replyLanguage?: string
 ): Promise<TrainingSession> {
-  return launchScenarioTrainingSession(apiBase, scenario, 'text')
+  return launchScenarioTrainingSession(
+    apiBase,
+    scenario,
+    'text',
+    undefined,
+    undefined,
+    'simulation',
+    undefined,
+    undefined,
+    undefined,
+    replyLanguage
+  )
 }
 
 export async function launchScenarioTrainingSession(
@@ -609,7 +634,8 @@ export async function launchScenarioTrainingSession(
   feedbackMode: TrainingFeedbackMode = 'simulation',
   llmModel?: string,
   voiceRouteId?: string,
-  interactionMode?: TrainingInteractionMode
+  interactionMode?: TrainingInteractionMode,
+  replyLanguage?: string
 ): Promise<TrainingSession> {
   const created = await createTrainingSession(
     apiBase,
@@ -621,7 +647,8 @@ export async function launchScenarioTrainingSession(
       feedbackMode,
       llmModel,
       voiceRouteId,
-      interactionMode
+      interactionMode,
+      replyLanguage
     )
   )
   try {
@@ -633,7 +660,8 @@ export async function launchScenarioTrainingSession(
       plan,
       voiceId,
       feedbackMode,
-      interactionMode
+      interactionMode,
+      replyLanguage
     )
   } catch (error) {
     throw new ScenarioTrainingStartError(created.sessionId, error)
