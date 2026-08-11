@@ -113,6 +113,17 @@ interface TalkWiseResponse<T> {
 
 const VIDEO_ANSWER_MARKER = '[video-answer]'
 const ROOM_PROXY_BASE = '/api/talkwise/conversations'
+export const LOW_LATENCY_REALTIME_REPLY_MODEL = 'doubao-seed-2-0-mini-260428'
+
+export function trainingRoomReplyModel(
+  interactionMode: string,
+  model: string
+): string {
+  if (interactionMode === 'realtime' && model === 'gpt-5.5') {
+    return LOW_LATENCY_REALTIME_REPLY_MODEL
+  }
+  return model
+}
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null

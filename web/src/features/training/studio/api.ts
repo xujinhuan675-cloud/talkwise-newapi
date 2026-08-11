@@ -523,7 +523,7 @@ export function buildLiveCoachSessionInput(input: {
     role: 'Live coaching learner',
     goal: `${goal}\n${languageContext}`,
     mode: 'voice',
-    interactionMode: 'turn_based',
+    interactionMode: 'realtime',
     feedbackMode: 'assisted',
     liveCoach: {
       sourceLanguage: input.sourceLanguage.trim() || 'default',

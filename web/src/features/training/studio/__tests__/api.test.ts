@@ -170,6 +170,20 @@ describe('training studio adapter', () => {
     )
   })
 
+  test('preserves an explicit realtime drill request for experimental callers', () => {
+    const request = buildStudioSessionRequest({
+      role: 'Account manager',
+      goal: 'Handle a pricing objection.',
+      mode: 'voice',
+      interactionMode: 'realtime',
+      feedbackMode: 'drill',
+      voiceRouteId: 'cascade-standard',
+    })
+
+    assert.equal(request.task_config.metadata.interactionMode, 'realtime')
+    assert.equal(request.task_config.metadata.feedbackMode, 'drill')
+  })
+
   test('binds a cascade preset to turn-based voice without a standalone LLM', () => {
     const request = buildStudioSessionRequest({
       role: 'Account manager',
@@ -277,6 +291,7 @@ describe('training studio adapter', () => {
     })
 
     assert.equal(input.mode, 'voice')
+    assert.equal(input.interactionMode, 'realtime')
     assert.equal(input.feedbackMode, 'assisted')
     assert.match(
       input.goal,

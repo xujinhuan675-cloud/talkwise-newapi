@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import {
+  LOW_LATENCY_REALTIME_REPLY_MODEL,
   normalizeTrainingRoomCompletionResult,
   normalizeTrainingRoomMessages,
   parseTrainingRoomSse,
@@ -28,10 +29,26 @@ import {
   trainingRoomCompletionPath,
   trainingRoomMessageAudioPath,
   trainingRoomPath,
+  trainingRoomReplyModel,
   trainingRoomStreamPath,
 } from '../training-room-client'
 
 describe('training room client', () => {
+  test('moves legacy realtime roleplay off the slow reasoning model', () => {
+    assert.equal(
+      trainingRoomReplyModel('realtime', 'gpt-5.5'),
+      LOW_LATENCY_REALTIME_REPLY_MODEL
+    )
+    assert.equal(
+      trainingRoomReplyModel('turn_based', 'gpt-5.5'),
+      'gpt-5.5'
+    )
+    assert.equal(
+      trainingRoomReplyModel('realtime', 'custom-fast-model'),
+      'custom-fast-model'
+    )
+  })
+
   test('builds same-origin room and stream paths from server bindings', () => {
     assert.equal(
       trainingRoomPath('room/7', 'session 9'),

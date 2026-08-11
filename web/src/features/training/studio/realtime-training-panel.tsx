@@ -75,6 +75,7 @@ import {
 
 interface RealtimeVoiceControlProps {
   apiBase: string
+  capturePaused?: boolean
   disabled?: boolean
   drillMode?: boolean
   onDrillDraft?: (text: string) => void
@@ -114,6 +115,7 @@ export const RealtimeVoiceControl = forwardRef<
 >(function RealtimeVoiceControl(
   {
     apiBase,
+    capturePaused = false,
     disabled = false,
     drillMode = false,
     onDrillDraft,
@@ -133,6 +135,8 @@ export const RealtimeVoiceControl = forwardRef<
   const { i18n, t } = useTranslation()
   const accessToken = useAuthStore((state) => state.auth.accessToken)
   const socketRef = useRef<WebSocket | null>(null)
+  const capturePausedRef = useRef(capturePaused)
+  capturePausedRef.current = capturePaused
   const streamRef = useRef<MediaStream | null>(null)
   const inputContextRef = useRef<AudioContext | null>(null)
   const inputSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
@@ -460,9 +464,11 @@ export const RealtimeVoiceControl = forwardRef<
       }
       const drillDraft = realtimeDrillDraftText(event)
       if (drillMode && drillDraft) {
+        capturePausedRef.current = true
+        setInputWaveform(quietWaveformLevels(waveformBarCountRef.current))
+        setStatus('processing')
         transcriptPreviewChangeRef.current?.(null)
         onDrillDraft?.(drillDraft)
-        closeRealtime('closed')
         return
       }
       if (realtimeEventNeedsAuthRefresh(event)) {
@@ -640,7 +646,12 @@ export const RealtimeVoiceControl = forwardRef<
         })
 
         processor.onaudioprocess = (event) => {
-          if (socket.readyState !== WebSocket.OPEN) return
+          if (
+            socket.readyState !== WebSocket.OPEN ||
+            capturePausedRef.current
+          ) {
+            return
+          }
           const inputSamples = event.inputBuffer.getChannelData(0)
           setInputWaveform(
             waveformLevelsFromPcmData(inputSamples, waveformBarCountRef.current)
@@ -714,6 +725,23 @@ export const RealtimeVoiceControl = forwardRef<
   useEffect(() => {
     onVoiceInputStateChange?.(ACTIVE_STATUSES.has(status))
   }, [onVoiceInputStateChange, status])
+
+  useEffect(() => {
+    capturePausedRef.current = capturePaused
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return
+    if (capturePaused) {
+      setInputWaveform(quietWaveformLevels(waveformBarCountRef.current))
+      setStatus((current) =>
+        current === 'listening' ? 'processing' : current
+      )
+      return
+    }
+    if (!assistantOutputActiveRef.current && !stoppingRef.current) {
+      setStatus((current) =>
+        current === 'processing' ? 'listening' : current
+      )
+    }
+  }, [capturePaused, waveformBarCountRef])
 
   useEffect(() => {
     if (socketRef.current) closeRealtimeRef.current('idle')
