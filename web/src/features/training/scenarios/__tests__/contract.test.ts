@@ -147,7 +147,7 @@ describe('training scenario contract', () => {
         option.label.chinese,
       ]),
       [
-        ['simulation', '完整模拟'],
+        ['simulation', '沉浸模拟'],
         ['assisted', '旁路提示'],
         ['drill', '逐句纠正'],
       ]
@@ -161,17 +161,24 @@ describe('training scenario contract', () => {
       'voice',
       undefined,
       DEFAULT_TRAINING_VOICE_ID,
-      'drill'
+      'drill',
+      undefined,
+      undefined,
+      undefined,
+      'zh-CN'
     )
     const startRequest = buildScenarioStartRequest(
       scenario,
       'voice',
       undefined,
       DEFAULT_TRAINING_VOICE_ID,
-      'drill'
+      'drill',
+      undefined,
+      'zh-CN'
     )
 
     assert.equal(createRequest.task_config.metadata.feedbackMode, 'drill')
+    assert.equal(createRequest.task_config.metadata.replyLanguage, 'zh-CN')
     assert.equal(
       createRequest.task_config.metadata.trainingFeedbackMode,
       'drill'
@@ -190,12 +197,13 @@ describe('training scenario contract', () => {
       'drill'
     )
     assert.equal(startRequest.opening_message?.metadata.feedbackMode, 'drill')
+    assert.equal(startRequest.opening_message?.metadata.replyLanguage, 'zh-CN')
     if ('runtime' in startRequest || !startRequest.runtime_persona) {
       throw new Error('voice drill must include a runtime persona')
     }
     assert.match(
       startRequest.runtime_persona.style,
-      /after each learner answer/
+      /holds each learner draft before delivery/
     )
   })
 

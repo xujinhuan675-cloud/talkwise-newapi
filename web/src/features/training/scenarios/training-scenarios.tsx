@@ -449,6 +449,9 @@ export function TrainingScenarios() {
     useState<TrainingInteractionMode>('turn_based')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
+  const feedbackModeOption = TRAINING_FEEDBACK_MODE_OPTIONS.find(
+    (option) => option.value === feedbackMode
+  )
   const [selectedFocus, setSelectedFocus] = useState<readonly string[]>([])
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
   const [lengthProfile, setLengthProfile] =
@@ -556,7 +559,8 @@ export function TrainingScenarios() {
           request.plan,
           undefined,
           request.feedbackMode,
-          request.interactionMode
+          request.interactionMode,
+          host.locale
         )
       }
       return launchScenarioTrainingSession(
@@ -568,7 +572,8 @@ export function TrainingScenarios() {
         request.feedbackMode,
         request.llmModel,
         request.voiceRouteId,
-        request.interactionMode
+        request.interactionMode,
+        host.locale
       )
     },
     onSuccess: (session) => {
@@ -1021,6 +1026,14 @@ export function TrainingScenarios() {
                       </ToggleGroupItem>
                     ))}
                   </ToggleGroup>
+                  {feedbackModeOption && (
+                    <p className='text-muted-foreground text-xs leading-5'>
+                      {localize(
+                        feedbackModeOption.description.english,
+                        feedbackModeOption.description.chinese
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 <div className='space-y-2'>

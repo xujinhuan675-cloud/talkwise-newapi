@@ -38,7 +38,7 @@ function progressStateLabel(
   localize: TrainingProgressIndicatorProps['localize']
 ): string {
   if (progress.state === 'hard_limit_reached') {
-    return localize('Safety limit reached', '已达到安全上限')
+    return localize('Training complete', '本次训练已完成')
   }
   if (progress.state === 'completed') {
     return localize('Completed', '已完成')
@@ -64,10 +64,11 @@ export function TrainingProgressIndicator({
   const objectivesAvailable =
     progress.coveredCount !== null && progress.totalCount !== null
   const readyToFinish = progress.state === 'ready_to_finish'
+  const hardLimitReached = progress.state === 'hard_limit_reached'
 
   return (
     <div className='border-b px-3 py-2'>
-      <div className='mx-auto flex w-full max-w-4xl flex-col gap-1.5'>
+      <div className='flex w-full flex-col gap-1.5'>
         <Progress value={percent}>
           <ProgressLabel>
             {localize('Training progress', '训练进度')}
@@ -88,14 +89,6 @@ export function TrainingProgressIndicator({
               )}
             </Badge>
           )}
-          {progress.hardCapTurns !== null && (
-            <span className='text-muted-foreground'>
-              {localize(
-                `Safety limit ${progress.hardCapTurns} learner answers`,
-                `安全上限 ${progress.hardCapTurns} 个学员回答`
-              )}
-            </span>
-          )}
         </div>
         {progress.source === 'local' && (
           <p className='text-muted-foreground text-xs'>
@@ -115,6 +108,20 @@ export function TrainingProgressIndicator({
               {localize(
                 'You can finish and review this session now, or continue the conversation.',
                 '你可以现在结束并复盘，也可以继续对话。'
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+        {hardLimitReached && (
+          <Alert className='mt-1 py-2'>
+            <Flag />
+            <AlertTitle className='text-xs'>
+              {localize('Choose how to finish', '请选择结束方式')}
+            </AlertTitle>
+            <AlertDescription className='text-xs'>
+              {localize(
+                'This training is complete. End directly or finish with a review.',
+                '本次训练已完成，你可以直接结束，也可以结束并复盘。'
               )}
             </AlertDescription>
           </Alert>
