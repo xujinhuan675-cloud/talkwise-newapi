@@ -90,7 +90,11 @@ export function NewTrainingConversationDialog({
   )
   const launchMutation = useMutation({
     mutationFn: (scenario: TrainingScenario) =>
-      launchTextScenarioTrainingSession(apiBase, scenario),
+      launchTextScenarioTrainingSession(
+        apiBase,
+        scenario,
+        i18n.resolvedLanguage ?? i18n.language
+      ),
     onSuccess: async (session) => {
       await queryClient.refetchQueries({
         queryKey: ['training', 'conversation-sessions', apiBase],
