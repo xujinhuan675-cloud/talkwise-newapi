@@ -58,8 +58,8 @@ import {
   reviewRequestErrorMessage,
 } from './api'
 import { ReviewReportDetails } from './report-details'
+import { reviewScorePresentation } from './score-state-presentation'
 import { ReviewSessionReplay } from './session-replay'
-import type { ReviewEvaluationState, ScenarioProgress } from './types'
 
 const COMPETENCY_LABELS: Record<string, readonly [string, string]> = {
   attentiveness: ['Attentiveness', '\u503e\u542c\u5173\u6ce8'],
@@ -90,29 +90,6 @@ function pathTextStateLabel(
     return localize('Path text included', '包含路径正文')
   }
   return localize('References only', '仅引用信息')
-}
-
-function progressScoreLabel(
-  progress: ScenarioProgress | null,
-  evaluation: ReviewEvaluationState | null,
-  localize: (english: string, chinese: string) => string
-): string {
-  if (evaluation?.status === 'failed') {
-    return localize('Failed', '评分失败')
-  }
-  if (evaluation?.status === 'unavailable') {
-    return localize('Unavailable', '评分不可用')
-  }
-  if (progress?.score !== null && progress?.score !== undefined) {
-    return `${progress.score}/100`
-  }
-  if (progress?.scoreStatus === 'pending') {
-    return localize('Pending', '待评分')
-  }
-  if (progress?.scoreStatus === 'unavailable') {
-    return localize('N/A', '证据不足')
-  }
-  return localize('Not recorded', '未记录')
 }
 
 function accessErrorCopy(
@@ -301,14 +278,21 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
             </div>
             <div>
               <dt className='text-muted-foreground text-xs'>
-                {localize('Task outcome', '任务表现')}
+                {localize('Score result', '评分结果')}
               </dt>
               <dd className='mt-1 tabular-nums'>
-                {progressScoreLabel(
-                  progress,
-                  session.evaluationState,
-                  localize
-                )}
+                {
+                  reviewScorePresentation(
+                    {
+                      evaluationState: session.evaluationState,
+                      progressLinked: progress !== null,
+                      reportState: session.reportState,
+                      score: progress?.score ?? null,
+                      scoreStatus: progress?.scoreStatus ?? 'pending',
+                    },
+                    localize
+                  ).label
+                }
               </dd>
             </div>
             <div>
@@ -369,7 +353,7 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
         <Alert variant='destructive'>
           <CircleAlert />
           <AlertTitle>
-            {localize('Task outcome evaluation failed', '任务表现评估失败')}
+            {localize('Score evaluation failed', '评分失败')}
           </AlertTitle>
           <AlertDescription>
             {session.evaluationState.message ||
@@ -384,7 +368,7 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
         <Alert>
           <CircleAlert />
           <AlertTitle>
-            {localize('Task outcome unavailable', '任务表现不可用')}
+            {localize('Score result unavailable', '评分结果不可用')}
           </AlertTitle>
           <AlertDescription>
             {session.evaluationState.message ||
@@ -516,27 +500,18 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
         sessionId={session.id}
       />
       {session.reportState.status === 'not_requested' && (
-        <div className='rounded-lg border p-8'>
-          <Empty className='border-none p-0'>
-            <EmptyHeader>
-              <EmptyMedia variant='icon'>
-                <FileText />
-              </EmptyMedia>
-              <EmptyTitle>
-                {localize(
-                  'No review report yet',
-                  '\u6682\u65e0\u590d\u76d8\u62a5\u544a'
-                )}
-              </EmptyTitle>
-              <EmptyDescription>
-                {localize(
-                  'This session has not generated a report.',
-                  '\u6b64\u6b21\u8bad\u7ec3\u5c1a\u672a\u751f\u6210\u590d\u76d8\u62a5\u544a\u3002'
-                )}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </div>
+        <Alert>
+          <FileText />
+          <AlertTitle>
+            {localize('No review report yet', '暂无复盘报告')}
+          </AlertTitle>
+          <AlertDescription>
+            {localize(
+              'The training record and conversation are saved. No review report has been generated for this session.',
+              '训练记录与对话已保存，本次训练尚未生成复盘报告。'
+            )}
+          </AlertDescription>
+        </Alert>
       )}
       {session.reportState.status === 'pending' && (
         <Alert>
@@ -559,25 +534,42 @@ function TrainingSessionDetailContent({ sessionId }: { sessionId: string }) {
             {localize('Review report generation failed', '复盘报告生成失败')}
           </AlertTitle>
           <AlertDescription>
-            {session.reportState.message ||
-              localize(
-                'The server did not publish a report for this completion attempt.',
-                '服务端未能为本次完成尝试发布报告。'
-              )}
+            <div className='space-y-1'>
+              <p>
+                {session.reportState.message ||
+                  localize(
+                    'The server did not publish a report for this completion attempt.',
+                    '服务端未能为本次完成尝试发布报告。'
+                  )}
+              </p>
+              <p>
+                {localize(
+                  'The training record and conversation are saved and remain available.',
+                  '训练记录与对话已保存，不影响查看。'
+                )}
+              </p>
+            </div>
           </AlertDescription>
         </Alert>
       )}
       {session.reportState.status === 'unavailable' && (
-        <Alert variant='destructive'>
-          <CircleAlert />
+        <Alert>
+          <FileText />
           <AlertTitle>
-            {localize('Review report unavailable', '复盘报告不可用')}
+            {session.reportState.completedWithoutReport
+              ? localize('No review report was generated', '本次未生成复盘')
+              : localize('No review report is available', '暂无可查看的复盘')}
           </AlertTitle>
           <AlertDescription>
-            {localize(
-              'The completion record does not contain a readable report reference.',
-              '完成记录中没有可读取的报告引用。'
-            )}
+            {session.reportState.completedWithoutReport
+              ? localize(
+                  'The training record and conversation are saved. This session was completed without generating a review report.',
+                  '训练记录与对话已保存，本次结束时未生成复盘报告。'
+                )
+              : localize(
+                  'The training record and conversation are saved, but this completion does not contain a readable report.',
+                  '训练记录与对话已保存，但本次完成记录中没有可读取的复盘报告。'
+                )}
           </AlertDescription>
         </Alert>
       )}

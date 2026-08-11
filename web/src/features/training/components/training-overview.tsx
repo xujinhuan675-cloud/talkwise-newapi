@@ -78,6 +78,7 @@ import {
   listScenarioProgress,
   reviewRequestErrorMessage,
 } from '../review/api'
+import { TrainingSessionEntryLink } from '../review/training-session-entry-link'
 import type { ReviewSession, TrainingSessionStatus } from '../review/types'
 import {
   listTrainingScenarios,
@@ -87,6 +88,7 @@ import type {
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
 } from '../scenarios/types'
+import { trainingSessionStatusDisplayLabel } from '../training-display-labels'
 import {
   selectTrainingOverviewRecommendation,
   type TrainingOverviewRecommendationReason,
@@ -114,16 +116,6 @@ function sessionStatusVariant(status: TrainingSessionStatus) {
   if (status === 'failed') return 'danger' as const
   if (status === 'active') return 'warning' as const
   return 'info' as const
-}
-
-function sessionStatusLabel(status: TrainingSessionStatus, localize: Localize) {
-  const labels: Record<TrainingSessionStatus, readonly [string, string]> = {
-    active: ['Active', '进行中'],
-    completed: ['Completed', '已完成'],
-    created: ['Created', '已创建'],
-    failed: ['Failed', '失败'],
-  }
-  return localize(...labels[status])
 }
 
 function sessionModeLabel(mode: ReviewSession['mode'], localize: Localize) {
@@ -305,10 +297,10 @@ function RecentSessions({
         ) : (
           <div className='divide-y rounded-lg border'>
             {sessions.map((session) => (
-              <Link
+              <TrainingSessionEntryLink
                 key={session.id}
-                to='/training/sessions/$sessionId'
-                params={{ sessionId: session.id }}
+                sessionId={session.id}
+                status={session.status}
                 className='hover:bg-muted/50 flex items-center gap-3 px-3 py-3 transition-colors'
               >
                 <div className='min-w-0 flex-1'>
@@ -326,12 +318,15 @@ function RecentSessions({
                   </div>
                 </div>
                 <StatusBadge
-                  label={sessionStatusLabel(session.status, localize)}
+                  label={trainingSessionStatusDisplayLabel(
+                    session.status,
+                    locale
+                  )}
                   variant={sessionStatusVariant(session.status)}
                   copyable={false}
                 />
                 <ArrowRight className='text-muted-foreground size-4 shrink-0' />
-              </Link>
+              </TrainingSessionEntryLink>
             ))}
           </div>
         )}
@@ -855,19 +850,20 @@ export function TrainingOverview() {
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              {localize('Average task outcome', '平均任务表现')}
-            </CardTitle>
+            <CardTitle>{localize('Average score', '平均评分')}</CardTitle>
             <CardDescription>
               {localize(
-                'Based on completed evaluations.',
-                '仅基于已出结果的评估。'
+                'Only training records with generated scores are included.',
+                '仅统计已生成评分的训练记录。'
               )}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className='text-2xl font-semibold tabular-nums'>
-              {summary?.averageScore ?? '-'}
+              {summary?.averageScore === null ||
+              summary?.averageScore === undefined
+                ? '-'
+                : `${summary.averageScore}/100`}
             </div>
             {summary && (
               <div className='text-muted-foreground mt-2 text-xs tabular-nums'>

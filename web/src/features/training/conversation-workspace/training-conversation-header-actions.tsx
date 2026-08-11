@@ -22,6 +22,11 @@ import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 interface TrainingConversationHeaderActionsProps {
   readonly children?: ReactNode
@@ -49,35 +54,48 @@ export function TrainingConversationHeaderActions({
 
   if (!target) return null
 
+  const mobileLabel = localize('Training insights', '训练洞察')
+  const desktopLabel = desktopExpanded
+    ? localize('Collapse insights', '收起洞察')
+    : localize('Expand insights', '展开洞察')
+
   return createPortal(
     <>
       {children}
-      <Button
-        className='order-last lg:hidden'
-        size='sm'
-        variant='outline'
-        onClick={() => onMobileOpenChange(true)}
-      >
-        <PanelRightOpen />
-        <span className='hidden sm:inline'>
-          {localize('Training insights', '训练洞察')}
-        </span>
-        <span className='sr-only sm:hidden'>
-          {localize('Training insights', '训练洞察')}
-        </span>
-      </Button>
-      <Button
-        aria-expanded={desktopExpanded}
-        className='order-last hidden lg:inline-flex'
-        size='sm'
-        variant='outline'
-        onClick={() => onDesktopExpandedChange(!desktopExpanded)}
-      >
-        {desktopExpanded ? <PanelRightClose /> : <PanelRightOpen />}
-        {desktopExpanded
-          ? localize('Collapse insights', '收起洞察')
-          : localize('Expand insights', '展开洞察')}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-haspopup='dialog'
+              aria-label={mobileLabel}
+              className='order-last bg-transparent lg:hidden'
+              size='icon-sm'
+              variant='ghost'
+              onClick={() => onMobileOpenChange(true)}
+            />
+          }
+        >
+          <PanelRightOpen />
+        </TooltipTrigger>
+        <TooltipContent>{mobileLabel}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-expanded={desktopExpanded}
+              aria-label={desktopLabel}
+              className='order-last hidden bg-transparent aria-expanded:bg-transparent lg:inline-flex'
+              size='icon-sm'
+              variant='ghost'
+              onClick={() => onDesktopExpandedChange(!desktopExpanded)}
+            />
+          }
+        >
+          {desktopExpanded ? <PanelRightClose /> : <PanelRightOpen />}
+        </TooltipTrigger>
+        <TooltipContent>{desktopLabel}</TooltipContent>
+      </Tooltip>
     </>,
     target
   )
