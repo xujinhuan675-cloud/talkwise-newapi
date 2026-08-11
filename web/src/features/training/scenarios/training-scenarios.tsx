@@ -32,7 +32,7 @@ import {
   Search,
   Video,
 } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -100,6 +100,10 @@ import {
   type TrainingFeedbackMode,
 } from '../training-feedback'
 import {
+  isTrainingInteractionModeCompatible,
+  resolveTrainingInteractionMode,
+} from '../training-mode-compatibility'
+import {
   scenarioPressure,
   type TrainingLengthProfile,
   type TrainingPressure,
@@ -123,6 +127,7 @@ import {
   trainingRequestErrorMessage,
   trainingSessionModeForSelection,
 } from './api'
+import { selectTrainingScenarioForHandoff } from './selection-handoff'
 import type {
   TrainingInteractionMode,
   TrainingModality,
@@ -431,7 +436,11 @@ function ScenarioDataTable({
   )
 }
 
-export function TrainingScenarios() {
+interface TrainingScenariosProps {
+  readonly scenarioId?: string
+}
+
+export function TrainingScenarios(props: TrainingScenariosProps) {
   const { i18n, t } = useTranslation()
   const host = useTrainingHost()
   const navigate = useNavigate()
@@ -458,6 +467,7 @@ export function TrainingScenarios() {
     useState<TrainingLengthProfile>('standard')
   const [voiceRouteId, setVoiceRouteId] = useState('')
   const [retrySessionId, setRetrySessionId] = useState<string | null>(null)
+  const autoOpenedScenarioIdRef = useRef<string | null>(null)
   const [viewMode, setViewMode] = useDataTableViewMode({
     storageKey: 'talkwise.training-scenarios.view-mode',
     defaultMode: 'table',
@@ -590,6 +600,22 @@ export function TrainingScenarios() {
       }
     },
   })
+  const resetCreateSessionMutation = createSessionMutation.reset
+  const prepareScenario = useCallback(
+    (scenario: TrainingScenario) => {
+      resetCreateSessionMutation()
+      setRetrySessionId(null)
+      setModality('text')
+      setInteractionMode('turn_based')
+      setFeedbackMode('simulation')
+      setSelectedFocus(scenario.trainingPoints)
+      setPressure(scenarioPressure(scenario.difficulty))
+      setLengthProfile('standard')
+      setVoiceRouteId('')
+      setSelectedScenario(scenario)
+    },
+    [resetCreateSessionMutation]
+  )
 
   const filteredScenarios = useMemo(
     () =>
@@ -678,18 +704,26 @@ export function TrainingScenarios() {
     setDifficulty('all')
     setCategory('all')
   }
-  const openScenario = (scenario: TrainingScenario) => {
-    createSessionMutation.reset()
-    setRetrySessionId(null)
-    setModality('text')
-    setInteractionMode('turn_based')
-    setFeedbackMode('simulation')
-    setSelectedFocus(scenario.trainingPoints)
-    setPressure(scenarioPressure(scenario.difficulty))
-    setLengthProfile('standard')
-    setVoiceRouteId('')
-    setSelectedScenario(scenario)
-  }
+  const openScenario = prepareScenario
+  useEffect(() => {
+    if (!props.scenarioId) {
+      autoOpenedScenarioIdRef.current = null
+      return
+    }
+    if (
+      !scenariosQuery.data ||
+      autoOpenedScenarioIdRef.current === props.scenarioId
+    ) {
+      return
+    }
+
+    autoOpenedScenarioIdRef.current = props.scenarioId
+    const scenario = selectTrainingScenarioForHandoff(
+      scenariosQuery.data,
+      props.scenarioId
+    )
+    if (scenario) prepareScenario(scenario)
+  }, [prepareScenario, props.scenarioId, scenariosQuery.data])
   const closeScenario = () => {
     if (createSessionMutation.isPending) return
     createSessionMutation.reset()
@@ -698,13 +732,18 @@ export function TrainingScenarios() {
   }
   const createSelectedSession = () => {
     if (!selectedScenario || modality === 'video') return
+    const resolvedInteractionMode = resolveTrainingInteractionMode({
+      modality,
+      feedbackMode,
+      interactionMode,
+    })
     const mode = trainingSessionModeForSelection({
       modality,
-      interactionMode,
+      interactionMode: resolvedInteractionMode,
     })
     createSessionMutation.mutate({
       mode,
-      interactionMode,
+      interactionMode: resolvedInteractionMode,
       feedbackMode,
       scenario: selectedScenario,
       plan: {
@@ -1007,6 +1046,13 @@ export function TrainingScenarios() {
                       ) as TrainingFeedbackMode | undefined
                       if (nextFeedbackMode) {
                         setFeedbackMode(nextFeedbackMode)
+                        setInteractionMode((currentInteractionMode) =>
+                          resolveTrainingInteractionMode({
+                            modality,
+                            feedbackMode: nextFeedbackMode,
+                            interactionMode: currentInteractionMode,
+                          })
+                        )
                       }
                     }}
                     value={[feedbackMode]}
@@ -1046,13 +1092,21 @@ export function TrainingScenarios() {
                       ) as TrainingModality | undefined
                       if (!nextModality) return
                       setModality(nextModality)
+                      const nextInteractionMode =
+                        resolveTrainingInteractionMode({
+                          modality: nextModality,
+                          feedbackMode,
+                          interactionMode,
+                        })
                       if (
                         !isTrainingModeSelectionAvailable({
                           modality: nextModality,
-                          interactionMode,
+                          interactionMode: nextInteractionMode,
                         })
                       ) {
                         setInteractionMode('turn_based')
+                      } else {
+                        setInteractionMode(nextInteractionMode)
                       }
                     }}
                     variant='outline'
@@ -1103,7 +1157,14 @@ export function TrainingScenarios() {
                         const nextInteractionMode = values.find(
                           (value) => value !== interactionMode
                         ) as TrainingInteractionMode | undefined
-                        if (nextInteractionMode) {
+                        if (
+                          nextInteractionMode &&
+                          isTrainingInteractionModeCompatible({
+                            modality,
+                            feedbackMode,
+                            interactionMode: nextInteractionMode,
+                          })
+                        ) {
                           setInteractionMode(nextInteractionMode)
                         }
                       }}
@@ -1114,28 +1175,46 @@ export function TrainingScenarios() {
                     >
                       {INTERACTION_MODES.map((option) => {
                         const Icon = option.icon
-                        const available = isTrainingModeSelectionAvailable({
+                        const modeAvailable = isTrainingModeSelectionAvailable({
                           modality,
                           interactionMode: option.value,
                         })
+                        const feedbackCompatible =
+                          isTrainingInteractionModeCompatible({
+                            modality,
+                            feedbackMode,
+                            interactionMode: option.value,
+                          })
+                        const available = modeAvailable && feedbackCompatible
+                        let unavailableTitle: string | undefined
+                        if (!modeAvailable) {
+                          unavailableTitle = localize(
+                            'Realtime video is coming soon',
+                            '实时视频即将开放'
+                          )
+                        } else if (!feedbackCompatible) {
+                          unavailableTitle =
+                            feedbackMode === 'drill'
+                              ? localize(
+                                  'Drill correction uses turn-based voice',
+                                  '逐句纠正固定使用回合制语音'
+                                )
+                              : localize(
+                                  'Side guidance uses realtime voice',
+                                  '旁路提示固定使用实时语音'
+                                )
+                        }
                         return (
                           <ToggleGroupItem
                             key={option.value}
                             value={option.value}
                             className='h-auto min-h-9 w-full gap-1 px-2 py-1.5 text-center whitespace-normal'
                             disabled={!available}
-                            title={
-                              available
-                                ? undefined
-                                : localize(
-                                    'Realtime video is coming soon',
-                                    '实时视频即将开放'
-                                  )
-                            }
+                            title={available ? undefined : unavailableTitle}
                           >
                             <Icon />
                             {interactionModeLabel(option.value)}
-                            {!available && (
+                            {!modeAvailable && (
                               <Badge
                                 variant='secondary'
                                 className='ml-1 px-1.5 text-[10px]'

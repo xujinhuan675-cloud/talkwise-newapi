@@ -223,7 +223,7 @@ export function TrainingDrillCorrectionGate({
     <section
       aria-label={localize('Sentence practice', '逐句练习')}
       aria-live='polite'
-      className='border-border/70 border-b px-3 py-2'
+      className='border-border/70 w-full border-b px-3 py-2 text-left'
     >
       <div className='flex min-w-0 items-start gap-2'>
         <MessageSquareText className='mt-0.5 size-4 shrink-0' />

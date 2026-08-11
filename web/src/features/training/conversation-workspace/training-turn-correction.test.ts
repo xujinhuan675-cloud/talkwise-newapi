@@ -178,6 +178,7 @@ describe('turn correction selection', () => {
     assert.match(markup, /Maybe tomorrow\./)
     assert.match(markup, /Continue as said/)
     assert.match(markup, /Answer again/)
+    assert.match(markup, /<section[^>]*class="[^"]*w-full/)
     assert.doesNotMatch(markup, /Waiting for an answer/)
     assert.doesNotMatch(markup, /bg-muted\/20/)
   })

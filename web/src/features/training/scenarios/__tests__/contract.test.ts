@@ -20,6 +20,10 @@ import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
 import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../../training-feedback'
+import {
+  isTrainingInteractionModeCompatible,
+  resolveTrainingInteractionMode,
+} from '../../training-mode-compatibility'
 import { DEFAULT_TRAINING_VOICE_ID } from '../../training-voice'
 import {
   buildScenarioStartRequest,
@@ -377,6 +381,41 @@ describe('training scenario contract', () => {
         interactionMode: 'turn_based',
       }),
       'video'
+    )
+  })
+
+  test('binds scenario voice feedback to its compatible interaction without constraining text', () => {
+    assert.equal(
+      resolveTrainingInteractionMode({
+        modality: 'voice',
+        feedbackMode: 'drill',
+        interactionMode: 'realtime',
+      }),
+      'turn_based'
+    )
+    assert.equal(
+      resolveTrainingInteractionMode({
+        modality: 'voice',
+        feedbackMode: 'assisted',
+        interactionMode: 'turn_based',
+      }),
+      'realtime'
+    )
+    assert.equal(
+      resolveTrainingInteractionMode({
+        modality: 'voice',
+        feedbackMode: 'simulation',
+        interactionMode: 'realtime',
+      }),
+      'realtime'
+    )
+    assert.equal(
+      isTrainingInteractionModeCompatible({
+        modality: 'text',
+        feedbackMode: 'drill',
+        interactionMode: 'realtime',
+      }),
+      true
     )
   })
 

@@ -126,4 +126,50 @@ describe('training conversation session normalization', () => {
     assert.equal(session?.realtimeProfile, 'speech_to_speech')
     assert.equal(session?.realtimeProvider, 'doubao')
   })
+
+  test('restores persisted feedback and interaction modes independently', () => {
+    const sessions = normalizeTrainingConversationSessions([
+      sessionFixture({
+        session_id: 'realtime-drill',
+        mode: 'voice',
+        room_id: 'room-realtime-drill',
+        task_config: {
+          role: 'Negotiator',
+          difficulty: 'hard',
+          category: 'negotiation',
+          tech_stack: ['Contract negotiation'],
+          metadata: {
+            feedbackMode: 'drill',
+            interactionMode: 'realtime',
+          },
+        },
+      }),
+      sessionFixture({
+        session_id: 'turn-based-assisted',
+        mode: 'voice',
+        room_id: 'room-turn-based-assisted',
+        task_config: {
+          role: 'Account manager',
+          difficulty: 'medium',
+          category: 'sales',
+          tech_stack: ['Renewal objection'],
+          metadata: {
+            feedbackMode: 'assisted',
+            interactionMode: 'turn_based',
+          },
+        },
+      }),
+    ])
+
+    assert.deepEqual(
+      sessions.map(({ feedbackMode, interactionMode }) => ({
+        feedbackMode,
+        interactionMode,
+      })),
+      [
+        { feedbackMode: 'drill', interactionMode: 'realtime' },
+        { feedbackMode: 'assisted', interactionMode: 'turn_based' },
+      ]
+    )
+  })
 })
