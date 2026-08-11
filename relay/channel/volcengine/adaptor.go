@@ -279,8 +279,11 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 			}
 			return speechEndpoint(baseUrl, defaultTTSV3Path, "https")
 		case RouteASRV3:
+			if info.RelayMode == constant.RelayModeRealtime {
+				return speechEndpoint(baseUrl, defaultASRV3Path, "wss")
+			}
 			if info.RelayMode != constant.RelayModeAudioTranscription && info.RelayMode != constant.RelayModeAudioTranslation {
-				return "", fmt.Errorf("volcengine ASR channel only supports audio transcription or translation")
+				return "", fmt.Errorf("volcengine ASR channel only supports audio transcription, translation, or realtime transcription")
 			}
 			return speechEndpoint(baseUrl, defaultASRV3Path, "wss")
 		case RouteRealtimeV3:
@@ -399,6 +402,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (any, error) {
 	switch resolvedServiceMode(info) {
 	case RouteASRV3:
+		if info.RelayMode == constant.RelayModeRealtime {
+			return nil, nil
+		}
 		return doASRV3Request(c, info)
 	case RouteRealtimeV3:
 		return channel.DoWssRequest(a, c, info, requestBody)
@@ -425,6 +431,9 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	case RouteTTSV3:
 		return handleTTSV3Response(c, resp, info)
 	case RouteASRV3:
+		if info.RelayMode == constant.RelayModeRealtime {
+			return handleASRRealtime(c, info)
+		}
 		return handleASRV3Response(c, resp)
 	case RouteRealtimeV3:
 		return handleRealtimeV3(c, info)

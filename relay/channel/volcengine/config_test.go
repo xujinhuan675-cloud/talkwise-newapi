@@ -80,3 +80,15 @@ func TestSpeechResourceIDKeepsRealtimeModelSeparateFromResourceID(t *testing.T) 
 
 	assert.Equal(t, defaultRealtimeResourceID, speechResourceID(info, defaultRealtimeResourceID))
 }
+
+func TestUnifiedVoiceRealtimeSelectsStreamingASRByModel(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		OriginModelName: defaultASRResourceID,
+		RelayMode:       relayconstant.RelayModeRealtime,
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName:    defaultASRResourceID,
+			ChannelOtherSettings: dto.ChannelOtherSettings{VolcengineServiceMode: ServiceModeVoiceV3},
+		},
+	}
+	assert.Equal(t, RouteASRV3, resolvedServiceMode(info))
+}

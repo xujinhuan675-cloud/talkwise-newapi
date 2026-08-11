@@ -68,10 +68,20 @@ func resolvedServiceMode(info *relaycommon.RelayInfo) string {
 		relayconstant.RelayModeAudioTranslation:
 		return RouteASRV3
 	case relayconstant.RelayModeRealtime:
+		if isStreamingASRModel(info.OriginModelName) || isStreamingASRModel(info.UpstreamModelName) {
+			return RouteASRV3
+		}
 		return RouteRealtimeV3
 	default:
 		return ServiceModeVoiceV3
 	}
+}
+
+func isStreamingASRModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return normalized == defaultASRResourceID ||
+		strings.Contains(normalized, "asr") ||
+		strings.Contains(normalized, "transcrib")
 }
 
 // ResolveServiceModeForModel is used by channel diagnostics only. Runtime
