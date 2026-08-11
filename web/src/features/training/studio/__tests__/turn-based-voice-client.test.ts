@@ -23,6 +23,7 @@ import {
   abortTurnBasedVoiceRecorder,
   buildTurnBasedVoiceFrames,
   decodeTurnBasedVoiceServerEvent,
+  drillVoiceDraft,
   downmixAndResampleVoiceAudio,
   encodeVoicePcmWav,
   finalVoiceTranscript,
@@ -36,6 +37,27 @@ import {
 } from '../turn-based-voice-client'
 
 describe('turn-based training voice client contract', () => {
+  test('reads a non-persisted drill draft event', () => {
+    assert.equal(
+      drillVoiceDraft({
+        type: 'training.drill.draft',
+        text: '  I will confirm tomorrow.  ',
+      }),
+      'I will confirm tomorrow.'
+    )
+    assert.equal(
+      drillVoiceDraft({
+        type: 'message_sent',
+        text: 'I will confirm tomorrow.',
+      }),
+      null
+    )
+    assert.equal(
+      drillVoiceDraft({ type: 'training.drill.draft', text: '   ' }),
+      null
+    )
+  })
+
   test('keeps text input in the voice mode until the turn is settled', () => {
     assert.equal(isTurnBasedVoiceInputActive('requesting_permission'), true)
     assert.equal(isTurnBasedVoiceInputActive('recording'), true)
@@ -216,6 +238,28 @@ describe('turn-based training voice client contract', () => {
       trainingVoiceEmotionScale: 1.4,
       trainingVoiceStyle: 'concise',
     })
+  })
+
+  test('propagates only bounded drill mode metadata to the voice turn', () => {
+    const frames = buildTurnBasedVoiceFrames(Uint8Array.from([1, 2]), 4, {
+      voiceMetadata: {
+        feedbackMode: 'drill',
+        trainingFeedbackMode: 'drill',
+        userId: 'must-not-leak',
+      },
+    })
+
+    const finalFrame = frames.at(-1)
+    if (!finalFrame || finalFrame.type !== 'speech_end') {
+      throw new Error('voice turn must end with a speech_end frame')
+    }
+    const metadata = finalFrame.metadata as typeof finalFrame.metadata & {
+      feedbackMode?: unknown
+      trainingFeedbackMode?: unknown
+    }
+    assert.equal(metadata.feedbackMode, 'drill')
+    assert.equal(metadata.trainingFeedbackMode, 'drill')
+    assert.equal('userId' in metadata, false)
   })
 
   test('distinguishes recognized text from confirmed message persistence', () => {

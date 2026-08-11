@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import {
   Camera,
   Check,
@@ -31,6 +32,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -49,6 +51,7 @@ import {
 } from '@/features/playground/hooks'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { trainingCompletionExitDestination } from '../completion-navigation'
 import type { TrainingConversationSessionContext } from '../conversation-workspace/api'
 import {
   loadTrainingInsightsExpanded,
@@ -61,7 +64,12 @@ import {
 import { TrainingConversationComposer } from '../conversation-workspace/training-conversation-composer'
 import { TrainingConversationHeaderActions } from '../conversation-workspace/training-conversation-header-actions'
 import { TrainingConversationInsights } from '../conversation-workspace/training-conversation-insights'
+import {
+  TrainingDrillCorrectionGate,
+  useTrainingDrillCorrection,
+} from '../conversation-workspace/training-turn-correction'
 import type { TrainingConversationSession } from '../conversations/api'
+import { trainingFeedbackCompletionDescription } from '../training-feedback'
 import {
   resolveTrainingProgress,
   trainingProgressIsInputLocked,
@@ -138,6 +146,7 @@ export function TrainingRoomConversationSurface({
   roomId,
   trainingSession,
 }: TrainingRoomConversationSurfaceProps) {
+  const navigate = useNavigate()
   const currentUser = useAuthStore((state) => state.auth.user)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [roomMessages, setRoomMessages] = useState<TrainingRoomMessage[]>([])
@@ -149,12 +158,15 @@ export function TrainingRoomConversationSurface({
     null
   )
   const mediaControlRef = useRef<TrainingRoomMediaControlHandle | null>(null)
+  const hardLimitPromptRef = useRef<string | null>(null)
   const [mediaAction, setMediaAction] =
     useState<TrainingRoomPrimaryActionState | null>(null)
   const [completionError, setCompletionError] = useState<string | null>(null)
   const [completionIntent, setCompletionIntent] = useState<
     'direct' | 'report' | null
   >(null)
+  const completionFeedbackDescription =
+    trainingFeedbackCompletionDescription(feedbackMode)
   const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(false)
   const [isVideoPanelOpen, setIsVideoPanelOpen] = useState(false)
   const [isMobileInsightsOpen, setIsMobileInsightsOpen] = useState(false)
@@ -183,6 +195,19 @@ export function TrainingRoomConversationSurface({
       }),
     [i18n.language, t]
   )
+  const {
+    analyze: analyzeDrillDraft,
+    clear: clearDrillCorrection,
+    state: drillCorrectionState,
+  } = useTrainingDrillCorrection({
+    enabled: feedbackMode === 'drill',
+    trainingApiBase: apiBase,
+    trainingSession,
+  })
+  const drillDraftSourceRef = useRef<'realtime' | 'text' | 'turn_based' | null>(
+    null
+  )
+  const sendInFlightRef = useRef(false)
   const {
     config,
     groups,
@@ -224,8 +249,10 @@ export function TrainingRoomConversationSurface({
   )
   const trainingProgressInputLocked =
     trainingProgressIsInputLocked(trainingProgress)
-  const trainingInputLocked =
+  const baseTrainingInputLocked =
     trainingSession.status !== 'active' || trainingProgressInputLocked
+  const trainingInputLocked =
+    baseTrainingInputLocked || isSendingText || isReplying
   const selectedTailId = insightMessages.at(-1)?.publicId ?? null
   const refreshMessages = useCallback(() => {
     setRefreshVersion((current) => current + 1)
@@ -241,11 +268,12 @@ export function TrainingRoomConversationSurface({
     [localize]
   )
 
-  const handleSendText = useCallback(
-    async (content: string) => {
-      if (trainingInputLocked || isSendingText || isVoiceInputActive) {
-        return
+  const sendAcceptedRoomMessage = useCallback(
+    async (content: string, clientRequestId?: string): Promise<boolean> => {
+      if (baseTrainingInputLocked || sendInFlightRef.current) {
+        return false
       }
+      sendInFlightRef.current = true
       setIsSendingText(true)
       try {
         await sendTrainingRoomMessage(roomId, trainingSession.sessionId, {
@@ -265,33 +293,94 @@ export function TrainingRoomConversationSurface({
             trainingVoiceEmotionScale:
               trainingSession.metadata?.trainingVoiceEmotionScale,
             trainingVoiceStyle: trainingSession.metadata?.trainingVoiceStyle,
+            ...(clientRequestId ? { clientRequestId } : {}),
           },
         })
         handleMessagePersisted()
+        return true
       } catch (error) {
         notifyComposerError(
           error instanceof Error
             ? error.message
             : localize('Message could not be sent.', '消息发送失败，请重试。')
         )
+        return false
       } finally {
+        sendInFlightRef.current = false
         setIsSendingText(false)
       }
     },
     [
       config.model,
       interactionMode,
-      isSendingText,
-      isVoiceInputActive,
       localize,
       mode,
       notifyComposerError,
       handleMessagePersisted,
       roomId,
       trainingSession,
+      baseTrainingInputLocked,
+    ]
+  )
+
+  const beginDrillDraft = useCallback(
+    (content: string, source: 'realtime' | 'text' | 'turn_based') => {
+      drillDraftSourceRef.current = source
+      void analyzeDrillDraft(content, insightMessages)
+    },
+    [analyzeDrillDraft, insightMessages]
+  )
+
+  const handleSendText = useCallback(
+    (content: string) => {
+      if (trainingInputLocked || isVoiceInputActive) return
+      if (feedbackMode === 'drill') {
+        beginDrillDraft(content, 'text')
+        return
+      }
+      void sendAcceptedRoomMessage(content)
+    },
+    [
+      beginDrillDraft,
+      feedbackMode,
+      isVoiceInputActive,
+      sendAcceptedRoomMessage,
       trainingInputLocked,
     ]
   )
+
+  const handleAcceptDrillDraft = useCallback(async () => {
+    if (
+      drillCorrectionState.status === 'idle' ||
+      baseTrainingInputLocked ||
+      sendInFlightRef.current
+    ) {
+      return
+    }
+    const content = drillCorrectionState.draftText
+    const sent = await sendAcceptedRoomMessage(
+      content,
+      `training-drill:${trainingSession.sessionId}:${drillCorrectionState.draftId}`
+    )
+    if (!sent) return
+    drillDraftSourceRef.current = null
+    clearDrillCorrection()
+  }, [
+    baseTrainingInputLocked,
+    clearDrillCorrection,
+    drillCorrectionState,
+    sendAcceptedRoomMessage,
+    trainingSession.sessionId,
+  ])
+
+  const handleRetryDrillDraft = useCallback(() => {
+    const source = drillDraftSourceRef.current
+    drillDraftSourceRef.current = null
+    clearDrillCorrection()
+    if (source === 'realtime' || source === 'turn_based') {
+      window.setTimeout(() => mediaControlRef.current?.trigger(), 0)
+    }
+  }, [clearDrillCorrection])
 
   const handleCompleteTraining = useCallback(
     async (generateReport: boolean) => {
@@ -304,8 +393,28 @@ export function TrainingRoomConversationSurface({
           trainingSession.sessionId,
           generateReport
         )
-        await onCompletionConfirmed?.(result)
-        setIsCompletionDialogOpen(false)
+        try {
+          await onCompletionConfirmed?.(result)
+        } catch {
+          toast.error(
+            localize(
+              'Training finished, but the latest session state could not be refreshed.',
+              '训练已结束，但暂时无法刷新最新会话状态。'
+            )
+          )
+        }
+        const destination = trainingCompletionExitDestination(
+          generateReport,
+          result.sessionId
+        )
+        if (destination.kind === 'review') {
+          await navigate({
+            to: destination.to,
+            params: destination.params,
+          })
+        } else {
+          await navigate({ to: destination.to })
+        }
       } catch (error) {
         setCompletionError(
           error instanceof Error
@@ -320,6 +429,7 @@ export function TrainingRoomConversationSurface({
       apiBase,
       completionIntent,
       localize,
+      navigate,
       onCompletionConfirmed,
       trainingSession.sessionId,
       trainingSession.status,
@@ -327,10 +437,26 @@ export function TrainingRoomConversationSurface({
   )
 
   useEffect(() => {
+    hardLimitPromptRef.current = null
     setIsVoiceInputActive(false)
     setTranscriptPreview(null)
     setIsVideoPanelOpen(false)
+    drillDraftSourceRef.current = null
   }, [interactionMode, mode, roomId, trainingSession.sessionId])
+
+  useEffect(() => {
+    if (
+      trainingSession.status !== 'active' ||
+      trainingProgress?.state !== 'hard_limit_reached'
+    ) {
+      return
+    }
+    const promptKey = `${trainingSession.sessionId}:${trainingProgress.learnerTurnCount}`
+    if (hardLimitPromptRef.current === promptKey) return
+    hardLimitPromptRef.current = promptKey
+    setCompletionError(null)
+    setIsCompletionDialogOpen(true)
+  }, [trainingProgress, trainingSession.sessionId, trainingSession.status])
 
   useEffect(() => {
     saveTrainingInsightsExpanded(
@@ -345,7 +471,9 @@ export function TrainingRoomConversationSurface({
         <TurnBasedVoicePanel
           apiBase={apiBase}
           disabled={trainingInputLocked}
+          drillMode={feedbackMode === 'drill'}
           model={config.model}
+          onDrillDraft={(text) => beginDrillDraft(text, 'turn_based')}
           onErrorChange={notifyComposerError}
           onMessagePersisted={handleMessagePersisted}
           onPrimaryActionChange={setMediaAction}
@@ -363,7 +491,9 @@ export function TrainingRoomConversationSurface({
         <RealtimeVoiceControl
           apiBase={apiBase}
           disabled={trainingInputLocked}
+          drillMode={feedbackMode === 'drill'}
           onErrorChange={notifyComposerError}
+          onDrillDraft={(text) => beginDrillDraft(text, 'realtime')}
           onMessagePersisted={handleMessagePersisted}
           onTranscriptPreviewChange={setTranscriptPreview}
           onPrimaryActionChange={setMediaAction}
@@ -486,12 +616,24 @@ export function TrainingRoomConversationSurface({
             compact
             config={config}
             disabled={trainingInputLocked}
-            disableTextInput
+            disableTextInput={feedbackMode !== 'drill'}
             groups={groups}
             groupValue={config.group}
             hasMessages={roomMessages.length > 0}
             isGenerating={isReplying}
             isModelLoading={isLoadingModels}
+            leadingContent={
+              feedbackMode === 'drill' ? (
+                <TrainingDrillCorrectionGate
+                  disabled={isSendingText}
+                  state={drillCorrectionState}
+                  language={i18n.resolvedLanguage ?? i18n.language}
+                  localize={localize}
+                  onAccept={handleAcceptDrillDraft}
+                  onRetry={handleRetryDrillDraft}
+                />
+              ) : null
+            }
             modelValue={config.model}
             models={models}
             onConfigChange={updateConfig}
@@ -524,6 +666,7 @@ export function TrainingRoomConversationSurface({
       </div>
       <TrainingConversationInsights
         desktopExpanded={isInsightsExpanded}
+        feedbackMode={feedbackMode}
         isGenerating={isReplying}
         isLoadingConversation={isLoadingMessages}
         messages={insightMessages}
@@ -548,8 +691,8 @@ export function TrainingRoomConversationSurface({
             </DialogTitle>
             <DialogDescription>
               {localize(
-                'Choose whether to generate a review or end the session directly.',
-                '你可以结束并生成复盘，也可以直接结束本次训练。'
+                `${completionFeedbackDescription.english} Choose whether to generate it now or end without a review.`,
+                `${completionFeedbackDescription.chinese} 你可以现在生成复盘，也可以不生成复盘直接结束。`
               )}
             </DialogDescription>
           </DialogHeader>
@@ -568,23 +711,17 @@ export function TrainingRoomConversationSurface({
               variant='outline'
               onClick={() => void handleCompleteTraining(false)}
             >
-              {completionIntent === 'direct' ? (
-                <LoaderCircle className='animate-spin' />
-              ) : (
-                <Flag />
-              )}
-              {localize('End without review', '直接结束')}
+              {completionIntent === 'direct'
+                ? localize('Ending...', '正在结束…')
+                : localize('End without review', '直接结束')}
             </Button>
             <Button
               disabled={completionIntent !== null}
               onClick={() => void handleCompleteTraining(true)}
             >
-              {completionIntent === 'report' ? (
-                <LoaderCircle className='animate-spin' />
-              ) : (
-                <Flag />
-              )}
-              {localize('End and generate review', '结束并生成复盘')}
+              {completionIntent === 'report'
+                ? localize('Ending...', '正在结束…')
+                : localize('End and review', '结束并复盘')}
             </Button>
           </DialogFooter>
         </DialogContent>

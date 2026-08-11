@@ -44,6 +44,7 @@ import {
   abortTurnBasedVoiceRecorder,
   buildTurnBasedVoiceFrames,
   decodeTurnBasedVoiceServerEvent,
+  drillVoiceDraft,
   finalVoiceTranscript,
   isTurnBasedVoiceInputActive,
   normalizeTurnBasedVoiceAudio,
@@ -70,7 +71,9 @@ import {
 interface TurnBasedVoicePanelProps {
   apiBase: string
   disabled?: boolean
+  drillMode?: boolean
   model?: string
+  onDrillDraft?: (text: string) => void
   onErrorChange?: (error: string | null) => void
   onPrimaryActionChange?: (
     action: TrainingRoomPrimaryActionState | null
@@ -104,7 +107,9 @@ export const TurnBasedVoicePanel = forwardRef<
   {
     apiBase,
     disabled = false,
+    drillMode = false,
     model,
+    onDrillDraft,
     onErrorChange,
     onPrimaryActionChange,
     onVoiceInputStateChange,
@@ -340,6 +345,26 @@ export const TurnBasedVoicePanel = forwardRef<
         return
       }
 
+      const draft = drillVoiceDraft(event)
+      if (draft !== null) {
+        if (!draft) {
+          fail(
+            localize(
+              'No speech was recognized. Try recording the turn again.',
+              '未识别到语音，请重新录制本回合。'
+            )
+          )
+          return
+        }
+        transcriptRef.current = draft
+        generationRef.current += 1
+        releaseRuntime(false)
+        setError(null)
+        setStatus('persisted')
+        onDrillDraft?.(draft)
+        return
+      }
+
       const persisted = persistedVoiceMessage(event)
       if (!persisted) return
       const confirmedText = persisted.content || transcriptRef.current
@@ -352,7 +377,14 @@ export const TurnBasedVoicePanel = forwardRef<
       setStatus('persisted')
       onMessagePersisted?.(persisted)
     },
-    [fail, localize, onMessagePersisted, releaseRuntime, voiceErrorMessage]
+    [
+      fail,
+      localize,
+      onDrillDraft,
+      onMessagePersisted,
+      releaseRuntime,
+      voiceErrorMessage,
+    ]
   )
 
   const startRecording = useCallback(async () => {
@@ -467,7 +499,13 @@ export const TurnBasedVoicePanel = forwardRef<
               for (const frame of buildTurnBasedVoiceFrames(
                 wavBytes,
                 undefined,
-                { llmModel: model, voiceMetadata }
+                {
+                  llmModel: model,
+                  voiceMetadata: {
+                    ...voiceMetadata,
+                    ...(drillMode ? { feedbackMode: 'drill' } : {}),
+                  },
+                }
               )) {
                 socket.send(JSON.stringify(frame))
               }
@@ -590,6 +628,7 @@ export const TurnBasedVoicePanel = forwardRef<
     accessToken,
     apiBase,
     disabled,
+    drillMode,
     fail,
     handleServerEvent,
     localize,

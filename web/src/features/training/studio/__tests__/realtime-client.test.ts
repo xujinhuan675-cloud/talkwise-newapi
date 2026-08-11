@@ -26,6 +26,7 @@ import {
   realtimeAudioContract,
   realtimeAuthRenewalDelayMs,
   realtimeCommitTranscriptSettled,
+  realtimeDrillDraftText,
   realtimeEventAudio,
   realtimeEventError,
   realtimeEventNeedsAuthRefresh,
@@ -41,6 +42,30 @@ import {
 } from '../voice-audio'
 
 describe('training realtime client contract', () => {
+  test('reads a drill draft without treating it as a persisted transcript', () => {
+    const event = {
+      type: 'training.drill.draft',
+      payload: { text: '  I can confirm tomorrow.  ' },
+    }
+
+    assert.equal(realtimeDrillDraftText(event), 'I can confirm tomorrow.')
+    assert.deepEqual(realtimeTranscriptPreviewAction(event), { type: 'clear' })
+    assert.equal(
+      realtimeDrillDraftText({
+        type: 'transcript.persisted',
+        payload: { text: 'I can confirm tomorrow.' },
+      }),
+      null
+    )
+    assert.equal(
+      realtimeDrillDraftText({
+        type: 'training.drill.draft',
+        payload: { text: '   ' },
+      }),
+      null
+    )
+  })
+
   test('prefers encoded container magic over a stale PCM declaration', () => {
     const ogg = Uint8Array.from([
       ...new TextEncoder().encode('OggS'),

@@ -187,6 +187,13 @@ export function realtimeEventText(event: RealtimeServerEvent): string | null {
   return null
 }
 
+export function realtimeDrillDraftText(
+  event: RealtimeServerEvent
+): string | null {
+  if (event.type !== 'training.drill.draft') return null
+  return realtimeEventText(event)
+}
+
 export type RealtimeTranscriptPreviewAction =
   | { type: 'clear' }
   | { text: string; type: 'update' }
@@ -199,7 +206,12 @@ export type RealtimeTranscriptPreviewAction =
 export function realtimeTranscriptPreviewAction(
   event: RealtimeServerEvent
 ): RealtimeTranscriptPreviewAction {
-  if (event.type === 'transcript.persisted') return { type: 'clear' }
+  if (
+    event.type === 'transcript.persisted' ||
+    event.type === 'training.drill.draft'
+  ) {
+    return { type: 'clear' }
+  }
   if (event.type !== 'transcript.delta') return { type: 'ignore' }
   const text = realtimeEventText(event)
   return text ? { text, type: 'update' } : { type: 'ignore' }

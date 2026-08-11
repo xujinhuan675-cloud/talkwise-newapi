@@ -81,6 +81,7 @@ export interface StudioLaunchInput {
   mode: TrainingStudioMode
   interactionMode?: TrainingInteractionMode
   feedbackMode: TrainingFeedbackMode
+  replyLanguage?: string
   pressure?: TrainingPressure
   lengthProfile?: TrainingLengthProfile
   llmModel?: string
@@ -456,6 +457,9 @@ export function buildStudioSessionRequest(input: StudioLaunchInput) {
         trainingMode: modality,
         interactionMode,
         feedbackMode: input.feedbackMode,
+        ...(input.replyLanguage?.trim()
+          ? { replyLanguage: input.replyLanguage.trim() }
+          : {}),
         trainingGoal: goal,
         trainingPlan: trainingPlanMetadata({
           focusScope: 'custom',
