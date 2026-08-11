@@ -19,13 +19,20 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { TrainingScenariosPage } from '@/features/training'
+import { normalizeTrainingScenarioSelectionSearch } from '@/features/training/scenarios/selection-handoff'
 import { isSidebarModuleEnabled } from '@/lib/nav-modules'
 
 export const Route = createFileRoute('/_authenticated/training/scenarios')({
+  validateSearch: normalizeTrainingScenarioSelectionSearch,
   beforeLoad: () => {
     if (!isSidebarModuleEnabled('training', 'studio')) {
       throw redirect({ to: '/dashboard' })
     }
   },
-  component: TrainingScenariosPage,
+  component: TrainingScenariosRoute,
 })
+
+function TrainingScenariosRoute() {
+  const { scenario } = Route.useSearch()
+  return <TrainingScenariosPage scenarioId={scenario} />
+}

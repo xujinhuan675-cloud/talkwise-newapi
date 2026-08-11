@@ -84,6 +84,7 @@ import {
   listTrainingScenarios,
   trainingRequestErrorMessage,
 } from '../scenarios/api'
+import { trainingScenarioSelectionSearch } from '../scenarios/selection-handoff'
 import type {
   TrainingScenarioCategory,
   TrainingScenarioDifficulty,
@@ -761,6 +762,9 @@ export function TrainingOverview() {
   const summary = summaryQuery.data
   const recommendationUnavailable =
     scenariosQuery.isError || progressQuery.isError
+  const recommendationSearch = trainingScenarioSelectionSearch(
+    recommendation?.scenario.id
+  )
 
   return (
     <div className='space-y-3'>
@@ -918,7 +922,12 @@ export function TrainingOverview() {
                 variant='ghost'
                 size='icon-sm'
                 aria-label={localize('Open scenarios', '打开训练场景')}
-                render={<Link to='/training/scenarios' />}
+                render={
+                  <Link
+                    to='/training/scenarios'
+                    search={recommendationSearch}
+                  />
+                }
               >
                 <ArrowRight />
               </Button>
@@ -990,7 +999,15 @@ export function TrainingOverview() {
           </CardContent>
           {!recommendationUnavailable && (
             <CardFooter>
-              <Button size='sm' render={<Link to='/training/scenarios' />}>
+              <Button
+                size='sm'
+                render={
+                  <Link
+                    to='/training/scenarios'
+                    search={recommendationSearch}
+                  />
+                }
+              >
                 <MessagesSquare />
                 {recommendation
                   ? localize('Open scenario', '打开场景')

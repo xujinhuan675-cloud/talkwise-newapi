@@ -42,6 +42,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
 import type { TrainingCompetencyRadar } from '../review/types'
+import { trainingScenarioSelectionSearch } from '../scenarios/selection-handoff'
 import type {
   TrainingCareerPathStage,
   TrainingCareerPathStageStatus,
@@ -262,12 +263,16 @@ export function TrainingCareerPathCard(props: TrainingCareerPathCardProps) {
   const allStagesCompleted =
     stages.length > 0 && stages.every((stage) => stage.status === 'completed')
   const currentCopy = currentStage ? stageCopy(currentStage, localize) : null
-  const recommendations = currentStage
+  const recommendedScenarios = currentStage
     ? currentStage.recommendedScenarioIds.flatMap((scenarioId) => {
         const title = scenarioTitles.get(scenarioId)
-        return title ? [title] : []
+        return title ? [{ id: scenarioId, title }] : []
       })
     : []
+  const recommendations = recommendedScenarios.map((scenario) => scenario.title)
+  const nextScenarioSearch = trainingScenarioSelectionSearch(
+    recommendedScenarios[0]?.id
+  )
   const radarById = new Map(
     (radar?.dimensions ?? []).map((dimension) => [dimension.dimensionId, dimension])
   )
@@ -394,7 +399,9 @@ export function TrainingCareerPathCard(props: TrainingCareerPathCardProps) {
           <Button
             size='sm'
             className='shrink-0'
-            render={<Link to='/training/scenarios' />}
+            render={
+              <Link to='/training/scenarios' search={nextScenarioSearch} />
+            }
           >
             <MessagesSquare />
             {localize(

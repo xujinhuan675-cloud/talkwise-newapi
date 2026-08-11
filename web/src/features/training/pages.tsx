@@ -41,6 +41,10 @@ type TrainingPlaceholderPageProps = {
   descriptionZh: string
 }
 
+type TrainingScenariosPageProps = {
+  readonly scenarioId?: string
+}
+
 function TrainingPageShell(props: TrainingPageShellProps) {
   const { i18n, t } = useTranslation()
   const localize = (english: string, chinese: string) =>
@@ -68,10 +72,10 @@ export function TrainingOverviewPage() {
   )
 }
 
-export function TrainingScenariosPage() {
+export function TrainingScenariosPage(props: TrainingScenariosPageProps) {
   return (
     <TrainingPageShell title='Scenarios' titleZh='场景训练'>
-      <TrainingScenarios />
+      <TrainingScenarios scenarioId={props.scenarioId} />
     </TrainingPageShell>
   )
 }
