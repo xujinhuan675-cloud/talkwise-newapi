@@ -198,6 +198,14 @@ export function finalVoiceTranscript(
   return typeof event.text === 'string' ? event.text.trim() : null
 }
 
+export function drillVoiceDraft(
+  event: TurnBasedVoiceServerEvent
+): string | null {
+  if (event.type !== 'training.drill.draft') return null
+  const text = typeof event.text === 'string' ? event.text.trim() : ''
+  return text || null
+}
+
 export function persistedVoiceMessage(
   event: TurnBasedVoiceServerEvent
 ): PersistedVoiceMessage | null {
@@ -255,6 +263,8 @@ export function buildTurnBasedVoiceFrames(
   const voiceMetadata = options.voiceMetadata ?? {}
   const trainingVoiceFields = Object.fromEntries(
     [
+      'feedbackMode',
+      'trainingFeedbackMode',
       'trainingVoiceId',
       'trainingVoiceSpeed',
       'trainingVoiceLoudness',

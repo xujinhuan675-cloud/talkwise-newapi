@@ -86,7 +86,7 @@ function TrainingStudioContent({
   initialSessionId,
 }: TrainingStudioContentProps) {
   const { i18n, t } = useTranslation()
-  const { apiBase, authStatus } = useTrainingHost()
+  const { apiBase, authStatus, locale } = useTrainingHost()
   const navigate = useNavigate()
   const [role, setRole] = useState('')
   const [goal, setGoal] = useState('')
@@ -96,6 +96,9 @@ function TrainingStudioContent({
   const [voiceRouteId, setVoiceRouteId] = useState('')
   const [feedbackMode, setFeedbackMode] =
     useState<TrainingFeedbackMode>('simulation')
+  const feedbackModeOption = TRAINING_FEEDBACK_MODE_OPTIONS.find(
+    (option) => option.value === feedbackMode
+  )
   const [pressure, setPressure] = useState<TrainingPressure>('medium')
   const [lengthProfile, setLengthProfile] =
     useState<TrainingLengthProfile>('standard')
@@ -193,6 +196,7 @@ function TrainingStudioContent({
         mode,
         interactionMode,
         feedbackMode,
+        replyLanguage: locale,
         pressure,
         lengthProfile,
         ...(mode === 'voice'
@@ -433,6 +437,14 @@ function TrainingStudioContent({
                       </ToggleGroupItem>
                     ))}
                   </ToggleGroup>
+                  {feedbackModeOption && (
+                    <p className='text-muted-foreground text-xs leading-5'>
+                      {localize(
+                        feedbackModeOption.description.english,
+                        feedbackModeOption.description.chinese
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 <div className='grid gap-4 sm:grid-cols-2'>

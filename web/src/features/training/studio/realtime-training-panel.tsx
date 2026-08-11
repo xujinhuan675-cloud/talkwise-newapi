@@ -44,6 +44,7 @@ import {
   realtimeAudioContract,
   realtimeAuthRenewalDelayMs,
   realtimeCommitTranscriptSettled,
+  realtimeDrillDraftText,
   realtimeEventAudio,
   realtimeEventError,
   realtimeEventNeedsAuthRefresh,
@@ -75,6 +76,8 @@ import {
 interface RealtimeVoiceControlProps {
   apiBase: string
   disabled?: boolean
+  drillMode?: boolean
+  onDrillDraft?: (text: string) => void
   onErrorChange?: (error: string | null) => void
   onMessagePersisted?: () => void
   onTranscriptPreviewChange?: (text: string | null) => void
@@ -112,6 +115,8 @@ export const RealtimeVoiceControl = forwardRef<
   {
     apiBase,
     disabled = false,
+    drillMode = false,
+    onDrillDraft,
     onErrorChange,
     onMessagePersisted,
     onPrimaryActionChange,
@@ -453,6 +458,13 @@ export const RealtimeVoiceControl = forwardRef<
       } else if (previewAction.type === 'clear') {
         transcriptPreviewChangeRef.current?.(null)
       }
+      const drillDraft = realtimeDrillDraftText(event)
+      if (drillMode && drillDraft) {
+        transcriptPreviewChangeRef.current?.(null)
+        onDrillDraft?.(drillDraft)
+        closeRealtime('closed')
+        return
+      }
       if (realtimeEventNeedsAuthRefresh(event)) {
         void recoverRealtimeAuthentication('server')
         return
@@ -513,8 +525,10 @@ export const RealtimeVoiceControl = forwardRef<
     },
     [
       closeRealtime,
+      drillMode,
       interruptOutputPlayback,
       localize,
+      onDrillDraft,
       onMessagePersisted,
       playAudio,
       recoverRealtimeAuthentication,
