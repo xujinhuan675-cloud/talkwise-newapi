@@ -76,7 +76,12 @@ import type { Message } from '@/features/playground/types'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { trainingCompletionExitDestination } from '../completion-navigation'
 import { trainingEmotionDisplayLabel } from '../training-display-labels'
+import {
+  trainingFeedbackCompletionDescription,
+  trainingFeedbackModeFromMetadata,
+} from '../training-feedback'
 import {
   formatTrainingMessageForDisplay,
   trainingMessagePresentation,
@@ -120,6 +125,10 @@ import {
 import { TrainingConversationComposer } from './training-conversation-composer'
 import { TrainingConversationHeaderActions } from './training-conversation-header-actions'
 import { TrainingConversationInsights } from './training-conversation-insights'
+import {
+  TrainingDrillCorrectionGate,
+  useTrainingDrillCorrection,
+} from './training-turn-correction'
 
 export type { TrainingConversationSessionContext } from './api'
 
@@ -396,12 +405,27 @@ export function TrainingConversationSurface({
   const persistedMessagesRef = useRef<TrainingConversationMessage[]>([])
   const selectedTailIdRef = useRef<string | null>(null)
   const streamAbortRef = useRef<AbortController | null>(null)
+  const hardLimitPromptRef = useRef<string | null>(null)
   const initialSelectedTailId =
     selectedTailId?.trim() || selectedTailFromSession(trainingSession)
   const battlePlan = useMemo(
     () => resolveBattlePrepPlan(trainingSession.metadata),
     [trainingSession.metadata]
   )
+  const feedbackMode = trainingFeedbackModeFromMetadata(
+    trainingSession.metadata
+  )
+  const {
+    analyze: analyzeDrillDraft,
+    clear: clearDrillCorrection,
+    state: drillCorrectionState,
+  } = useTrainingDrillCorrection({
+    enabled: feedbackMode === 'drill',
+    trainingApiBase,
+    trainingSession,
+  })
+  const completionFeedbackDescription =
+    trainingFeedbackCompletionDescription(feedbackMode)
   const assistantParticipant = useMemo(
     () => trainingCounterpartParticipant(trainingSession),
     [trainingSession]
@@ -442,12 +466,28 @@ export function TrainingConversationSurface({
   }, [messages])
 
   useEffect(() => {
+    hardLimitPromptRef.current = null
     setIsCompletionDialogOpen(false)
     setCompletionError(null)
     setCompletionResult(null)
     setBattleSheet(null)
     setBattleSheetError(null)
   }, [trainingSession.sessionId])
+
+  useEffect(() => {
+    if (
+      trainingSession.status !== 'active' ||
+      trainingProgress?.state !== 'hard_limit_reached'
+    ) {
+      return
+    }
+    const promptKey = `${trainingSession.sessionId}:${trainingProgress.learnerTurnCount}`
+    if (hardLimitPromptRef.current === promptKey) return
+    hardLimitPromptRef.current = promptKey
+    setCompletionError(null)
+    setCompletionResult(null)
+    setIsCompletionDialogOpen(true)
+  }, [trainingProgress, trainingSession.sessionId, trainingSession.status])
 
   useEffect(() => {
     saveTrainingInsightsExpanded(
@@ -569,7 +609,7 @@ export function TrainingConversationSurface({
         streamAbortRef.current ||
         trainingSession.status !== 'active'
       ) {
-        return
+        return false
       }
 
       const userKey = `local-user-${nanoid()}`
@@ -577,6 +617,7 @@ export function TrainingConversationSurface({
       const createdAt = Date.now()
       const controller = new AbortController()
       let didComplete = false
+      let didPersistUser = false
       let streamError: string | null = null
 
       streamAbortRef.current = controller
@@ -615,6 +656,7 @@ export function TrainingConversationSurface({
             signal: controller.signal,
             onEvent: (event) => {
               if (event.type === 'message_created') {
+                didPersistUser = true
                 const message: TrainingConversationMessage = {
                   publicId: event.publicId,
                   role: 'user',
@@ -732,6 +774,7 @@ export function TrainingConversationSurface({
             )
           )
         }
+        return true
       } catch (error) {
         const message = controller.signal.aborted
           ? localize(
@@ -752,6 +795,7 @@ export function TrainingConversationSurface({
           )
         )
         if (!controller.signal.aborted) toast.error(message)
+        return didPersistUser
       } finally {
         if (streamAbortRef.current === controller) {
           streamAbortRef.current = null
@@ -776,7 +820,13 @@ export function TrainingConversationSurface({
 
   const handleSendMessage = useCallback(
     (text: string) => {
-      if (battleTurnLimitReached || trainingProgressInputLocked) return
+      if (trainingSession.status !== 'active' || trainingProgressInputLocked) {
+        return
+      }
+      if (feedbackMode === 'drill') {
+        void analyzeDrillDraft(text, treeProjection.path)
+        return
+      }
       const tail = lastPersistedMessage(
         messagesRef.current,
         messageRecordsRef.current
@@ -786,8 +836,46 @@ export function TrainingConversationSurface({
         branchId: tail?.branchId,
       })
     },
-    [battleTurnLimitReached, startStream, trainingProgressInputLocked]
+    [
+      analyzeDrillDraft,
+      feedbackMode,
+      startStream,
+      trainingProgressInputLocked,
+      trainingSession.status,
+      treeProjection.path,
+    ]
   )
+
+  const handleAcceptDrillDraft = useCallback(async () => {
+    if (
+      drillCorrectionState.status === 'idle' ||
+      trainingSession.status !== 'active' ||
+      trainingProgressInputLocked ||
+      streamAbortRef.current
+    ) {
+      return
+    }
+    const content = drillCorrectionState.draftText
+    const tail = lastPersistedMessage(
+      messagesRef.current,
+      messageRecordsRef.current
+    )
+    const sent = await startStream(content, {
+      parentMessageId: tail?.publicId,
+      branchId: tail?.branchId,
+    })
+    if (sent) clearDrillCorrection()
+  }, [
+    clearDrillCorrection,
+    drillCorrectionState,
+    startStream,
+    trainingProgressInputLocked,
+    trainingSession.status,
+  ])
+
+  const handleRetryDrillDraft = useCallback(() => {
+    clearDrillCorrection()
+  }, [clearDrillCorrection])
 
   const handleRegenerateMessage = useCallback(
     (message: Message) => {
@@ -962,6 +1050,10 @@ export function TrainingConversationSurface({
             )
           }
 
+          const destination = trainingCompletionExitDestination(
+            generateReport,
+            result.sessionId
+          )
           if (result.reportStatus === 'ready' && battlePlan) {
             try {
               const report = await loadTrainingConversationReportSummary(
@@ -978,14 +1070,30 @@ export function TrainingConversationSurface({
             } catch (error: unknown) {
               setBattleSheetError(error)
             }
-          } else if (result.reportStatus === 'ready') {
+          } else if (destination.kind === 'review') {
+            toast.success(
+              result.reportStatus === 'ready'
+                ? localize(
+                    'Training finished. Opening the review.',
+                    '训练已结束，正在打开复盘。'
+                  )
+                : localize(
+                    'Training finished. Opening the session review status.',
+                    '训练已结束，正在打开复盘状态。'
+                  )
+            )
+            await navigate({
+              to: destination.to,
+              params: destination.params,
+            })
+          } else if (!battlePlan) {
             toast.success(
               localize(
-                'Training finished. Opening the review.',
-                '训练已结束，正在打开复盘。'
+                'Training ended without generating a review.',
+                '训练已直接结束，未生成复盘。'
               )
             )
-            openSessionReview()
+            await navigate({ to: destination.to })
           } else if (result.reportStatus === 'skipped') {
             toast.success(
               localize(
@@ -1006,8 +1114,8 @@ export function TrainingConversationSurface({
       battlePlan,
       isCompleting,
       localize,
+      navigate,
       onCompletionConfirmed,
-      openSessionReview,
       trainingApiBase,
       trainingSession,
       treeProjection.selectedTailId,
@@ -1098,8 +1206,9 @@ export function TrainingConversationSurface({
 
   const isBusy = isGenerating || isSavingEdit || isForking || isCompleting
   const isSessionReadOnly = trainingSession.status !== 'active'
-  const isInputLocked =
-    isSessionReadOnly || battleTurnLimitReached || trainingProgressInputLocked
+  const isDrillGateActive = drillCorrectionState.status !== 'idle'
+  const isInputLocked = isSessionReadOnly || trainingProgressInputLocked
+  const isConversationActionLocked = isInputLocked || isDrillGateActive
   const canComplete =
     !isBusy &&
     !isLoadingConversation &&
@@ -1245,8 +1354,8 @@ export function TrainingConversationSurface({
                 </AlertTitle>
                 <AlertDescription>
                   {localize(
-                    'Finish battle preparation to generate the briefing card, or switch branches before finishing.',
-                    '现在可以结束备战生成速记卡，也可以先切换分支再结束。'
+                    'The planned rounds are complete. You can continue training, switch branches, or finish to generate the briefing card.',
+                    '计划轮次已完成；你可以继续训练、切换分支，或结束并生成速记卡。'
                   )}
                 </AlertDescription>
               </Alert>
@@ -1274,13 +1383,13 @@ export function TrainingConversationSurface({
                 if (!open) setEditingMessageKey(null)
               }}
               onEditMessage={
-                isInputLocked
+                isConversationActionLocked
                   ? undefined
                   : (message) => setEditingMessageKey(message.key)
               }
               onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
               onRegenerateMessage={
-                isInputLocked ? undefined : handleRegenerateMessage
+                isConversationActionLocked ? undefined : handleRegenerateMessage
               }
               onSaveEdit={handleSaveEdit}
               onSaveEditAndSubmit={handleSaveEditAndSubmit}
@@ -1304,6 +1413,18 @@ export function TrainingConversationSurface({
               isGenerating={isGenerating}
               hideModelSelector
               isModelLoading={isLoadingModels}
+              leadingContent={
+                feedbackMode === 'drill' ? (
+                  <TrainingDrillCorrectionGate
+                    disabled={isGenerating}
+                    state={drillCorrectionState}
+                    language={i18n.resolvedLanguage ?? i18n.language}
+                    localize={localize}
+                    onAccept={handleAcceptDrillDraft}
+                    onRetry={handleRetryDrillDraft}
+                  />
+                ) : null
+              }
               modelValue={config.model}
               models={models}
               onConfigChange={updateConfig}
@@ -1318,6 +1439,7 @@ export function TrainingConversationSurface({
         </div>
         <TrainingConversationInsights
           desktopExpanded={isInsightsExpanded}
+          feedbackMode={feedbackMode}
           isGenerating={isGenerating}
           isLoadingConversation={
             isLoadingConversation || loadedConversationId !== conversationId
@@ -1494,7 +1616,6 @@ export function TrainingConversationSurface({
                 </Button>
                 {completionResult.reportStatus !== 'skipped' && (
                   <Button onClick={openSessionReview}>
-                    <ClipboardCheck />
                     {completionReviewLabel}
                   </Button>
                 )}
@@ -1510,8 +1631,8 @@ export function TrainingConversationSurface({
                 </DialogTitle>
                 <DialogDescription>
                   {localize(
-                    'Choose whether to generate a review from the selected conversation path or end the session directly.',
-                    '你可以结束并生成当前对话路径的复盘，也可以直接结束本次训练。'
+                    `${completionFeedbackDescription.english} Choose whether to generate it from the selected conversation path or end without a review.`,
+                    `${completionFeedbackDescription.chinese} 你可以基于当前对话路径生成复盘，也可以不生成复盘直接结束。`
                   )}
                 </DialogDescription>
               </DialogHeader>
@@ -1537,25 +1658,22 @@ export function TrainingConversationSurface({
                   variant='outline'
                   onClick={() => handleCompleteTraining(false)}
                 >
-                  {isCompleting && completionIntent === 'direct' ? (
-                    <LoaderCircle className='animate-spin' />
-                  ) : (
-                    <Flag />
-                  )}
-                  {localize('End without review', '直接结束')}
+                  {isCompleting && completionIntent === 'direct'
+                    ? localize('Ending...', '正在结束…')
+                    : localize('End without review', '直接结束')}
                 </Button>
                 <Button
                   disabled={!canComplete}
                   onClick={() => handleCompleteTraining(true)}
                 >
-                  {isCompleting && completionIntent === 'report' ? (
-                    <LoaderCircle className='animate-spin' />
-                  ) : (
-                    <Flag />
-                  )}
-                  {battlePlan
-                    ? localize('End and create briefing', '结束并生成备战速记')
-                    : localize('End and generate review', '结束并生成复盘')}
+                  {isCompleting && completionIntent === 'report'
+                    ? localize('Ending...', '正在结束…')
+                    : battlePlan
+                      ? localize(
+                          'End and create briefing',
+                          '结束并生成备战速记'
+                        )
+                      : localize('End and review', '结束并复盘')}
                 </Button>
               </DialogFooter>
             </>

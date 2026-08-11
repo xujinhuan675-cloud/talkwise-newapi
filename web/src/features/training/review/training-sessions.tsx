@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi, Link } from '@tanstack/react-router'
+import { getRouteApi } from '@tanstack/react-router'
 import type {
   ColumnFiltersState,
   ColumnDef,
@@ -28,7 +28,11 @@ import { CircleAlert, ClipboardCheck, RefreshCw } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { DataTablePage, useDataTable } from '@/components/data-table'
+import {
+  DataTablePage,
+  DataTableRow,
+  useDataTable,
+} from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -40,6 +44,7 @@ import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatTrainingDateTime } from '../date'
 import { TrainingHostProvider, useTrainingHost } from '../host'
 import { listTrainingScenarios } from '../scenarios/api'
+import { trainingSessionStatusDisplayLabel } from '../training-display-labels'
 import {
   listReviewSessions,
   listScenarioProgress,
@@ -47,8 +52,11 @@ import {
   reviewRequestAccessState,
   reviewRequestErrorMessage,
 } from './api'
+import { reviewReportStatusPresentation } from './report-state-presentation'
+import { reviewScorePresentation } from './score-state-presentation'
+import { trainingSessionEntryDestination } from './session-entry-navigation'
+import { TrainingSessionEntryLink } from './training-session-entry-link'
 import type {
-  ReviewReportStatus,
   ReviewSession,
   TrainingSessionMode,
   TrainingSessionStatus,
@@ -115,40 +123,6 @@ function sessionSourceLabel(
   return neutralSource.replaceAll('_', ' ')
 }
 
-function sessionStatusLabel(
-  status: TrainingSessionStatus,
-  localize: (english: string, chinese: string) => string
-): string {
-  const labels: Record<TrainingSessionStatus, readonly [string, string]> = {
-    active: ['Active', '进行中'],
-    completed: ['Completed', '已完成'],
-    created: ['Created', '待开始'],
-    failed: ['Failed', '失败'],
-  }
-  return localize(...labels[status])
-}
-
-function reportStatusVariant(status: ReviewReportStatus) {
-  if (status === 'ready') return 'success' as const
-  if (status === 'pending') return 'warning' as const
-  if (status === 'failed' || status === 'unavailable') return 'danger' as const
-  return 'neutral' as const
-}
-
-function reportStatusLabel(
-  status: ReviewReportStatus,
-  localize: (english: string, chinese: string) => string
-): string {
-  const labels: Record<ReviewReportStatus, readonly [string, string]> = {
-    failed: ['Failed', '生成失败'],
-    not_requested: ['Not available', '暂无报告'],
-    pending: ['Generating', '生成中'],
-    ready: ['Ready', '已生成'],
-    unavailable: ['Unavailable', '不可用'],
-  }
-  return localize(...labels[status])
-}
-
 function accessErrorCopy(
   error: unknown,
   localize: (english: string, chinese: string) => string
@@ -183,7 +157,9 @@ function SessionDataTable({
   ensurePageInRange,
   isLoading,
   isFetching,
+  language,
   localize,
+  onOpenSession,
   columnFilters,
   onColumnFiltersChange,
   globalFilter,
@@ -200,7 +176,9 @@ function SessionDataTable({
   ensurePageInRange: (pageCount: number) => void
   isLoading: boolean
   isFetching: boolean
+  language: string
   localize: (english: string, chinese: string) => string
+  onOpenSession: (session: ReviewSession) => void
   columnFilters: ColumnFiltersState
   onColumnFiltersChange: OnChangeFn<ColumnFiltersState>
   globalFilter: string
@@ -221,17 +199,12 @@ function SessionDataTable({
       {
         id: 'session',
         header: localize('Session', '训练会话'),
+        meta: { mobileTitle: true },
         cell: ({ row }) => {
           const session = row.original
           return (
             <div className='min-w-0'>
-              <Link
-                to='/training/sessions/$sessionId'
-                params={{ sessionId: session.id }}
-                className='hover:text-primary block truncate font-medium'
-              >
-                {session.title}
-              </Link>
+              <div className='truncate font-medium'>{session.title}</div>
               <div className='text-muted-foreground mt-1 truncate text-xs'>
                 {session.description || session.role}
               </div>
@@ -254,11 +227,15 @@ function SessionDataTable({
       {
         id: 'status',
         header: localize('Status', '状态'),
+        meta: { mobileBadge: true },
         cell: ({ row }) => {
           const session = row.original
           return (
             <StatusBadge
-              label={sessionStatusLabel(session.status, localize)}
+              label={trainingSessionStatusDisplayLabel(
+                session.status,
+                language
+              )}
               variant={statusVariant(session.status)}
               copyable={false}
             />
@@ -268,37 +245,35 @@ function SessionDataTable({
       {
         id: 'report',
         header: localize('Review report', '复盘报告'),
-        cell: ({ row }) => (
-          <StatusBadge
-            label={reportStatusLabel(row.original.reportState.status, localize)}
-            variant={reportStatusVariant(row.original.reportState.status)}
-            copyable={false}
-          />
-        ),
+        cell: ({ row }) => {
+          const presentation = reviewReportStatusPresentation(
+            row.original.reportState,
+            localize
+          )
+          return (
+            <StatusBadge
+              label={presentation.label}
+              variant={presentation.variant}
+              copyable={false}
+            />
+          )
+        },
       },
       {
         id: 'score',
-        header: localize('Task outcome', '任务表现'),
+        header: localize('Score result', '评分结果'),
         cell: ({ row }) => {
           const session = row.original
-          if (session.evaluationState?.status === 'failed') {
-            return localize('Failed', '评分失败')
-          }
-          if (session.evaluationState?.status === 'unavailable') {
-            return localize('Unavailable', '评分不可用')
-          }
-          if (session.score !== null) return `${session.score}/100`
-          if (session.progressLinked && session.scoreStatus === 'unavailable') {
-            return localize('N/A', '证据不足')
-          }
-          if (session.progressLinked && session.scoreStatus === 'pending') {
-            return session.reportState.status === 'failed'
-              ? localize('Unavailable', '不可用')
-              : localize('Pending', '待评分')
-          }
-          return session.reportState.status === 'pending'
-            ? localize('Pending', '待评分')
-            : localize('Not recorded', '未记录')
+          return reviewScorePresentation(
+            {
+              evaluationState: session.evaluationState,
+              progressLinked: session.progressLinked === true,
+              reportState: session.reportState,
+              score: session.score,
+              scoreStatus: session.scoreStatus,
+            },
+            localize
+          ).label
         },
       },
       {
@@ -315,7 +290,7 @@ function SessionDataTable({
           ),
       },
     ],
-    [localize]
+    [language, localize]
   )
   const { table } = useDataTable({
     data: sessions,
@@ -340,6 +315,47 @@ function SessionDataTable({
       columns={columns}
       isLoading={isLoading}
       isFetching={isFetching}
+      renderRow={(row, helpers) => (
+        <DataTableRow
+          key={row.id}
+          row={row}
+          cellRenderColumns={columns}
+          className='hover:bg-muted/50 cursor-pointer transition-colors'
+          getColumnClassName={(columnId) => helpers.getCellClassName(columnId)}
+          role='link'
+          tabIndex={0}
+          onClick={(event) => {
+            const target = event.target
+            if (
+              target instanceof Element &&
+              target.closest('a, button, input, select, textarea')
+            ) {
+              return
+            }
+            onOpenSession(row.original)
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.target === event.currentTarget &&
+              (event.key === 'Enter' || event.key === ' ')
+            ) {
+              event.preventDefault()
+              onOpenSession(row.original)
+            }
+          }}
+        />
+      )}
+      mobileProps={{
+        renderRow: (row, content) => (
+          <TrainingSessionEntryLink
+            className='hover:bg-muted/50 block [background-color:var(--data-table-card-bg,var(--table-row))] px-3 py-2.5 transition-colors'
+            sessionId={row.original.id}
+            status={row.original.status}
+          >
+            {content}
+          </TrainingSessionEntryLink>
+        ),
+      }}
       emptyIcon={<ClipboardCheck />}
       emptyTitle={
         hasActiveFilters
@@ -466,6 +482,23 @@ export function TrainingSessions() {
       }),
     })
   }
+  const onOpenSession = (session: ReviewSession) => {
+    const destination = trainingSessionEntryDestination(
+      session.status,
+      session.id
+    )
+    if (destination.kind === 'resume') {
+      void navigate({
+        search: destination.search,
+        to: destination.to,
+      })
+      return
+    }
+    void navigate({
+      params: destination.params,
+      to: destination.to,
+    })
+  }
   const scenariosQuery = useQuery({
     queryKey: ['training', 'review-scenarios', host.apiBase],
     queryFn: () => listTrainingScenarios(host.apiBase),
@@ -580,7 +613,7 @@ export function TrainingSessions() {
         <Alert>
           <CircleAlert />
           <AlertTitle>
-            {localize('Task outcomes unavailable', '任务表现暂不可用')}
+            {localize('Score results unavailable', '评分结果暂不可用')}
           </AlertTitle>
           <AlertDescription>
             {reviewRequestErrorMessage(
@@ -598,7 +631,9 @@ export function TrainingSessions() {
         ensurePageInRange={tableState.ensurePageInRange}
         isLoading={host.authStatus === 'loading' || sessionsQuery.isPending}
         isFetching={sessionsQuery.isFetching}
+        language={i18n.language}
         localize={localize}
+        onOpenSession={onOpenSession}
         columnFilters={tableState.columnFilters}
         onColumnFiltersChange={tableState.onColumnFiltersChange}
         globalFilter={tableState.globalFilter ?? ''}

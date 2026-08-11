@@ -67,6 +67,11 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 import {
   trainingDifficultyDisplayLabel,
@@ -74,6 +79,11 @@ import {
   trainingRoleLocalizedLabel,
   trainingSessionStatusDisplayLabel,
 } from '../training-display-labels'
+import {
+  trainingFeedbackEventDisplay,
+  trainingFeedbackModeFromMetadata,
+  type TrainingFeedbackMode,
+} from '../training-feedback'
 import {
   loadTrainingConversationGuidanceHistory,
   loadTrainingConversationReportSummary,
@@ -106,6 +116,7 @@ type TrainingConversationInsightsProps = {
   readonly trainingSession: TrainingConversationSessionContext
   readonly messages: readonly TrainingConversationMessage[]
   readonly selectedTailId: string | null
+  readonly feedbackMode?: TrainingFeedbackMode
 }
 
 type ScenarioMetadata = {
@@ -487,6 +498,7 @@ function GuidanceTab({
   historyError,
   historyPending,
   isLoading,
+  language,
   messages,
   onAutoRefreshEnabledChange,
   onRequestGuidance,
@@ -503,6 +515,7 @@ function GuidanceTab({
   readonly historyError: GuidanceDisplayError | null
   readonly historyPending: boolean
   readonly isLoading: boolean
+  readonly language: string
   readonly messages: readonly TrainingConversationMessage[]
   readonly onAutoRefreshEnabledChange: (enabled: boolean) => void
   readonly onRequestGuidance: () => void
@@ -718,31 +731,35 @@ function GuidanceTab({
 
         {result && result.events.length > 0 && (
           <div className='space-y-3'>
-            {result.events.map((event) => (
-              <article
-                key={`${event.eventType}:${event.title}:${event.message}:${event.suggestedText ?? ''}`}
-                className='space-y-2 border-b pb-3 last:border-b-0'
-              >
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Badge
-                    variant={
-                      event.severity === 'error' || event.severity === 'warning'
-                        ? 'destructive'
-                        : 'secondary'
-                    }
-                  >
-                    {event.severity}
-                  </Badge>
-                  <h3 className='font-medium'>{event.title}</h3>
-                </div>
-                <p className='text-sm'>{event.message}</p>
-                {event.suggestedText && (
-                  <p className='bg-muted text-muted-foreground rounded-md p-2 text-sm'>
-                    {event.suggestedText}
-                  </p>
-                )}
-              </article>
-            ))}
+            {result.events.map((event) => {
+              const display = trainingFeedbackEventDisplay(event, language)
+              return (
+                <article
+                  key={`${event.eventType}:${event.title}:${event.message}:${event.suggestedText ?? ''}`}
+                  className='space-y-2 border-b pb-3 last:border-b-0'
+                >
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <Badge
+                      variant={
+                        event.severity === 'error' ||
+                        event.severity === 'warning'
+                          ? 'destructive'
+                          : 'secondary'
+                      }
+                    >
+                      {display.severity}
+                    </Badge>
+                    <h3 className='font-medium'>{display.title}</h3>
+                  </div>
+                  <p className='text-sm'>{display.message}</p>
+                  {display.suggestedText && (
+                    <p className='bg-muted text-muted-foreground rounded-md p-2 text-sm'>
+                      {display.suggestedText}
+                    </p>
+                  )}
+                </article>
+              )
+            })}
           </div>
         )}
 
@@ -801,17 +818,25 @@ function GuidanceTab({
                     )}
                   </p>
                 ) : (
-                  snapshot.events.map((event) => (
-                    <div
-                      key={`${snapshot.snapshotId}:${event.eventType}:${event.title}:${event.message}`}
-                      className='space-y-1'
-                    >
-                      <div className='text-sm font-medium'>{event.title}</div>
-                      <p className='text-muted-foreground text-sm'>
-                        {event.message}
-                      </p>
-                    </div>
-                  ))
+                  snapshot.events.map((event) => {
+                    const display = trainingFeedbackEventDisplay(
+                      event,
+                      language
+                    )
+                    return (
+                      <div
+                        key={`${snapshot.snapshotId}:${event.eventType}:${event.title}:${event.message}`}
+                        className='space-y-1'
+                      >
+                        <div className='text-sm font-medium'>
+                          {display.title}
+                        </div>
+                        <p className='text-muted-foreground text-sm'>
+                          {display.message}
+                        </p>
+                      </div>
+                    )
+                  })
                 )}
               </article>
             ))}
@@ -1041,6 +1066,7 @@ function AnalysisTab({
 
 export function TrainingConversationInsights({
   desktopExpanded,
+  feedbackMode,
   mobileOpen,
   onDesktopExpandedChange,
   onMobileOpenChange,
@@ -1078,14 +1104,23 @@ export function TrainingConversationInsights({
     [i18n.language, t]
   )
   const selectedTail = selectedTailId?.trim() || null
+  const resolvedFeedbackMode =
+    feedbackMode ?? trainingFeedbackModeFromMetadata(trainingSession.metadata)
+  const guidanceEnabled = resolvedFeedbackMode === 'assisted'
+  const guidanceTabEnabled = resolvedFeedbackMode === 'assisted'
+  const effectiveAutoRefresh = autoRefreshEnabled
   const sessionIsActive =
     !trainingSession.status || trainingSession.status === 'active'
   const hasGuidanceMessages =
     !isLoadingConversation &&
     messages.some((message) => Boolean(message.content.trim()))
-
   const refreshGuidanceHistory = useCallback(async () => {
-    if (runtime !== 'message_tree' || !selectedTail || !hasGuidanceMessages) {
+    if (
+      resolvedFeedbackMode !== 'assisted' ||
+      runtime !== 'message_tree' ||
+      !selectedTail ||
+      !hasGuidanceMessages
+    ) {
       return
     }
     historyAbortRef.current?.abort()
@@ -1117,6 +1152,7 @@ export function TrainingConversationInsights({
   }, [
     hasGuidanceMessages,
     localize,
+    resolvedFeedbackMode,
     runtime,
     selectedTail,
     trainingApiBase,
@@ -1126,6 +1162,7 @@ export function TrainingConversationInsights({
   const requestGuidance = useCallback(async () => {
     if (
       guidanceAbortRef.current ||
+      !guidanceEnabled ||
       !hasGuidanceMessages ||
       (runtime === 'message_tree' && !selectedTail) ||
       !sessionIsActive
@@ -1191,6 +1228,7 @@ export function TrainingConversationInsights({
     }
   }, [
     hasGuidanceMessages,
+    guidanceEnabled,
     localize,
     messages,
     refreshGuidanceHistory,
@@ -1212,12 +1250,18 @@ export function TrainingConversationInsights({
     setHistoryError(null)
     setGuidancePending(false)
     setHistoryPending(false)
-    if (runtime === 'message_tree' && selectedTail && hasGuidanceMessages) {
+    if (
+      resolvedFeedbackMode === 'assisted' &&
+      runtime === 'message_tree' &&
+      selectedTail &&
+      hasGuidanceMessages
+    ) {
       void refreshGuidanceHistory()
     }
   }, [
     hasGuidanceMessages,
     refreshGuidanceHistory,
+    resolvedFeedbackMode,
     runtime,
     selectedTail,
     sessionIsActive,
@@ -1228,7 +1272,7 @@ export function TrainingConversationInsights({
     const decision = decideTrainingGuidanceAutoRefresh(
       autoRefreshStateRef.current,
       {
-        enabled: autoRefreshEnabled,
+        enabled: guidanceEnabled && effectiveAutoRefresh,
         isGenerating,
         isLoading: isLoadingConversation,
         messages,
@@ -1239,7 +1283,8 @@ export function TrainingConversationInsights({
     autoRefreshStateRef.current = decision.state
     if (decision.shouldRefresh) void requestGuidance()
   }, [
-    autoRefreshEnabled,
+    effectiveAutoRefresh,
+    guidanceEnabled,
     isGenerating,
     isLoadingConversation,
     messages,
@@ -1257,8 +1302,14 @@ export function TrainingConversationInsights({
   )
 
   useEffect(() => {
-    if (desktopExpanded || mobileOpen) setTab(initialTab)
-  }, [desktopExpanded, initialTab, mobileOpen])
+    if (desktopExpanded || mobileOpen) {
+      setTab(
+        initialTab === 'guidance' && !guidanceTabEnabled
+          ? 'context'
+          : initialTab
+      )
+    }
+  }, [desktopExpanded, guidanceTabEnabled, initialTab, mobileOpen])
 
   const insightTabs = (
     <Tabs
@@ -1271,10 +1322,12 @@ export function TrainingConversationInsights({
           <BookOpen />
           {localize('Context', '上下文')}
         </TabsTrigger>
-        <TabsTrigger value='guidance'>
-          <Lightbulb />
-          {localize('Coach', '教练')}
-        </TabsTrigger>
+        {guidanceTabEnabled && (
+          <TabsTrigger value='guidance'>
+            <Lightbulb />
+            {localize('Coach', '教练')}
+          </TabsTrigger>
+        )}
         <TabsTrigger value='analysis'>
           <MessageSquareText />
           {localize('Analysis', '分析')}
@@ -1290,28 +1343,31 @@ export function TrainingConversationInsights({
           session={trainingSession}
         />
       </TabsContent>
-      <TabsContent
-        className={tab === 'guidance' ? 'min-h-0' : 'hidden min-h-0'}
-        value='guidance'
-      >
-        <GuidanceTab
-          autoRefreshEnabled={autoRefreshEnabled}
-          error={guidanceError}
-          history={guidanceHistory}
-          historyError={historyError}
-          historyPending={historyPending}
-          isLoading={isLoadingConversation}
-          localize={localize}
-          messages={messages}
-          pending={guidancePending}
-          result={guidanceResult}
-          runtime={runtime}
-          session={trainingSession}
-          onAutoRefreshEnabledChange={setAutoRefreshEnabled}
-          onRequestGuidance={() => void requestGuidance()}
-          onRetryHistory={() => void refreshGuidanceHistory()}
-        />
-      </TabsContent>
+      {guidanceTabEnabled && (
+        <TabsContent
+          className={tab === 'guidance' ? 'min-h-0' : 'hidden min-h-0'}
+          value='guidance'
+        >
+          <GuidanceTab
+            autoRefreshEnabled={autoRefreshEnabled}
+            error={guidanceError}
+            history={guidanceHistory}
+            historyError={historyError}
+            historyPending={historyPending}
+            isLoading={isLoadingConversation}
+            language={i18n.resolvedLanguage ?? i18n.language}
+            localize={localize}
+            messages={messages}
+            pending={guidancePending}
+            result={guidanceResult}
+            runtime={runtime}
+            session={trainingSession}
+            onAutoRefreshEnabledChange={setAutoRefreshEnabled}
+            onRequestGuidance={() => void requestGuidance()}
+            onRetryHistory={() => void refreshGuidanceHistory()}
+          />
+        </TabsContent>
+      )}
       <TabsContent
         className={tab === 'analysis' ? 'min-h-0' : 'hidden min-h-0'}
         value='analysis'
@@ -1342,22 +1398,40 @@ export function TrainingConversationInsights({
               </h2>
               <p className='text-muted-foreground mt-0.5 line-clamp-2 text-xs'>
                 {localize(
-                  'Live coaching and review evidence',
-                  '实时教练提示与复盘证据'
+                  guidanceTabEnabled
+                    ? 'Side guidance and review evidence'
+                    : resolvedFeedbackMode === 'drill'
+                      ? 'Sentence practice and review evidence'
+                      : 'Session context and review evidence',
+                  guidanceTabEnabled
+                    ? '旁路提示与复盘证据'
+                    : resolvedFeedbackMode === 'drill'
+                      ? '逐句练习与复盘证据'
+                      : '会话上下文与复盘证据'
                 )}
               </p>
             </div>
-            <Button
-              aria-label={localize(
-                'Collapse training insights',
-                '收起训练洞察'
-              )}
-              size='icon-sm'
-              variant='ghost'
-              onClick={() => onDesktopExpandedChange(false)}
-            >
-              <PanelRightClose />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label={localize(
+                      'Collapse training insights',
+                      '收起训练洞察'
+                    )}
+                    className='bg-transparent'
+                    size='icon-sm'
+                    variant='ghost'
+                    onClick={() => onDesktopExpandedChange(false)}
+                  />
+                }
+              >
+                <PanelRightClose />
+              </TooltipTrigger>
+              <TooltipContent>
+                {localize('Collapse training insights', '收起训练洞察')}
+              </TooltipContent>
+            </Tooltip>
           </div>
           {insightTabs}
         </aside>
@@ -1368,8 +1442,12 @@ export function TrainingConversationInsights({
             <SheetTitle>{localize('Training insights', '训练洞察')}</SheetTitle>
             <SheetDescription>
               {localize(
-                'Session context, selected-path guidance, and available review evidence.',
-                '查看会话上下文、当前路径教练提示和已有复盘证据。'
+                guidanceTabEnabled
+                  ? 'Session context, selected-path guidance, and available review evidence.'
+                  : 'Session context and available review evidence.',
+                guidanceTabEnabled
+                  ? '查看会话上下文、当前路径教练提示和已有复盘证据。'
+                  : '查看会话上下文和已有复盘证据。'
               )}
             </SheetDescription>
           </SheetHeader>
