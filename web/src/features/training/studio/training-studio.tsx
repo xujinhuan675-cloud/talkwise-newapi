@@ -49,6 +49,10 @@ import {
   trainingVoiceRouteLocalizedName,
 } from '../training-display-labels'
 import { TRAINING_FEEDBACK_MODE_OPTIONS } from '../training-feedback'
+import {
+  isTrainingInteractionModeCompatible,
+  resolveTrainingInteractionMode,
+} from '../training-mode-compatibility'
 import type { TrainingLengthProfile, TrainingPressure } from '../training-plan'
 import {
   listTrainingVoiceRoutes,
@@ -190,11 +194,16 @@ function TrainingStudioContent({
     setError(null)
     setIsLaunching(true)
     try {
+      const resolvedInteractionMode = resolveTrainingInteractionMode({
+        modality: mode,
+        feedbackMode,
+        interactionMode,
+      })
       const nextSession = await launchTrainingSession(apiBase, {
         role,
         goal,
         mode,
-        interactionMode,
+        interactionMode: resolvedInteractionMode,
         feedbackMode,
         replyLanguage: locale,
         pressure,
@@ -278,7 +287,17 @@ function TrainingStudioContent({
                       onValueChange={(values) => {
                         const nextMode = values.find((value) => value !== mode)
                         if (nextMode) {
-                          setMode(nextMode as TrainingModality)
+                          const nextModality = nextMode as TrainingModality
+                          setMode(nextModality)
+                          if (nextModality === 'voice') {
+                            setInteractionMode(
+                              resolveTrainingInteractionMode({
+                                modality: nextModality,
+                                feedbackMode,
+                                interactionMode,
+                              })
+                            )
+                          }
                         }
                       }}
                       variant='outline'
@@ -325,12 +344,44 @@ function TrainingStudioContent({
                       <ToggleGroupItem
                         value='turn_based'
                         className='h-auto min-h-9 w-full px-2 py-1.5 text-center whitespace-normal'
+                        disabled={
+                          isLaunching ||
+                          !isTrainingInteractionModeCompatible({
+                            modality: 'voice',
+                            feedbackMode,
+                            interactionMode: 'turn_based',
+                          })
+                        }
+                        title={
+                          feedbackMode === 'assisted'
+                            ? localize(
+                                'Live coaching uses natural conversation.',
+                                '实时教练固定使用自然对话。'
+                              )
+                            : undefined
+                        }
                       >
                         {localize('Turn-by-turn conversation', '逐轮对话')}
                       </ToggleGroupItem>
                       <ToggleGroupItem
                         value='realtime'
                         className='h-auto min-h-9 w-full px-2 py-1.5 text-center whitespace-normal'
+                        disabled={
+                          isLaunching ||
+                          !isTrainingInteractionModeCompatible({
+                            modality: 'voice',
+                            feedbackMode,
+                            interactionMode: 'realtime',
+                          })
+                        }
+                        title={
+                          feedbackMode === 'drill'
+                            ? localize(
+                                'Step-by-step correction uses turn-by-turn conversation.',
+                                '逐项纠正固定使用逐轮对话。'
+                              )
+                            : undefined
+                        }
                       >
                         {localize(
                           'Natural conversation (interruptible)',
@@ -415,7 +466,18 @@ function TrainingStudioContent({
                         (value) => value !== feedbackMode
                       )
                       if (nextMode) {
-                        setFeedbackMode(nextMode as TrainingFeedbackMode)
+                        const nextFeedbackMode =
+                          nextMode as TrainingFeedbackMode
+                        setFeedbackMode(nextFeedbackMode)
+                        if (mode === 'voice') {
+                          setInteractionMode(
+                            resolveTrainingInteractionMode({
+                              modality: mode,
+                              feedbackMode: nextFeedbackMode,
+                              interactionMode,
+                            })
+                          )
+                        }
                       }
                     }}
                     variant='outline'

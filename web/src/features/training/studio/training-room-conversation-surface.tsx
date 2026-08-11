@@ -78,7 +78,9 @@ import { TrainingProgressIndicator } from '../training-progress'
 import { RealtimeVoiceControl } from './realtime-training-panel'
 import {
   completeTrainingRoomSession,
+  LOW_LATENCY_REALTIME_REPLY_MODEL,
   sendTrainingRoomMessage,
+  trainingRoomReplyModel,
   type TrainingRoomCompletionResult,
   type TrainingRoomMessage,
 } from './training-room-client'
@@ -153,6 +155,9 @@ export function TrainingRoomConversationSurface({
   const [isLoadingMessages, setIsLoadingMessages] = useState(true)
   const [isReplying, setIsReplying] = useState(false)
   const [isSendingText, setIsSendingText] = useState(false)
+  const [pendingDrillReply, setPendingDrillReply] = useState<{
+    readonly baselinePersonaMessageId: string | null
+  } | null>(null)
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
   const [transcriptPreview, setTranscriptPreview] = useState<string | null>(
     null
@@ -222,10 +227,12 @@ export function TrainingRoomConversationSurface({
     currentGroup: config.group,
     currentModel: config.model,
     modelEndpointType: 'openai',
-    preferredModel:
+    preferredModel: trainingRoomReplyModel(
+      interactionMode,
       typeof trainingSession.metadata?.llmModel === 'string'
         ? trainingSession.metadata.llmModel
-        : 'doubao-seed-2-0-pro-260215',
+        : LOW_LATENCY_REALTIME_REPLY_MODEL
+    ),
     setGroups,
     setModels,
     updateConfig,
@@ -254,6 +261,16 @@ export function TrainingRoomConversationSurface({
   const trainingInputLocked =
     baseTrainingInputLocked || isSendingText || isReplying
   const selectedTailId = insightMessages.at(-1)?.publicId ?? null
+  const latestPersonaMessageId =
+    roomMessages
+      .filter((message) => message.senderType === 'persona')
+      .at(-1)?.id ?? null
+  const realtimeDrillCapturePaused =
+    feedbackMode === 'drill' &&
+    (drillCorrectionState.status !== 'idle' ||
+      pendingDrillReply !== null ||
+      isSendingText ||
+      isReplying)
   const refreshMessages = useCallback(() => {
     setRefreshVersion((current) => current + 1)
   }, [])
@@ -279,7 +296,9 @@ export function TrainingRoomConversationSurface({
         await sendTrainingRoomMessage(roomId, trainingSession.sessionId, {
           content,
           metadata: {
-            llm: { model: config.model },
+            llm: {
+              model: trainingRoomReplyModel(interactionMode, config.model),
+            },
             source: 'shared_training_composer',
             interactionMode,
             trainingMode: mode,
@@ -358,17 +377,24 @@ export function TrainingRoomConversationSurface({
       return
     }
     const content = drillCorrectionState.draftText
+    setPendingDrillReply({
+      baselinePersonaMessageId: latestPersonaMessageId,
+    })
     const sent = await sendAcceptedRoomMessage(
       content,
       `training-drill:${trainingSession.sessionId}:${drillCorrectionState.draftId}`
     )
-    if (!sent) return
+    if (!sent) {
+      setPendingDrillReply(null)
+      return
+    }
     drillDraftSourceRef.current = null
     clearDrillCorrection()
   }, [
     baseTrainingInputLocked,
     clearDrillCorrection,
     drillCorrectionState,
+    latestPersonaMessageId,
     sendAcceptedRoomMessage,
     trainingSession.sessionId,
   ])
@@ -376,8 +402,9 @@ export function TrainingRoomConversationSurface({
   const handleRetryDrillDraft = useCallback(() => {
     const source = drillDraftSourceRef.current
     drillDraftSourceRef.current = null
+    setPendingDrillReply(null)
     clearDrillCorrection()
-    if (source === 'realtime' || source === 'turn_based') {
+    if (source === 'turn_based') {
       window.setTimeout(() => mediaControlRef.current?.trigger(), 0)
     }
   }, [clearDrillCorrection])
@@ -440,9 +467,20 @@ export function TrainingRoomConversationSurface({
     hardLimitPromptRef.current = null
     setIsVoiceInputActive(false)
     setTranscriptPreview(null)
+    setPendingDrillReply(null)
     setIsVideoPanelOpen(false)
     drillDraftSourceRef.current = null
   }, [interactionMode, mode, roomId, trainingSession.sessionId])
+
+  useEffect(() => {
+    if (
+      pendingDrillReply !== null &&
+      latestPersonaMessageId !== null &&
+      latestPersonaMessageId !== pendingDrillReply.baselinePersonaMessageId
+    ) {
+      setPendingDrillReply(null)
+    }
+  }, [latestPersonaMessageId, pendingDrillReply])
 
   useEffect(() => {
     if (
@@ -490,7 +528,8 @@ export function TrainingRoomConversationSurface({
       return (
         <RealtimeVoiceControl
           apiBase={apiBase}
-          disabled={trainingInputLocked}
+          capturePaused={realtimeDrillCapturePaused}
+          disabled={baseTrainingInputLocked}
           drillMode={feedbackMode === 'drill'}
           onErrorChange={notifyComposerError}
           onDrillDraft={(text) => beginDrillDraft(text, 'realtime')}
