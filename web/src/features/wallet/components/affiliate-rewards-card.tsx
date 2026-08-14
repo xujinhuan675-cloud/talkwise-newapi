@@ -26,6 +26,7 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 import type { UserWalletData } from '../types'
 
@@ -35,6 +36,7 @@ interface AffiliateRewardsCardProps {
   onTransfer: () => void
   complianceConfirmed?: boolean
   loading?: boolean
+  layout?: 'wide' | 'stacked'
 }
 
 export function AffiliateRewardsCard({
@@ -43,12 +45,20 @@ export function AffiliateRewardsCard({
   onTransfer,
   complianceConfirmed = true,
   loading,
+  layout = 'wide',
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
+  const isStacked = layout === 'stacked'
   if (loading) {
     return (
       <Card data-card-hover='false' className='bg-muted/20 py-0'>
-        <CardContent className='grid gap-4 p-3 sm:p-4 lg:grid-cols-[minmax(220px,1fr)_minmax(220px,0.72fr)_minmax(320px,1.15fr)] lg:items-center'>
+        <CardContent
+          className={cn(
+            'grid gap-4 p-3 sm:p-4',
+            !isStacked &&
+              'lg:grid-cols-[minmax(220px,1fr)_minmax(220px,0.72fr)_minmax(320px,1.15fr)] lg:items-center'
+          )}
+        >
           <div>
             <Skeleton className='h-5 w-32' />
             <Skeleton className='mt-2 h-4 w-48' />
@@ -64,7 +74,14 @@ export function AffiliateRewardsCard({
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
-      <CardContent className='grid gap-3 p-3 sm:gap-4 sm:p-4 lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(280px,1fr)] lg:items-center'>
+      <CardContent
+        className={cn(
+          'grid gap-3 p-3 sm:gap-4 sm:p-4',
+          isStacked
+            ? 'sm:p-5'
+            : 'lg:grid-cols-[minmax(200px,1fr)_minmax(180px,0.65fr)_minmax(280px,1fr)] lg:items-center'
+        )}
+      >
         <div className='flex min-w-0 items-center gap-2.5'>
           <IconBadge tone='chart-3'>
             <Share2 />
@@ -73,7 +90,12 @@ export function AffiliateRewardsCard({
             <h3 className='truncate text-sm font-semibold'>
               {t('Referral Program')}
             </h3>
-            <p className='text-muted-foreground line-clamp-1 text-xs'>
+            <p
+              className={cn(
+                'text-muted-foreground text-xs',
+                isStacked ? 'line-clamp-2' : 'line-clamp-1'
+              )}
+            >
               {t(
                 'Earn rewards when users join through your referral link. Transfer accumulated rewards to your balance anytime.'
               )}
@@ -124,7 +146,12 @@ export function AffiliateRewardsCard({
           )}
         </div>
         {!complianceConfirmed ? (
-          <p className='text-muted-foreground text-xs lg:col-span-3'>
+          <p
+            className={cn(
+              'text-muted-foreground text-xs',
+              !isStacked && 'lg:col-span-3'
+            )}
+          >
             {t(
               'Referral reward transfer is disabled until the administrator confirms compliance terms.'
             )}
