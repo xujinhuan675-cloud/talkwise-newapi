@@ -78,6 +78,7 @@ export {
 
 export {
   buildGitHubOAuthUrl,
+  buildGoogleOAuthUrl,
   buildDiscordOAuthUrl,
   buildOIDCOAuthUrl,
   buildLinuxDOOAuthUrl,
