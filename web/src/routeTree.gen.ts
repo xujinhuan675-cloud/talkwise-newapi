@@ -51,6 +51,16 @@ import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_a
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedTaskPluginsIndexRouteImport } from './routes/_authenticated/task-plugins/index'
+import { Route as AuthenticatedTrainingIndexRouteImport } from './routes/_authenticated/training/index'
+import { Route as AuthenticatedTrainingSectionRouteImport } from './routes/_authenticated/training/$section'
+import { Route as AuthenticatedTrainingAssistRouteImport } from './routes/_authenticated/training/assist'
+import { Route as AuthenticatedTrainingConversationsRouteImport } from './routes/_authenticated/training/conversations'
+import { Route as AuthenticatedTrainingGrowthRouteImport } from './routes/_authenticated/training/growth'
+import { Route as AuthenticatedTrainingLiveCoachRouteImport } from './routes/_authenticated/training/live-coach'
+import { Route as AuthenticatedTrainingScenariosRouteImport } from './routes/_authenticated/training/scenarios'
+import { Route as AuthenticatedTrainingSessionsRouteImport } from './routes/_authenticated/training/sessions'
+import { Route as AuthenticatedTrainingSettingsRouteImport } from './routes/_authenticated/training/settings'
+import { Route as AuthenticatedTrainingStudioRouteImport } from './routes/_authenticated/training/studio'
 import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authenticated/usage-logs/index'
 import { Route as AuthenticatedUsageLogsSectionRouteImport } from './routes/_authenticated/usage-logs/$section'
 import { Route as AuthenticatedUsageLogsAuditRouteImport } from './routes/_authenticated/usage-logs/audit'
@@ -73,6 +83,18 @@ import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
+import { Route as AuthenticatedTrainingGrowthIndexRouteImport } from './routes/_authenticated/training/growth/index'
+import { Route as AuthenticatedTrainingGrowthLeaderboardRouteImport } from './routes/_authenticated/training/growth/leaderboard'
+import { Route as AuthenticatedTrainingGrowthProfileRouteImport } from './routes/_authenticated/training/growth/profile'
+import { Route as AuthenticatedTrainingPersonasIndexRouteImport } from './routes/_authenticated/training/personas/index'
+import { Route as AuthenticatedTrainingPersonasPersonaIdRouteImport } from './routes/_authenticated/training/personas/$personaId'
+import { Route as AuthenticatedTrainingPersonasNewRouteImport } from './routes/_authenticated/training/personas/new'
+import { Route as AuthenticatedTrainingPrepBattleRouteImport } from './routes/_authenticated/training/prep/battle'
+import { Route as AuthenticatedTrainingPrepDefenseRouteImport } from './routes/_authenticated/training/prep/defense'
+import { Route as AuthenticatedTrainingSessionsSessionIdRouteImport } from './routes/_authenticated/training/sessions/$sessionId'
+import { Route as AuthenticatedTrainingTeamCompetenciesRouteImport } from './routes/_authenticated/training/team/competencies'
+import { Route as AuthenticatedTrainingTeamMembersRouteImport } from './routes/_authenticated/training/team/members'
+import { Route as AuthenticatedTrainingTeamScenariosRouteImport } from './routes/_authenticated/training/team/scenarios'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -298,6 +320,66 @@ const AuthenticatedTaskPluginsIndexRoute =
     path: '/task-plugins/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedTrainingIndexRoute =
+  AuthenticatedTrainingIndexRouteImport.update({
+    id: '/training/',
+    path: '/training/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingSectionRoute =
+  AuthenticatedTrainingSectionRouteImport.update({
+    id: '/training/$section',
+    path: '/training/$section',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingAssistRoute =
+  AuthenticatedTrainingAssistRouteImport.update({
+    id: '/training/assist',
+    path: '/training/assist',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingConversationsRoute =
+  AuthenticatedTrainingConversationsRouteImport.update({
+    id: '/training/conversations',
+    path: '/training/conversations',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingGrowthRoute =
+  AuthenticatedTrainingGrowthRouteImport.update({
+    id: '/training/growth',
+    path: '/training/growth',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingLiveCoachRoute =
+  AuthenticatedTrainingLiveCoachRouteImport.update({
+    id: '/training/live-coach',
+    path: '/training/live-coach',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingScenariosRoute =
+  AuthenticatedTrainingScenariosRouteImport.update({
+    id: '/training/scenarios',
+    path: '/training/scenarios',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingSessionsRoute =
+  AuthenticatedTrainingSessionsRouteImport.update({
+    id: '/training/sessions',
+    path: '/training/sessions',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingSettingsRoute =
+  AuthenticatedTrainingSettingsRouteImport.update({
+    id: '/training/settings',
+    path: '/training/settings',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingStudioRoute =
+  AuthenticatedTrainingStudioRouteImport.update({
+    id: '/training/studio',
+    path: '/training/studio',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedUsageLogsIndexRoute =
   AuthenticatedUsageLogsIndexRouteImport.update({
     id: '/usage-logs/',
@@ -428,6 +510,78 @@ const AuthenticatedSystemSettingsSiteSectionRoute =
     path: '/site/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedTrainingGrowthIndexRoute =
+  AuthenticatedTrainingGrowthIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedTrainingGrowthRoute,
+  } as any)
+const AuthenticatedTrainingGrowthLeaderboardRoute =
+  AuthenticatedTrainingGrowthLeaderboardRouteImport.update({
+    id: '/leaderboard',
+    path: '/leaderboard',
+    getParentRoute: () => AuthenticatedTrainingGrowthRoute,
+  } as any)
+const AuthenticatedTrainingGrowthProfileRoute =
+  AuthenticatedTrainingGrowthProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
+    getParentRoute: () => AuthenticatedTrainingGrowthRoute,
+  } as any)
+const AuthenticatedTrainingPersonasIndexRoute =
+  AuthenticatedTrainingPersonasIndexRouteImport.update({
+    id: '/training/personas/',
+    path: '/training/personas/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingPersonasPersonaIdRoute =
+  AuthenticatedTrainingPersonasPersonaIdRouteImport.update({
+    id: '/training/personas/$personaId',
+    path: '/training/personas/$personaId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingPersonasNewRoute =
+  AuthenticatedTrainingPersonasNewRouteImport.update({
+    id: '/training/personas/new',
+    path: '/training/personas/new',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingPrepBattleRoute =
+  AuthenticatedTrainingPrepBattleRouteImport.update({
+    id: '/training/prep/battle',
+    path: '/training/prep/battle',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingPrepDefenseRoute =
+  AuthenticatedTrainingPrepDefenseRouteImport.update({
+    id: '/training/prep/defense',
+    path: '/training/prep/defense',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingSessionsSessionIdRoute =
+  AuthenticatedTrainingSessionsSessionIdRouteImport.update({
+    id: '/$sessionId',
+    path: '/$sessionId',
+    getParentRoute: () => AuthenticatedTrainingSessionsRoute,
+  } as any)
+const AuthenticatedTrainingTeamCompetenciesRoute =
+  AuthenticatedTrainingTeamCompetenciesRouteImport.update({
+    id: '/training/team/competencies',
+    path: '/training/team/competencies',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingTeamMembersRoute =
+  AuthenticatedTrainingTeamMembersRouteImport.update({
+    id: '/training/team/members',
+    path: '/training/team/members',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedTrainingTeamScenariosRoute =
+  AuthenticatedTrainingTeamScenariosRouteImport.update({
+    id: '/training/team/scenarios',
+    path: '/training/team/scenarios',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -458,6 +612,15 @@ export interface FileRoutesByFullPath {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/training/assist': typeof AuthenticatedTrainingAssistRoute
+  '/training/conversations': typeof AuthenticatedTrainingConversationsRoute
+  '/training/growth': typeof AuthenticatedTrainingGrowthRouteWithChildren
+  '/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
+  '/training/scenarios': typeof AuthenticatedTrainingScenariosRoute
+  '/training/sessions': typeof AuthenticatedTrainingSessionsRouteWithChildren
+  '/training/settings': typeof AuthenticatedTrainingSettingsRoute
+  '/training/studio': typeof AuthenticatedTrainingStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -472,6 +635,7 @@ export interface FileRoutesByFullPath {
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/training/': typeof AuthenticatedTrainingIndexRoute
   '/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/users/': typeof AuthenticatedUsersIndexRoute
   '/wallet/': typeof AuthenticatedWalletIndexRoute
@@ -484,6 +648,16 @@ export interface FileRoutesByFullPath {
   '/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
+  '/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
+  '/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
+  '/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
+  '/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
+  '/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
+  '/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
+  '/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -492,6 +666,8 @@ export interface FileRoutesByFullPath {
   '/system-settings/request-policies/': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/training/growth/': typeof AuthenticatedTrainingGrowthIndexRoute
+  '/training/personas/': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -521,6 +697,14 @@ export interface FileRoutesByTo {
   '/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/training/assist': typeof AuthenticatedTrainingAssistRoute
+  '/training/conversations': typeof AuthenticatedTrainingConversationsRoute
+  '/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
+  '/training/scenarios': typeof AuthenticatedTrainingScenariosRoute
+  '/training/sessions': typeof AuthenticatedTrainingSessionsRouteWithChildren
+  '/training/settings': typeof AuthenticatedTrainingSettingsRoute
+  '/training/studio': typeof AuthenticatedTrainingStudioRoute
   '/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/channels': typeof AuthenticatedChannelsIndexRoute
@@ -535,6 +719,7 @@ export interface FileRoutesByTo {
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
   '/task-plugins': typeof AuthenticatedTaskPluginsIndexRoute
+  '/training': typeof AuthenticatedTrainingIndexRoute
   '/usage-logs': typeof AuthenticatedUsageLogsIndexRoute
   '/users': typeof AuthenticatedUsersIndexRoute
   '/wallet': typeof AuthenticatedWalletIndexRoute
@@ -547,6 +732,16 @@ export interface FileRoutesByTo {
   '/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
+  '/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
+  '/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
+  '/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
+  '/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
+  '/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
+  '/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
+  '/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/system-settings/content': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -555,6 +750,8 @@ export interface FileRoutesByTo {
   '/system-settings/request-policies': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/system-settings/security': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/system-settings/site': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/training/growth': typeof AuthenticatedTrainingGrowthIndexRoute
+  '/training/personas': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -588,6 +785,15 @@ export interface FileRoutesById {
   '/_authenticated/dashboard/$section': typeof AuthenticatedDashboardSectionRoute
   '/_authenticated/errors/$error': typeof AuthenticatedErrorsErrorRoute
   '/_authenticated/models/$section': typeof AuthenticatedModelsSectionRoute
+  '/_authenticated/training/$section': typeof AuthenticatedTrainingSectionRoute
+  '/_authenticated/training/assist': typeof AuthenticatedTrainingAssistRoute
+  '/_authenticated/training/conversations': typeof AuthenticatedTrainingConversationsRoute
+  '/_authenticated/training/growth': typeof AuthenticatedTrainingGrowthRouteWithChildren
+  '/_authenticated/training/live-coach': typeof AuthenticatedTrainingLiveCoachRoute
+  '/_authenticated/training/scenarios': typeof AuthenticatedTrainingScenariosRoute
+  '/_authenticated/training/sessions': typeof AuthenticatedTrainingSessionsRouteWithChildren
+  '/_authenticated/training/settings': typeof AuthenticatedTrainingSettingsRoute
+  '/_authenticated/training/studio': typeof AuthenticatedTrainingStudioRoute
   '/_authenticated/usage-logs/$section': typeof AuthenticatedUsageLogsSectionRoute
   '/_authenticated/usage-logs/audit': typeof AuthenticatedUsageLogsAuditRoute
   '/_authenticated/channels/': typeof AuthenticatedChannelsIndexRoute
@@ -602,6 +808,7 @@ export interface FileRoutesById {
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
   '/_authenticated/task-plugins/': typeof AuthenticatedTaskPluginsIndexRoute
+  '/_authenticated/training/': typeof AuthenticatedTrainingIndexRoute
   '/_authenticated/usage-logs/': typeof AuthenticatedUsageLogsIndexRoute
   '/_authenticated/users/': typeof AuthenticatedUsersIndexRoute
   '/_authenticated/wallet/': typeof AuthenticatedWalletIndexRoute
@@ -614,6 +821,16 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/request-policies/$section': typeof AuthenticatedSystemSettingsRequestPoliciesSectionRoute
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
+  '/_authenticated/training/growth/leaderboard': typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  '/_authenticated/training/growth/profile': typeof AuthenticatedTrainingGrowthProfileRoute
+  '/_authenticated/training/personas/$personaId': typeof AuthenticatedTrainingPersonasPersonaIdRoute
+  '/_authenticated/training/personas/new': typeof AuthenticatedTrainingPersonasNewRoute
+  '/_authenticated/training/prep/battle': typeof AuthenticatedTrainingPrepBattleRoute
+  '/_authenticated/training/prep/defense': typeof AuthenticatedTrainingPrepDefenseRoute
+  '/_authenticated/training/sessions/$sessionId': typeof AuthenticatedTrainingSessionsSessionIdRoute
+  '/_authenticated/training/team/competencies': typeof AuthenticatedTrainingTeamCompetenciesRoute
+  '/_authenticated/training/team/members': typeof AuthenticatedTrainingTeamMembersRoute
+  '/_authenticated/training/team/scenarios': typeof AuthenticatedTrainingTeamScenariosRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
   '/_authenticated/system-settings/content/': typeof AuthenticatedSystemSettingsContentIndexRoute
@@ -622,6 +839,8 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/request-policies/': typeof AuthenticatedSystemSettingsRequestPoliciesIndexRoute
   '/_authenticated/system-settings/security/': typeof AuthenticatedSystemSettingsSecurityIndexRoute
   '/_authenticated/system-settings/site/': typeof AuthenticatedSystemSettingsSiteIndexRoute
+  '/_authenticated/training/growth/': typeof AuthenticatedTrainingGrowthIndexRoute
+  '/_authenticated/training/personas/': typeof AuthenticatedTrainingPersonasIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -654,6 +873,15 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/training/$section'
+    | '/training/assist'
+    | '/training/conversations'
+    | '/training/growth'
+    | '/training/live-coach'
+    | '/training/scenarios'
+    | '/training/sessions'
+    | '/training/settings'
+    | '/training/studio'
     | '/usage-logs/$section'
     | '/usage-logs/audit'
     | '/channels/'
@@ -668,6 +896,7 @@ export interface FileRouteTypes {
     | '/system-info/'
     | '/system-settings/'
     | '/task-plugins/'
+    | '/training/'
     | '/usage-logs/'
     | '/users/'
     | '/wallet/'
@@ -680,6 +909,16 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/training/growth/leaderboard'
+    | '/training/growth/profile'
+    | '/training/personas/$personaId'
+    | '/training/personas/new'
+    | '/training/prep/battle'
+    | '/training/prep/defense'
+    | '/training/sessions/$sessionId'
+    | '/training/team/competencies'
+    | '/training/team/members'
+    | '/training/team/scenarios'
     | '/system-settings/auth/'
     | '/system-settings/billing/'
     | '/system-settings/content/'
@@ -688,6 +927,8 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/'
     | '/system-settings/security/'
     | '/system-settings/site/'
+    | '/training/growth/'
+    | '/training/personas/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -717,6 +958,14 @@ export interface FileRouteTypes {
     | '/dashboard/$section'
     | '/errors/$error'
     | '/models/$section'
+    | '/training/$section'
+    | '/training/assist'
+    | '/training/conversations'
+    | '/training/live-coach'
+    | '/training/scenarios'
+    | '/training/sessions'
+    | '/training/settings'
+    | '/training/studio'
     | '/usage-logs/$section'
     | '/usage-logs/audit'
     | '/channels'
@@ -731,6 +980,7 @@ export interface FileRouteTypes {
     | '/system-info'
     | '/system-settings'
     | '/task-plugins'
+    | '/training'
     | '/usage-logs'
     | '/users'
     | '/wallet'
@@ -743,6 +993,16 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies/$section'
     | '/system-settings/security/$section'
     | '/system-settings/site/$section'
+    | '/training/growth/leaderboard'
+    | '/training/growth/profile'
+    | '/training/personas/$personaId'
+    | '/training/personas/new'
+    | '/training/prep/battle'
+    | '/training/prep/defense'
+    | '/training/sessions/$sessionId'
+    | '/training/team/competencies'
+    | '/training/team/members'
+    | '/training/team/scenarios'
     | '/system-settings/auth'
     | '/system-settings/billing'
     | '/system-settings/content'
@@ -751,6 +1011,8 @@ export interface FileRouteTypes {
     | '/system-settings/request-policies'
     | '/system-settings/security'
     | '/system-settings/site'
+    | '/training/growth'
+    | '/training/personas'
   id:
     | '__root__'
     | '/'
@@ -783,6 +1045,15 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard/$section'
     | '/_authenticated/errors/$error'
     | '/_authenticated/models/$section'
+    | '/_authenticated/training/$section'
+    | '/_authenticated/training/assist'
+    | '/_authenticated/training/conversations'
+    | '/_authenticated/training/growth'
+    | '/_authenticated/training/live-coach'
+    | '/_authenticated/training/scenarios'
+    | '/_authenticated/training/sessions'
+    | '/_authenticated/training/settings'
+    | '/_authenticated/training/studio'
     | '/_authenticated/usage-logs/$section'
     | '/_authenticated/usage-logs/audit'
     | '/_authenticated/channels/'
@@ -797,6 +1068,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
     | '/_authenticated/task-plugins/'
+    | '/_authenticated/training/'
     | '/_authenticated/usage-logs/'
     | '/_authenticated/users/'
     | '/_authenticated/wallet/'
@@ -809,6 +1081,16 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/request-policies/$section'
     | '/_authenticated/system-settings/security/$section'
     | '/_authenticated/system-settings/site/$section'
+    | '/_authenticated/training/growth/leaderboard'
+    | '/_authenticated/training/growth/profile'
+    | '/_authenticated/training/personas/$personaId'
+    | '/_authenticated/training/personas/new'
+    | '/_authenticated/training/prep/battle'
+    | '/_authenticated/training/prep/defense'
+    | '/_authenticated/training/sessions/$sessionId'
+    | '/_authenticated/training/team/competencies'
+    | '/_authenticated/training/team/members'
+    | '/_authenticated/training/team/scenarios'
     | '/_authenticated/system-settings/auth/'
     | '/_authenticated/system-settings/billing/'
     | '/_authenticated/system-settings/content/'
@@ -817,6 +1099,8 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/request-policies/'
     | '/_authenticated/system-settings/security/'
     | '/_authenticated/system-settings/site/'
+    | '/_authenticated/training/growth/'
+    | '/_authenticated/training/personas/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1134,6 +1418,76 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTaskPluginsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/training/': {
+      id: '/_authenticated/training/'
+      path: '/training'
+      fullPath: '/training/'
+      preLoaderRoute: typeof AuthenticatedTrainingIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/$section': {
+      id: '/_authenticated/training/$section'
+      path: '/training/$section'
+      fullPath: '/training/$section'
+      preLoaderRoute: typeof AuthenticatedTrainingSectionRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/assist': {
+      id: '/_authenticated/training/assist'
+      path: '/training/assist'
+      fullPath: '/training/assist'
+      preLoaderRoute: typeof AuthenticatedTrainingAssistRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/conversations': {
+      id: '/_authenticated/training/conversations'
+      path: '/training/conversations'
+      fullPath: '/training/conversations'
+      preLoaderRoute: typeof AuthenticatedTrainingConversationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/growth': {
+      id: '/_authenticated/training/growth'
+      path: '/training/growth'
+      fullPath: '/training/growth'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/live-coach': {
+      id: '/_authenticated/training/live-coach'
+      path: '/training/live-coach'
+      fullPath: '/training/live-coach'
+      preLoaderRoute: typeof AuthenticatedTrainingLiveCoachRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/scenarios': {
+      id: '/_authenticated/training/scenarios'
+      path: '/training/scenarios'
+      fullPath: '/training/scenarios'
+      preLoaderRoute: typeof AuthenticatedTrainingScenariosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/sessions': {
+      id: '/_authenticated/training/sessions'
+      path: '/training/sessions'
+      fullPath: '/training/sessions'
+      preLoaderRoute: typeof AuthenticatedTrainingSessionsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/settings': {
+      id: '/_authenticated/training/settings'
+      path: '/training/settings'
+      fullPath: '/training/settings'
+      preLoaderRoute: typeof AuthenticatedTrainingSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/studio': {
+      id: '/_authenticated/training/studio'
+      path: '/training/studio'
+      fullPath: '/training/studio'
+      preLoaderRoute: typeof AuthenticatedTrainingStudioRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/usage-logs/': {
       id: '/_authenticated/usage-logs/'
       path: '/usage-logs'
@@ -1288,6 +1642,90 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSiteSectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/training/growth/': {
+      id: '/_authenticated/training/growth/'
+      path: '/'
+      fullPath: '/training/growth/'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthIndexRouteImport
+      parentRoute: typeof AuthenticatedTrainingGrowthRoute
+    }
+    '/_authenticated/training/growth/leaderboard': {
+      id: '/_authenticated/training/growth/leaderboard'
+      path: '/leaderboard'
+      fullPath: '/training/growth/leaderboard'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthLeaderboardRouteImport
+      parentRoute: typeof AuthenticatedTrainingGrowthRoute
+    }
+    '/_authenticated/training/growth/profile': {
+      id: '/_authenticated/training/growth/profile'
+      path: '/profile'
+      fullPath: '/training/growth/profile'
+      preLoaderRoute: typeof AuthenticatedTrainingGrowthProfileRouteImport
+      parentRoute: typeof AuthenticatedTrainingGrowthRoute
+    }
+    '/_authenticated/training/personas/': {
+      id: '/_authenticated/training/personas/'
+      path: '/training/personas'
+      fullPath: '/training/personas/'
+      preLoaderRoute: typeof AuthenticatedTrainingPersonasIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/personas/$personaId': {
+      id: '/_authenticated/training/personas/$personaId'
+      path: '/training/personas/$personaId'
+      fullPath: '/training/personas/$personaId'
+      preLoaderRoute: typeof AuthenticatedTrainingPersonasPersonaIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/personas/new': {
+      id: '/_authenticated/training/personas/new'
+      path: '/training/personas/new'
+      fullPath: '/training/personas/new'
+      preLoaderRoute: typeof AuthenticatedTrainingPersonasNewRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/prep/battle': {
+      id: '/_authenticated/training/prep/battle'
+      path: '/training/prep/battle'
+      fullPath: '/training/prep/battle'
+      preLoaderRoute: typeof AuthenticatedTrainingPrepBattleRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/prep/defense': {
+      id: '/_authenticated/training/prep/defense'
+      path: '/training/prep/defense'
+      fullPath: '/training/prep/defense'
+      preLoaderRoute: typeof AuthenticatedTrainingPrepDefenseRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/sessions/$sessionId': {
+      id: '/_authenticated/training/sessions/$sessionId'
+      path: '/$sessionId'
+      fullPath: '/training/sessions/$sessionId'
+      preLoaderRoute: typeof AuthenticatedTrainingSessionsSessionIdRouteImport
+      parentRoute: typeof AuthenticatedTrainingSessionsRoute
+    }
+    '/_authenticated/training/team/competencies': {
+      id: '/_authenticated/training/team/competencies'
+      path: '/training/team/competencies'
+      fullPath: '/training/team/competencies'
+      preLoaderRoute: typeof AuthenticatedTrainingTeamCompetenciesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/team/members': {
+      id: '/_authenticated/training/team/members'
+      path: '/training/team/members'
+      fullPath: '/training/team/members'
+      preLoaderRoute: typeof AuthenticatedTrainingTeamMembersRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/training/team/scenarios': {
+      id: '/_authenticated/training/team/scenarios'
+      path: '/training/team/scenarios'
+      fullPath: '/training/team/scenarios'
+      preLoaderRoute: typeof AuthenticatedTrainingTeamScenariosRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -1380,6 +1818,42 @@ const AuthenticatedSystemSettingsRouteRouteWithChildren =
     AuthenticatedSystemSettingsRouteRouteChildren,
   )
 
+interface AuthenticatedTrainingGrowthRouteChildren {
+  AuthenticatedTrainingGrowthLeaderboardRoute: typeof AuthenticatedTrainingGrowthLeaderboardRoute
+  AuthenticatedTrainingGrowthProfileRoute: typeof AuthenticatedTrainingGrowthProfileRoute
+  AuthenticatedTrainingGrowthIndexRoute: typeof AuthenticatedTrainingGrowthIndexRoute
+}
+
+const AuthenticatedTrainingGrowthRouteChildren: AuthenticatedTrainingGrowthRouteChildren =
+  {
+    AuthenticatedTrainingGrowthLeaderboardRoute:
+      AuthenticatedTrainingGrowthLeaderboardRoute,
+    AuthenticatedTrainingGrowthProfileRoute:
+      AuthenticatedTrainingGrowthProfileRoute,
+    AuthenticatedTrainingGrowthIndexRoute:
+      AuthenticatedTrainingGrowthIndexRoute,
+  }
+
+const AuthenticatedTrainingGrowthRouteWithChildren =
+  AuthenticatedTrainingGrowthRoute._addFileChildren(
+    AuthenticatedTrainingGrowthRouteChildren,
+  )
+
+interface AuthenticatedTrainingSessionsRouteChildren {
+  AuthenticatedTrainingSessionsSessionIdRoute: typeof AuthenticatedTrainingSessionsSessionIdRoute
+}
+
+const AuthenticatedTrainingSessionsRouteChildren: AuthenticatedTrainingSessionsRouteChildren =
+  {
+    AuthenticatedTrainingSessionsSessionIdRoute:
+      AuthenticatedTrainingSessionsSessionIdRoute,
+  }
+
+const AuthenticatedTrainingSessionsRouteWithChildren =
+  AuthenticatedTrainingSessionsRoute._addFileChildren(
+    AuthenticatedTrainingSessionsRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedSystemSettingsRouteRoute: typeof AuthenticatedSystemSettingsRouteRouteWithChildren
   AuthenticatedChat2linkRoute: typeof AuthenticatedChat2linkRoute
@@ -1388,6 +1862,15 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardSectionRoute: typeof AuthenticatedDashboardSectionRoute
   AuthenticatedErrorsErrorRoute: typeof AuthenticatedErrorsErrorRoute
   AuthenticatedModelsSectionRoute: typeof AuthenticatedModelsSectionRoute
+  AuthenticatedTrainingSectionRoute: typeof AuthenticatedTrainingSectionRoute
+  AuthenticatedTrainingAssistRoute: typeof AuthenticatedTrainingAssistRoute
+  AuthenticatedTrainingConversationsRoute: typeof AuthenticatedTrainingConversationsRoute
+  AuthenticatedTrainingGrowthRoute: typeof AuthenticatedTrainingGrowthRouteWithChildren
+  AuthenticatedTrainingLiveCoachRoute: typeof AuthenticatedTrainingLiveCoachRoute
+  AuthenticatedTrainingScenariosRoute: typeof AuthenticatedTrainingScenariosRoute
+  AuthenticatedTrainingSessionsRoute: typeof AuthenticatedTrainingSessionsRouteWithChildren
+  AuthenticatedTrainingSettingsRoute: typeof AuthenticatedTrainingSettingsRoute
+  AuthenticatedTrainingStudioRoute: typeof AuthenticatedTrainingStudioRoute
   AuthenticatedUsageLogsSectionRoute: typeof AuthenticatedUsageLogsSectionRoute
   AuthenticatedUsageLogsAuditRoute: typeof AuthenticatedUsageLogsAuditRoute
   AuthenticatedChannelsIndexRoute: typeof AuthenticatedChannelsIndexRoute
@@ -1401,9 +1884,18 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedTaskPluginsIndexRoute: typeof AuthenticatedTaskPluginsIndexRoute
+  AuthenticatedTrainingIndexRoute: typeof AuthenticatedTrainingIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
   AuthenticatedUsersIndexRoute: typeof AuthenticatedUsersIndexRoute
   AuthenticatedWalletIndexRoute: typeof AuthenticatedWalletIndexRoute
+  AuthenticatedTrainingPersonasPersonaIdRoute: typeof AuthenticatedTrainingPersonasPersonaIdRoute
+  AuthenticatedTrainingPersonasNewRoute: typeof AuthenticatedTrainingPersonasNewRoute
+  AuthenticatedTrainingPrepBattleRoute: typeof AuthenticatedTrainingPrepBattleRoute
+  AuthenticatedTrainingPrepDefenseRoute: typeof AuthenticatedTrainingPrepDefenseRoute
+  AuthenticatedTrainingTeamCompetenciesRoute: typeof AuthenticatedTrainingTeamCompetenciesRoute
+  AuthenticatedTrainingTeamMembersRoute: typeof AuthenticatedTrainingTeamMembersRoute
+  AuthenticatedTrainingTeamScenariosRoute: typeof AuthenticatedTrainingTeamScenariosRoute
+  AuthenticatedTrainingPersonasIndexRoute: typeof AuthenticatedTrainingPersonasIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -1415,6 +1907,18 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardSectionRoute: AuthenticatedDashboardSectionRoute,
   AuthenticatedErrorsErrorRoute: AuthenticatedErrorsErrorRoute,
   AuthenticatedModelsSectionRoute: AuthenticatedModelsSectionRoute,
+  AuthenticatedTrainingSectionRoute: AuthenticatedTrainingSectionRoute,
+  AuthenticatedTrainingAssistRoute: AuthenticatedTrainingAssistRoute,
+  AuthenticatedTrainingConversationsRoute:
+    AuthenticatedTrainingConversationsRoute,
+  AuthenticatedTrainingGrowthRoute:
+    AuthenticatedTrainingGrowthRouteWithChildren,
+  AuthenticatedTrainingLiveCoachRoute: AuthenticatedTrainingLiveCoachRoute,
+  AuthenticatedTrainingScenariosRoute: AuthenticatedTrainingScenariosRoute,
+  AuthenticatedTrainingSessionsRoute:
+    AuthenticatedTrainingSessionsRouteWithChildren,
+  AuthenticatedTrainingSettingsRoute: AuthenticatedTrainingSettingsRoute,
+  AuthenticatedTrainingStudioRoute: AuthenticatedTrainingStudioRoute,
   AuthenticatedUsageLogsSectionRoute: AuthenticatedUsageLogsSectionRoute,
   AuthenticatedUsageLogsAuditRoute: AuthenticatedUsageLogsAuditRoute,
   AuthenticatedChannelsIndexRoute: AuthenticatedChannelsIndexRoute,
@@ -1429,9 +1933,22 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedTaskPluginsIndexRoute: AuthenticatedTaskPluginsIndexRoute,
+  AuthenticatedTrainingIndexRoute: AuthenticatedTrainingIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
   AuthenticatedUsersIndexRoute: AuthenticatedUsersIndexRoute,
   AuthenticatedWalletIndexRoute: AuthenticatedWalletIndexRoute,
+  AuthenticatedTrainingPersonasPersonaIdRoute:
+    AuthenticatedTrainingPersonasPersonaIdRoute,
+  AuthenticatedTrainingPersonasNewRoute: AuthenticatedTrainingPersonasNewRoute,
+  AuthenticatedTrainingPrepBattleRoute: AuthenticatedTrainingPrepBattleRoute,
+  AuthenticatedTrainingPrepDefenseRoute: AuthenticatedTrainingPrepDefenseRoute,
+  AuthenticatedTrainingTeamCompetenciesRoute:
+    AuthenticatedTrainingTeamCompetenciesRoute,
+  AuthenticatedTrainingTeamMembersRoute: AuthenticatedTrainingTeamMembersRoute,
+  AuthenticatedTrainingTeamScenariosRoute:
+    AuthenticatedTrainingTeamScenariosRoute,
+  AuthenticatedTrainingPersonasIndexRoute:
+    AuthenticatedTrainingPersonasIndexRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
