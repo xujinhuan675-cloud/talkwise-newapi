@@ -57,6 +57,7 @@ type ChannelOtherSettings struct {
 	VolcengineResourceID                  string                  `json:"volcengine_resource_id,omitempty"`
 	VolcengineVoice                       string                  `json:"volcengine_voice,omitempty"`
 	SupportedEndpointTypes                []constant.EndpointType `json:"supported_endpoint_types,omitempty"`
+	OllamaOpenAIChat                      bool                    `json:"ollama_openai_chat,omitempty"`
 }
 
 func isKnownEndpointType(endpointType constant.EndpointType) bool {

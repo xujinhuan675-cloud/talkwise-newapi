@@ -21,7 +21,7 @@ describe('Doubao Voice channel form', () => {
   const realtimeForm = {
     ...CHANNEL_FORM_DEFAULT_VALUES,
     name: 'Doubao Voice',
-    type: 59,
+    type: 64,
     base_url: 'https://openspeech.bytedance.com/',
     key: 'access-key',
     models: 'seed-tts-2.0,volc.bigasr.sauc.duration,1.2.1.1',
@@ -49,7 +49,7 @@ describe('Doubao Voice channel form', () => {
     const defaults = transformChannelToFormDefaults({
       ...payload,
       id: 7,
-      type: 59,
+      type: 64,
       key: '',
       status: 1,
       name: 'Doubao Realtime',

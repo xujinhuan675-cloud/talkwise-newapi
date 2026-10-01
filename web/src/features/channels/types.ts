@@ -91,6 +91,9 @@ export interface ChannelSettings {
   system_prompt_override?: boolean
   http_protocol?: 'auto' | 'http1' | string
   http2_connection_shards?: number
+  volcengine_service_mode?: 'ark' | 'speech_voice_v3'
+  volcengine_resource_id?: string
+  volcengine_voice?: string
 }
 
 export interface ChannelOtherSettings {
@@ -113,21 +116,6 @@ export interface ChannelOtherSettings {
   upstream_model_update_last_check_time?: number
   upstream_model_update_last_detected_models?: string[]
   advanced_custom?: AdvancedCustomConfig
-  volcengine_service_mode?: 'ark' | 'speech_voice_v3'
-  volcengine_resource_id?: string
-  volcengine_voice?: string
-  supported_endpoint_types?: Array<
-    | 'openai'
-    | 'openai-response'
-    | 'openai-response-compact'
-    | 'anthropic'
-    | 'gemini'
-    | 'jina-rerank'
-    | 'image-generation'
-    | 'embeddings'
-    | 'openai-voice'
-    | 'openai-video'
-  >
 }
 
 export interface AdvancedCustomConfig {
