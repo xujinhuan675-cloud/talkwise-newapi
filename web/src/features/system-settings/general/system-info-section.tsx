@@ -54,6 +54,7 @@ function isValidLogoUrl(value: string): boolean {
 const _systemInfoSchema = z.object({
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
+  TaskPublicAddress: z.string().optional(),
   Logo: z.string().refine(isValidLogoUrl),
   Footer: z.string().optional(),
   About: z.string().optional(),
@@ -82,6 +83,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
   const normalizedDefaults: SystemInfoFormValues = {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
+    TaskPublicAddress: normalizeValue(defaultValues.TaskPublicAddress),
     Logo: normalizeValue(defaultValues.Logo),
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
