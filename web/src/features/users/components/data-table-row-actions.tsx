@@ -73,7 +73,13 @@ interface DataTableRowActionsProps {
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { i18n, t } = useTranslation()
   const user = row.original
-  const { setOpen, setCurrentRow, triggerRefresh } = useUsers()
+  const {
+    setOpen,
+    setCurrentRow,
+    triggerRefresh,
+    requestVerification,
+    verificationActive,
+  } = useUsers()
   const currentUser = useAuthStore((state) => state.auth.user)
   const [resetPasskeyOpen, setResetPasskeyOpen] = useState(false)
   const [resetTwoFAOpen, setResetTwoFAOpen] = useState(false)
@@ -91,9 +97,21 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
     setOpen('delete')
   }
 
-  const handleManage = async (action: Exclude<ManageUserAction, 'delete'>) => {
+  const handleManage = async (
+    action: Extract<ManageUserAction, 'enable' | 'disable' | 'promote' | 'demote'>
+  ) => {
     try {
-      const result = await manageUser(user.id, action)
+      const proof = await requestVerification({
+        scope: 'admin.user.manage',
+        context: { user_id: user.id, action },
+        title: t('Verify to manage user'),
+        description: t(
+          'Confirm your identity before changing the account {{username}}.',
+          { username: user.username }
+        ),
+      })
+      if (!proof) return
+      const result = await manageUser(user.id, action, proof.proof_token)
       if (result.success) {
         const message = getUserActionMessageDetails(action)
         toast.success(
@@ -116,7 +134,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const handleResetPasskey = async () => {
     try {
-      const result = await resetUserPasskey(user.id)
+      const proof = await requestVerification({
+        scope: 'admin.user.passkey.reset',
+        context: { user_id: user.id },
+        title: t('Verify to reset Passkey'),
+        description: t(
+          'Confirm your identity before resetting the Passkey for {{username}}.',
+          { username: user.username }
+        ),
+      })
+      if (!proof) return
+      const result = await resetUserPasskey(user.id, proof.proof_token)
       if (result.success) {
         toast.success(t('Passkey reset successfully'))
         triggerRefresh()
@@ -132,7 +160,17 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   const handleResetTwoFA = async () => {
     try {
-      const result = await resetUserTwoFA(user.id)
+      const proof = await requestVerification({
+        scope: 'admin.user.2fa.disable',
+        context: { user_id: user.id },
+        title: t('Verify to reset two-factor authentication'),
+        description: t(
+          'Confirm your identity before resetting two-factor authentication for {{username}}.',
+          { username: user.username }
+        ),
+      })
+      if (!proof) return
+      const result = await resetUserTwoFA(user.id, proof.proof_token)
       if (result.success) {
         toast.success(t('Two-factor authentication reset'))
         triggerRefresh()
@@ -307,7 +345,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       </DataTableRowActionMenu>
 
       <ConfirmDialog
-        open={resetPasskeyOpen}
+        open={resetPasskeyOpen && !verificationActive}
         onOpenChange={setResetPasskeyOpen}
         title={t('Reset Passkey')}
         desc={t(
@@ -319,7 +357,7 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
       />
 
       <ConfirmDialog
-        open={resetTwoFAOpen}
+        open={resetTwoFAOpen && !verificationActive}
         onOpenChange={setResetTwoFAOpen}
         title={t('Reset Two-Factor Authentication')}
         desc={t(
