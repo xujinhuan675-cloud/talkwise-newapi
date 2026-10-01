@@ -701,20 +701,6 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
     system_prompt_override: formData.system_prompt_override || false,
   }
 
-  if (formData.type === 45) {
-    settingObj.volcengine_service_mode = 'ark'
-    delete settingObj.volcengine_resource_id
-    delete settingObj.volcengine_voice
-  } else if (formData.type === CHANNEL_TYPE_DOUBAO_VOICE) {
-    settingObj.volcengine_service_mode = 'speech_voice_v3'
-    settingObj.volcengine_resource_id = formData.volcengine_resource_id?.trim() || ''
-    settingObj.volcengine_voice = formData.volcengine_voice?.trim() || ''
-  } else {
-    delete settingObj.volcengine_service_mode
-    delete settingObj.volcengine_resource_id
-    delete settingObj.volcengine_voice
-  }
-
   const protocol = normalizeHttpProtocol(formData.http_protocol)
   const shards =
     protocol === HTTP_PROTOCOL_HTTP1
@@ -830,6 +816,21 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
     settingsObj.ollama_openai_chat = formData.ollama_openai_chat === true
   } else if ('ollama_openai_chat' in settingsObj) {
     delete settingsObj.ollama_openai_chat
+  }
+
+  if (formData.type === 45) {
+    settingsObj.volcengine_service_mode = 'ark'
+    delete settingsObj.volcengine_resource_id
+    delete settingsObj.volcengine_voice
+  } else if (formData.type === CHANNEL_TYPE_DOUBAO_VOICE) {
+    settingsObj.volcengine_service_mode = 'speech_voice_v3'
+    settingsObj.volcengine_resource_id =
+      formData.volcengine_resource_id?.trim() || ''
+    settingsObj.volcengine_voice = formData.volcengine_voice?.trim() || ''
+  } else {
+    delete settingsObj.volcengine_service_mode
+    delete settingsObj.volcengine_resource_id
+    delete settingsObj.volcengine_voice
   }
 
   settingsObj.disable_task_polling_sleep =
