@@ -1,6 +1,7 @@
 package constant
 
 import (
+	"net/http"
 	"strings"
 )
 
@@ -49,6 +50,10 @@ const (
 	RelayModeResponsesCompact
 
 	RelayModeAlphaSearch
+
+	RelayModeSunoFetch
+	RelayModeSunoFetchByID
+	RelayModeSunoSubmit
 )
 
 func Path2RelayMode(path string) int {
@@ -91,6 +96,21 @@ func Path2RelayMode(path string) int {
 		relayMode = Path2RelayModeMidjourney(path)
 	}
 	return relayMode
+}
+
+// Path2RelaySuno classifies the legacy Suno task endpoints retained for
+// compatibility with existing task records and plugin routes.
+func Path2RelaySuno(method, path string) int {
+	if method == http.MethodPost && strings.HasSuffix(path, "/fetch") {
+		return RelayModeSunoFetch
+	}
+	if method == http.MethodGet && strings.Contains(path, "/fetch/") {
+		return RelayModeSunoFetchByID
+	}
+	if strings.Contains(path, "/submit/") {
+		return RelayModeSunoSubmit
+	}
+	return RelayModeUnknown
 }
 
 func Path2RelayModeMidjourney(path string) int {

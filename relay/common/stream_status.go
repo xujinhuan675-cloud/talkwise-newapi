@@ -84,37 +84,6 @@ func (s *StreamStatus) SetEndReason(reason StreamEndReason, err error) {
 	})
 }
 
-// MarkCompleted records a successful terminal response for callers that need
-// to classify the outcome without depending on a specific stream scanner.
-func (s *StreamStatus) MarkCompleted() {
-	s.SetEndReason(StreamEndReasonDone, nil)
-}
-
-// MarkFailed records a failed terminal response. The current stream status
-// model keeps the structured fields lightweight, so the details are retained
-// in EndError while EndReason drives admission and billing decisions.
-func (s *StreamStatus) MarkFailed(code, errorType string, status int) {
-	s.SetEndReason(StreamEndReasonScannerErr, fmt.Errorf("response failed: code=%s type=%s status=%d", code, errorType, status))
-}
-
-// ResponseFailed reports whether a stream ended without a successful terminal
-// outcome. A missing status is treated as a non-stream response by callers.
-func (s *StreamStatus) ResponseFailed() bool {
-	if s == nil {
-		return false
-	}
-	switch s.EndReason {
-	case StreamEndReasonTimeout,
-		StreamEndReasonClientGone,
-		StreamEndReasonScannerErr,
-		StreamEndReasonPanic,
-		StreamEndReasonPingFail:
-		return true
-	default:
-		return false
-	}
-}
-
 func (s *StreamStatus) RecordError(msg string) {
 	if s == nil {
 		return
@@ -144,6 +113,7 @@ func (s *StreamStatus) RequireTerminal() {
 // MarkCompleted, MarkIncomplete and MarkCancelled keep the first terminal seen;
 // MarkFailed always wins because an error after completion is still a failure.
 func (s *StreamStatus) MarkCompleted() {
+	s.SetEndReason(StreamEndReasonDone, nil)
 	s.markTerminal(ResponseOutcomeCompleted, "")
 }
 
@@ -174,6 +144,7 @@ func (s *StreamStatus) MarkFailed(code, errorType string, status int) {
 	if s == nil {
 		return
 	}
+	s.SetEndReason(StreamEndReasonScannerErr, fmt.Errorf("response failed: code=%s type=%s status=%d", code, errorType, status))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.response = ResponseOutcomeFailed

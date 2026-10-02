@@ -355,63 +355,6 @@ func updateChannelDeepSeekBalance(channel *model.Channel) (float64, error) {
 	return balance, nil
 }
 
-func getDeepSeekBalanceUSD(response DeepSeekUsageResponse, usdExchangeRate float64) (float64, error) {
-	var usdBalance, cnyBalance *string
-	for i := range response.BalanceInfos {
-		balance := &response.BalanceInfos[i]
-		switch balance.Currency {
-		case "USD":
-			if usdBalance == nil {
-				usdBalance = &balance.TotalBalance
-			}
-		case "CNY":
-			if cnyBalance == nil {
-				cnyBalance = &balance.TotalBalance
-			}
-		}
-	}
-	if usdBalance != nil {
-		value, err := strconv.ParseFloat(*usdBalance, 64)
-		if err != nil {
-			return 0, err
-		}
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			return 0, errors.New("USD balance must be finite")
-		}
-		if value < 0 {
-			return 0, errors.New("USD balance must be non-negative")
-		}
-		return value, nil
-	}
-	if cnyBalance == nil {
-		return 0, errors.New("currency USD or CNY not found")
-	}
-	if math.IsNaN(usdExchangeRate) || math.IsInf(usdExchangeRate, 0) {
-		return 0, errors.New("USD exchange rate must be finite")
-	}
-	if usdExchangeRate <= 0 {
-		return 0, errors.New("USD exchange rate must be greater than zero")
-	}
-	value, err := strconv.ParseFloat(*cnyBalance, 64)
-	if err != nil {
-		return 0, err
-	}
-	if math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0, errors.New("CNY balance must be finite")
-	}
-	if value < 0 {
-		return 0, errors.New("CNY balance must be non-negative")
-	}
-	converted := decimal.NewFromFloat(value).Div(decimal.NewFromFloat(usdExchangeRate)).InexactFloat64()
-	if math.IsNaN(converted) || math.IsInf(converted, 0) {
-		return 0, errors.New("converted USD balance must be finite")
-	}
-	if converted < 0 {
-		return 0, errors.New("converted USD balance must be non-negative")
-	}
-	return converted, nil
-}
-
 func updateChannelAIGC2DBalance(channel *model.Channel) (float64, error) {
 	url := "https://api.aigc2d.com/dashboard/billing/credit_grants"
 	body, err := GetResponseBody("GET", url, channel, GetAuthHeader(channel.Key))

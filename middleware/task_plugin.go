@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -320,6 +321,10 @@ func PinTaskPluginEndpoint() gin.HandlerFunc {
 		generation := pluginruntime.DefaultRegistry.Generation()
 		if generation == nil {
 			c.Next()
+			return
+		}
+		if err := rejectDuplicateTaskPluginModelFieldFromRequest(c); err != nil {
+			abortWithOpenAiMessage(c, http.StatusBadRequest, "Invalid task protocol request")
 			return
 		}
 
@@ -786,6 +791,9 @@ func buildTaskPluginRouteRequest(c *gin.Context) (pluginruntime.RouteRequestCont
 		if !utf8.Valid(raw) {
 			return requestContext, fmt.Errorf("JSON body must be valid UTF-8")
 		}
+		if err = rejectDuplicateTaskPluginModelField(raw); err != nil {
+			return requestContext, err
+		}
 		var value any
 		if err = common.Unmarshal(raw, &value); err != nil {
 			return requestContext, err
@@ -957,6 +965,59 @@ func buildTaskPluginRouteRequest(c *gin.Context) (pluginruntime.RouteRequestCont
 		return requestContext, fmt.Errorf("%w %q", errTaskPluginUnsupportedMediaType, mediaType)
 	}
 	return requestContext, nil
+}
+
+func rejectDuplicateTaskPluginModelField(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil
+	}
+	if token != json.Delim('{') {
+		return nil
+	}
+
+	modelSeen := false
+	for decoder.More() {
+		token, err = decoder.Token()
+		if err != nil {
+			return err
+		}
+		field, ok := token.(string)
+		if !ok {
+			return fmt.Errorf("invalid JSON object field")
+		}
+		if field == "model" {
+			if modelSeen {
+				return fmt.Errorf("JSON body contains duplicate model fields")
+			}
+			modelSeen = true
+		}
+		var value json.RawMessage
+		if err = decoder.Decode(&value); err != nil {
+			return err
+		}
+	}
+	if _, err = decoder.Token(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func rejectDuplicateTaskPluginModelFieldFromRequest(c *gin.Context) error {
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err != nil || (mediaType != "application/json" && !strings.HasSuffix(mediaType, "+json")) {
+		return nil
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return err
+	}
+	raw, err := storage.Bytes()
+	if err != nil {
+		return err
+	}
+	return rejectDuplicateTaskPluginModelField(raw)
 }
 
 func validateTaskPluginFields(fields url.Values) error {
