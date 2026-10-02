@@ -283,7 +283,7 @@ describe('OAuth settings saves', () => {
   })
 
   it.each(['zh', 'zh-TW'])(
-    'uses the Well-Known technical term in %s validation',
+    'uses the localized Well-Known validation message in %s',
     async (language) => {
       await testI18n.changeLanguage(language)
       const user = userEvent.setup()
@@ -299,10 +299,9 @@ describe('OAuth settings saves', () => {
 
       const url = screen.getByRole('textbox', { name: 'Well-Known URL' })
       expect(url).toHaveAccessibleDescription(
-        expect.stringContaining('Well-Known URL')
-      )
-      expect(url).not.toHaveAccessibleDescription(
-        expect.stringContaining('知名')
+        expect.stringContaining(
+          testI18n.t('Well-Known URL must start with http:// or https://')
+        )
       )
     }
   )
@@ -338,5 +337,31 @@ describe('OAuth settings saves', () => {
         value: 'https://provider.example.com/discovery',
       })
     )
+  })
+})
+
+describe('OAuth settings translations', () => {
+  it('uses Chinese translations for the Google OAuth setup', async () => {
+    await testI18n.changeLanguage('zh')
+    const user = userEvent.setup()
+    await renderSettings()
+    await user.click(screen.getByRole('tab', { name: 'Google' }))
+
+    expect(
+      screen.getByText(
+        '启用登录前，请先在 Google Cloud OAuth 客户端中设置这些值。'
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText('允许用户使用 Google 登录')).toBeInTheDocument()
+    expect(screen.getByText('启用 Google OAuth')).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('您的 Google OAuth 客户端 ID')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('您的 Google OAuth 客户端密钥')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Allow users to sign in with Google')
+    ).not.toBeInTheDocument()
   })
 })
