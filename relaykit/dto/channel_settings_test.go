@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -464,17 +464,17 @@ func TestAdvancedCustomSupportedEndpointTypesForModel(t *testing.T) {
 	}
 	require.NoError(t, config.Validate())
 
-	assert.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAIResponse,
-		constant.EndpointTypeGemini,
-		constant.EndpointTypeAnthropic,
+	assert.Equal(t, []types.EndpointType{
+		types.EndpointTypeOpenAIResponse,
+		types.EndpointTypeGemini,
+		types.EndpointTypeAnthropic,
 	}, config.SupportedEndpointTypesForModel("gemini-2.5-flash"))
-	assert.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAI,
-		constant.EndpointTypeAnthropic,
+	assert.Equal(t, []types.EndpointType{
+		types.EndpointTypeOpenAI,
+		types.EndpointTypeAnthropic,
 	}, config.SupportedEndpointTypesForModel("gpt-4o"))
-	assert.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeAnthropic,
+	assert.Equal(t, []types.EndpointType{
+		types.EndpointTypeAnthropic,
 	}, config.SupportedEndpointTypesForModel("other-model"))
 }
 
@@ -504,23 +504,23 @@ func TestValidateDoubaoVoiceSettings(t *testing.T) {
 
 func TestChannelEndpointTypeOverrideValidatesAndDeduplicates(t *testing.T) {
 	settings := &ChannelOtherSettings{
-		SupportedEndpointTypes: []constant.EndpointType{
-			constant.EndpointTypeOpenAIVoice,
-			constant.EndpointTypeOpenAIVoice,
+		SupportedEndpointTypes: []types.EndpointType{
+			types.EndpointTypeOpenAIVoice,
+			types.EndpointTypeOpenAIVoice,
 		},
 	}
 
 	require.NoError(t, settings.ValidateSupportedEndpointTypes())
 	assert.Equal(
 		t,
-		[]constant.EndpointType{constant.EndpointTypeOpenAIVoice},
+		[]types.EndpointType{types.EndpointTypeOpenAIVoice},
 		settings.EndpointTypeOverride(),
 	)
 }
 
 func TestChannelEndpointTypeOverrideRejectsUnknownType(t *testing.T) {
 	settings := &ChannelOtherSettings{
-		SupportedEndpointTypes: []constant.EndpointType{"unknown-endpoint"},
+		SupportedEndpointTypes: []types.EndpointType{"unknown-endpoint"},
 	}
 
 	require.ErrorContains(

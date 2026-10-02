@@ -8,7 +8,9 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -35,7 +37,7 @@ func (ability AbilityWithChannel) GetEndpointTypeOverride() []constant.EndpointT
 	if strings.TrimSpace(ability.ChannelSettings) == "" {
 		return nil
 	}
-	settings := dto.ChannelOtherSettings{}
+	settings := kitdto.ChannelOtherSettings{}
 	if err := common.UnmarshalJsonStr(ability.ChannelSettings, &settings); err != nil {
 		return nil
 	}

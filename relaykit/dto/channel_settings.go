@@ -4,19 +4,54 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	TaskPluginKey             string   `json:"task_plugin_key,omitempty"`
+	ForceFormat               bool     `json:"force_format,omitempty"`
+	ThinkingToContent         bool     `json:"thinking_to_content,omitempty"`
+	Proxy                     string   `json:"proxy"`
+	PassThroughBodyEnabled    bool     `json:"pass_through_body_enabled,omitempty"`
+	ResponsesWebSocketEnabled bool     `json:"responses_websocket_enabled,omitempty"`
+	HTTPProtocol              string   `json:"http_protocol,omitempty"`
+	HTTP2ConnectionShards     int      `json:"http2_connection_shards,omitempty"`
+	SystemPrompt              string   `json:"system_prompt,omitempty"`
+	SystemPromptOverride      bool     `json:"system_prompt_override,omitempty"`
+	TaskExtendPluginKeys      []string `json:"task_extend_plugin_keys,omitempty"`
+}
+
+const (
+	HTTPProtocolAuto         = "auto"
+	HTTPProtocolHTTP1        = "http1"
+	MaxHTTP2ConnectionShards = 8
+)
+
+// BindsTaskPlugin reports whether this channel serves the requested task plugin.
+func (s ChannelSettings) BindsTaskPlugin(key string) bool {
+	if key == "" {
+		return false
+	}
+	return s.TaskPluginKey == key || slices.Contains(s.TaskExtendPluginKeys, key)
+}
+
+// TaskPluginBindings returns a stable, sorted set of all task plugin bindings.
+func (s ChannelSettings) TaskPluginBindings() []string {
+	bindings := make([]string, 0, len(s.TaskExtendPluginKeys)+1)
+	if s.TaskPluginKey != "" {
+		bindings = append(bindings, s.TaskPluginKey)
+	}
+	for _, key := range s.TaskExtendPluginKeys {
+		if key != "" && !slices.Contains(bindings, key) {
+			bindings = append(bindings, key)
+		}
+	}
+	slices.Sort(bindings)
+	return bindings
 }
 
 type VertexKeyType string
@@ -34,44 +69,45 @@ const (
 )
 
 type ChannelOtherSettings struct {
-	AzureResponsesVersion                 string                  `json:"azure_responses_version,omitempty"`
-	VertexKeyType                         VertexKeyType           `json:"vertex_key_type,omitempty"` // "json" or "api_key"
-	OpenRouterEnterprise                  *bool                   `json:"openrouter_enterprise,omitempty"`
-	ClaudeBetaQuery                       bool                    `json:"claude_beta_query,omitempty"`          // Claude 渠道是否强制追加 ?beta=true
-	AllowServiceTier                      bool                    `json:"allow_service_tier,omitempty"`         // 是否允许 service_tier 透传（默认过滤以避免额外计费）
-	AllowInferenceGeo                     bool                    `json:"allow_inference_geo,omitempty"`        // 是否允许 inference_geo 透传（仅 Claude，默认过滤以满足数据驻留合规
-	AllowSpeed                            bool                    `json:"allow_speed,omitempty"`                // 是否允许 speed 透传（仅 Claude，默认过滤以避免意外切换推理速度模式）
-	AllowSafetyIdentifier                 bool                    `json:"allow_safety_identifier,omitempty"`    // 是否允许 safety_identifier 透传（默认过滤以保护用户隐私）
-	DisableStore                          bool                    `json:"disable_store,omitempty"`              // 是否禁用 store 透传（默认允许透传，禁用后可能导致 Codex 无法使用）
-	AllowIncludeObfuscation               bool                    `json:"allow_include_obfuscation,omitempty"`  // 是否允许 stream_options.include_obfuscation 透传（默认过滤以避免关闭流混淆保护）
-	DisableTaskPollingSleep               bool                    `json:"disable_task_polling_sleep,omitempty"` // 是否跳过异步任务轮询间隔
-	AwsKeyType                            AwsKeyType              `json:"aws_key_type,omitempty"`
-	UpstreamModelUpdateCheckEnabled       bool                    `json:"upstream_model_update_check_enabled,omitempty"`        // 是否检测上游模型更新
-	UpstreamModelUpdateAutoSyncEnabled    bool                    `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
-	UpstreamModelUpdateLastCheckTime      int64                   `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
-	UpstreamModelUpdateLastDetectedModels []string                `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
-	UpstreamModelUpdateLastRemovedModels  []string                `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
-	UpstreamModelUpdateIgnoredModels      []string                `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
-	AdvancedCustom                        *AdvancedCustomConfig   `json:"advanced_custom,omitempty"`
-	VolcengineServiceMode                 string                  `json:"volcengine_service_mode,omitempty"`
-	VolcengineResourceID                  string                  `json:"volcengine_resource_id,omitempty"`
-	VolcengineVoice                       string                  `json:"volcengine_voice,omitempty"`
-	SupportedEndpointTypes                []constant.EndpointType `json:"supported_endpoint_types,omitempty"`
-	OllamaOpenAIChat                      bool                    `json:"ollama_openai_chat,omitempty"`
+	AzureResponsesVersion                 string                `json:"azure_responses_version,omitempty"`
+	VertexKeyType                         VertexKeyType         `json:"vertex_key_type,omitempty"` // "json" or "api_key"
+	OpenRouterEnterprise                  *bool                 `json:"openrouter_enterprise,omitempty"`
+	ClaudeBetaQuery                       bool                  `json:"claude_beta_query,omitempty"`          // Claude 渠道是否强制追加 ?beta=true
+	AllowServiceTier                      bool                  `json:"allow_service_tier,omitempty"`         // 是否允许 service_tier 透传（默认过滤以避免额外计费）
+	AllowInferenceGeo                     bool                  `json:"allow_inference_geo,omitempty"`        // 是否允许 inference_geo 透传（仅 Claude，默认过滤以满足数据驻留合规
+	AllowSpeed                            bool                  `json:"allow_speed,omitempty"`                // 是否允许 speed 透传（仅 Claude，默认过滤以避免意外切换推理速度模式）
+	AllowSafetyIdentifier                 bool                  `json:"allow_safety_identifier,omitempty"`    // 是否允许 safety_identifier 透传（默认过滤以保护用户隐私）
+	DisableStore                          bool                  `json:"disable_store,omitempty"`              // 是否禁用 store 透传（默认允许透传，禁用后可能导致 Codex 无法使用）
+	AllowIncludeObfuscation               bool                  `json:"allow_include_obfuscation,omitempty"`  // 是否允许 stream_options.include_obfuscation 透传（默认过滤以避免关闭流混淆保护）
+	DisableTaskPollingSleep               bool                  `json:"disable_task_polling_sleep,omitempty"` // 是否跳过异步任务轮询间隔
+	AwsKeyType                            AwsKeyType            `json:"aws_key_type,omitempty"`
+	UpstreamModelUpdateCheckEnabled       bool                  `json:"upstream_model_update_check_enabled,omitempty"`        // 是否检测上游模型更新
+	UpstreamModelUpdateAutoSyncEnabled    bool                  `json:"upstream_model_update_auto_sync_enabled,omitempty"`    // 是否自动同步上游模型更新
+	UpstreamModelUpdateLastCheckTime      int64                 `json:"upstream_model_update_last_check_time,omitempty"`      // 上次检测时间
+	UpstreamModelUpdateLastDetectedModels []string              `json:"upstream_model_update_last_detected_models,omitempty"` // 上次检测到的可加入模型
+	UpstreamModelUpdateLastRemovedModels  []string              `json:"upstream_model_update_last_removed_models,omitempty"`  // 上次检测到的可删除模型
+	UpstreamModelUpdateIgnoredModels      []string              `json:"upstream_model_update_ignored_models,omitempty"`       // 手动忽略的模型
+	AdvancedCustom                        *AdvancedCustomConfig `json:"advanced_custom,omitempty"`
+	ToolLossPolicy                        string                `json:"tool_loss_policy,omitempty"`
+	VolcengineServiceMode                 string                `json:"volcengine_service_mode,omitempty"`
+	VolcengineResourceID                  string                `json:"volcengine_resource_id,omitempty"`
+	VolcengineVoice                       string                `json:"volcengine_voice,omitempty"`
+	SupportedEndpointTypes                []types.EndpointType  `json:"supported_endpoint_types,omitempty"`
+	OllamaOpenAIChat                      bool                  `json:"ollama_openai_chat,omitempty"`
 }
 
-func isKnownEndpointType(endpointType constant.EndpointType) bool {
+func isKnownEndpointType(endpointType types.EndpointType) bool {
 	switch endpointType {
-	case constant.EndpointTypeOpenAI,
-		constant.EndpointTypeOpenAIResponse,
-		constant.EndpointTypeOpenAIResponseCompact,
-		constant.EndpointTypeAnthropic,
-		constant.EndpointTypeGemini,
-		constant.EndpointTypeJinaRerank,
-		constant.EndpointTypeImageGeneration,
-		constant.EndpointTypeEmbeddings,
-		constant.EndpointTypeOpenAIVoice,
-		constant.EndpointTypeOpenAIVideo:
+	case types.EndpointTypeOpenAI,
+		types.EndpointTypeOpenAIResponse,
+		types.EndpointTypeOpenAIResponseCompact,
+		types.EndpointTypeAnthropic,
+		types.EndpointTypeGemini,
+		types.EndpointTypeJinaRerank,
+		types.EndpointTypeImageGeneration,
+		types.EndpointTypeEmbeddings,
+		types.EndpointTypeOpenAIVoice,
+		types.EndpointTypeOpenAIVideo:
 		return true
 	default:
 		return false
@@ -90,12 +126,12 @@ func (s *ChannelOtherSettings) ValidateSupportedEndpointTypes() error {
 	return nil
 }
 
-func (s *ChannelOtherSettings) EndpointTypeOverride() []constant.EndpointType {
+func (s *ChannelOtherSettings) EndpointTypeOverride() []types.EndpointType {
 	if s == nil || len(s.SupportedEndpointTypes) == 0 {
 		return nil
 	}
-	endpointTypes := make([]constant.EndpointType, 0, len(s.SupportedEndpointTypes))
-	seen := make(map[constant.EndpointType]struct{}, len(s.SupportedEndpointTypes))
+	endpointTypes := make([]types.EndpointType, 0, len(s.SupportedEndpointTypes))
+	seen := make(map[types.EndpointType]struct{}, len(s.SupportedEndpointTypes))
 	for _, endpointType := range s.SupportedEndpointTypes {
 		if !isKnownEndpointType(endpointType) {
 			continue
@@ -146,6 +182,7 @@ func (s *ChannelOtherSettings) ValidateDoubaoVoice() error {
 }
 
 const (
+	AdvancedCustomConverterSGLangRerank                = "jina_rerank_to_sglang"
 	advancedCustomConverterNone                        = "none"
 	advancedCustomConverterClaudeMessagesToOpenAIChat  = "anthropic_messages_to_openai_chat_completions"
 	advancedCustomConverterOpenAIChatToClaudeMessages  = "openai_chat_completions_to_anthropic_messages"
@@ -167,11 +204,29 @@ type AdvancedCustomConfig struct {
 }
 
 type AdvancedCustomRoute struct {
-	IncomingPath string                   `json:"incoming_path,omitempty"`
-	UpstreamPath string                   `json:"upstream_path,omitempty"`
-	Converter    string                   `json:"converter,omitempty"`
-	Models       []string                 `json:"models,omitempty"`
-	Auth         *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	IncomingPath           string                   `json:"incoming_path,omitempty"`
+	UpstreamPath           string                   `json:"upstream_path,omitempty"`
+	Converter              string                   `json:"converter,omitempty"`
+	Models                 []string                 `json:"models,omitempty"`
+	Auth                   *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	PassThroughBodyEnabled bool                     `json:"pass_through_body_enabled,omitempty"`
+}
+
+// SupportsPassThroughBody reports whether the route converter leaves the
+// request body untouched.
+func (r AdvancedCustomRoute) SupportsPassThroughBody() bool {
+	switch strings.TrimSpace(r.Converter) {
+	case "", advancedCustomConverterNone, AdvancedCustomConverterSGLangRerank:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsNative reports whether the route forwards requests without conversion.
+func (r AdvancedCustomRoute) IsNative() bool {
+	converter := strings.TrimSpace(r.Converter)
+	return converter == "" || converter == advancedCustomConverterNone
 }
 
 type AdvancedCustomRouteAuth struct {
@@ -195,8 +250,25 @@ const (
 	advancedCustomEndpointPathEmbeddings             = "/v1/embeddings"
 )
 
-// AdvancedCustomModelListPath identifies the optional OpenAI Models discovery route.
-const AdvancedCustomModelListPath = "/v1/models"
+const (
+	// AdvancedCustomModelListPath identifies the optional OpenAI Models discovery route.
+	AdvancedCustomModelListPath = "/v1/models"
+	// AdvancedCustomBalancePath identifies the optional balance lookup route.
+	AdvancedCustomBalancePath = "/v1/dashboard/billing/credit_grants"
+)
+
+// BalanceRoute returns the explicitly configured balance route.
+func (c *AdvancedCustomConfig) BalanceRoute() (AdvancedCustomRoute, bool) {
+	if c == nil {
+		return AdvancedCustomRoute{}, false
+	}
+	for _, route := range c.Routes {
+		if strings.TrimSpace(route.IncomingPath) == AdvancedCustomBalancePath {
+			return route, true
+		}
+	}
+	return AdvancedCustomRoute{}, false
+}
 
 // MatchPath returns the first route whose IncomingPath matches requestPath.
 // Matching mirrors the relay adaptor: exact match, {model} placeholder, and
@@ -255,13 +327,13 @@ func (c *AdvancedCustomConfig) SupportsPathForModel(requestPath string, model st
 	return ok
 }
 
-func (c *AdvancedCustomConfig) SupportedEndpointTypesForModel(model string) []constant.EndpointType {
+func (c *AdvancedCustomConfig) SupportedEndpointTypesForModel(model string) []types.EndpointType {
 	if c == nil {
 		return nil
 	}
 	model = strings.TrimSpace(model)
-	endpoints := make([]constant.EndpointType, 0, len(c.Routes))
-	seen := make(map[constant.EndpointType]struct{}, len(c.Routes))
+	endpoints := make([]types.EndpointType, 0, len(c.Routes))
+	seen := make(map[types.EndpointType]struct{}, len(c.Routes))
 	for _, route := range c.Routes {
 		if !matchAdvancedCustomRouteModel(route.Models, model) {
 			continue
@@ -279,25 +351,25 @@ func (c *AdvancedCustomConfig) SupportedEndpointTypesForModel(model string) []co
 	return endpoints
 }
 
-func advancedCustomEndpointTypeFromIncomingPath(incomingPath string) (constant.EndpointType, bool) {
+func advancedCustomEndpointTypeFromIncomingPath(incomingPath string) (types.EndpointType, bool) {
 	switch incomingPath {
 	case advancedCustomEndpointPathOpenAIChat:
-		return constant.EndpointTypeOpenAI, true
+		return types.EndpointTypeOpenAI, true
 	case advancedCustomEndpointPathOpenAIResponses:
-		return constant.EndpointTypeOpenAIResponse, true
+		return types.EndpointTypeOpenAIResponse, true
 	case advancedCustomEndpointPathOpenAIResponsesCompact:
-		return constant.EndpointTypeOpenAIResponseCompact, true
+		return types.EndpointTypeOpenAIResponseCompact, true
 	case advancedCustomEndpointPathClaudeMessages:
-		return constant.EndpointTypeAnthropic, true
+		return types.EndpointTypeAnthropic, true
 	case advancedCustomEndpointPathJinaRerank:
-		return constant.EndpointTypeJinaRerank, true
+		return types.EndpointTypeJinaRerank, true
 	case advancedCustomEndpointPathImageGeneration:
-		return constant.EndpointTypeImageGeneration, true
+		return types.EndpointTypeImageGeneration, true
 	case advancedCustomEndpointPathEmbeddings:
-		return constant.EndpointTypeEmbeddings, true
+		return types.EndpointTypeEmbeddings, true
 	default:
 		if isAdvancedCustomGeminiIncomingPath(incomingPath) {
-			return constant.EndpointTypeGemini, true
+			return types.EndpointTypeGemini, true
 		}
 		return "", false
 	}
@@ -385,6 +457,7 @@ func matchAdvancedCustomIncomingPathTemplate(configuredPath string, requestPath 
 func IsAdvancedCustomConverterAllowed(converter string) bool {
 	switch converter {
 	case advancedCustomConverterNone,
+		AdvancedCustomConverterSGLangRerank,
 		advancedCustomConverterClaudeMessagesToOpenAIChat,
 		advancedCustomConverterOpenAIChatToClaudeMessages,
 		advancedCustomConverterOpenAIChatToOpenAIResponses,
@@ -581,6 +654,10 @@ func validateAdvancedCustomConverterPath(index int, incomingPath string, convert
 		}
 	case advancedCustomConverterGeminiContentToOpenAIChat:
 		if strings.Contains(incomingPath, ":generateContent") || strings.Contains(incomingPath, ":streamGenerateContent") {
+			return nil
+		}
+	case AdvancedCustomConverterSGLangRerank:
+		if incomingPath == advancedCustomEndpointPathJinaRerank || incomingPath == "/rerank" {
 			return nil
 		}
 	}

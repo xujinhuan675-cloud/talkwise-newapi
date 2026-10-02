@@ -175,7 +175,9 @@ func buildOpenAIModel(modelName string, ownerByModel map[string]string) dto.Open
 	if owner, ok := ownerByModel[modelName]; ok && owner != "" {
 		oaiModel.OwnedBy = owner
 	}
-	oaiModel.SupportedEndpointTypes = model.GetModelSupportEndpointTypes(modelName)
+	for _, endpointType := range model.GetModelSupportEndpointTypes(modelName) {
+		oaiModel.SupportedEndpointTypes = append(oaiModel.SupportedEndpointTypes, types.EndpointType(endpointType))
+	}
 	return oaiModel
 }
 

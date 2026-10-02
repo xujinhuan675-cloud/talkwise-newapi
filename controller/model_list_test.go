@@ -427,10 +427,11 @@ func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T)
 	payload := decodeListModelsPayload(t, recorder)
 	require.Len(t, payload.Data, 1)
 	require.Equal(t, "gemini-3.5-flash", payload.Data[0].Id)
-	require.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAI,
-		constant.EndpointTypeOpenAIResponse,
-	}, payload.Data[0].SupportedEndpointTypes)
+	endpointTypes := make([]string, 0, len(payload.Data[0].SupportedEndpointTypes))
+	for _, endpointType := range payload.Data[0].SupportedEndpointTypes {
+		endpointTypes = append(endpointTypes, string(endpointType))
+	}
+	require.Equal(t, []string{"openai", "openai-response"}, endpointTypes)
 }
 
 func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
