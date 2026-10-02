@@ -12,10 +12,10 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
-	"github.com/QuantumNous/new-api/types"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -47,6 +47,12 @@ func prepareDashboardAuth(c *gin.Context, minRole int) (*auditResponseWriter, bo
 	if err != nil {
 		writeDashboardAuthError(c, err)
 		return nil, false
+	}
+	if useAccessToken {
+		if denial := accessTokenRouteDenialForRequest(c); denial != nil {
+			writeAccessTokenRouteDenial(c, denial)
+			return nil, false
+		}
 	}
 	if user.Status != common.UserStatusEnabled {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_USER_DISABLED", "message": common.TranslateMessage(c, i18n.MsgAuthUserBanned)})
@@ -86,14 +92,35 @@ func TryUserAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		user, identity, credentialKind, err := classifyDashboardCredential(c)
 		if err != nil {
+			if errors.Is(err, model.ErrLegacyAccessTokenRetired) {
+				c.Next()
+				return
+			}
 			writeDashboardAuthError(c, err)
 			return
 		}
 		if credentialKind != dashboardCredentialUnmatched {
+			if credentialKind == dashboardCredentialPAT && !scopedAccessTokenAllowedForOptionalRoute(c) {
+				c.Next()
+				return
+			}
 			setDashboardAuthContext(c, user, identity, credentialKind == dashboardCredentialPAT)
 		}
 		c.Next()
 	}
+}
+
+func scopedAccessTokenAllowedForOptionalRoute(c *gin.Context) bool {
+	value, ok := c.Get(accessTokenLookupContextKey)
+	if !ok {
+		return true
+	}
+	lookup, ok := value.(accessTokenLookup)
+	if !ok || !lookup.scoped {
+		rule, declared := AccessTokenRouteRule(c.Request.Method + " " + c.FullPath())
+		return !declared || rule.kind != accessTokenRuleSession
+	}
+	return accessTokenRouteDenialForRequest(c) == nil
 }
 
 func UserAuth() func(c *gin.Context) {
@@ -137,6 +164,9 @@ func GetSessionAuthIdentity(c *gin.Context) (service.AuthIdentity, bool) {
 			SessionVersion:  c.GetInt64("session_version"),
 		}
 	}
+	if _, isAccessToken := model.ParseAccessTokenSessionID(identity.SessionID); isAccessToken {
+		return service.AuthIdentity{}, false
+	}
 	if identity.UserID <= 0 || identity.SessionID == "" || identity.UserAuthVersion <= 0 || identity.SessionVersion <= 0 {
 		return service.AuthIdentity{}, false
 	}
@@ -170,18 +200,28 @@ func classifyDashboardCredential(c *gin.Context) (*model.UserBase, service.AuthI
 		}
 		return user, identity, dashboardCredentialInternal, nil
 	}
-	patUser, err := model.ValidateAccessToken(raw)
-	if err != nil {
-		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
+	lookup := lookupAccessToken(c, raw)
+	if lookup.err != nil {
+		return nil, service.AuthIdentity{}, dashboardCredentialPAT, lookup.err
 	}
-	if patUser == nil || patUser.Id <= 0 {
+	if lookup.user == nil || lookup.user.Id <= 0 {
 		return nil, service.AuthIdentity{}, dashboardCredentialUnmatched, nil
 	}
-	user, err := model.GetUserCache(patUser.Id)
-	if err != nil {
-		return nil, service.AuthIdentity{}, dashboardCredentialPAT, err
+	return lookup.user, lookup.identity, dashboardCredentialPAT, nil
+}
+
+// GetStepUpIdentity returns the live browser-session or scoped-token identity
+// accepted for sensitive operations. Legacy API tokens never qualify.
+func GetStepUpIdentity(c *gin.Context) (service.AuthIdentity, bool) {
+	if c == nil {
+		return service.AuthIdentity{}, false
 	}
-	return user, service.AuthIdentity{UserID: user.Id, UserAuthVersion: user.AuthVersion}, dashboardCredentialPAT, nil
+	if lookup, ok := c.Get(accessTokenLookupContextKey); ok {
+		if token, ok := lookup.(accessTokenLookup); ok && token.scoped && token.err == nil {
+			return token.identity, true
+		}
+	}
+	return GetSessionAuthIdentity(c)
 }
 
 func authorizationToken(header string) (string, bool) {
@@ -210,10 +250,26 @@ func setDashboardAuthContext(c *gin.Context, user *model.UserBase, identity serv
 	c.Set("auth_version", identity.UserAuthVersion)
 	c.Set("session_version", identity.SessionVersion)
 	c.Set(authIdentityContextKey, identity)
+	if useAccessToken {
+		if value, ok := c.Get(accessTokenLookupContextKey); ok {
+			if lookup, ok := value.(accessTokenLookup); ok {
+				c.Set("access_token_ref", lookup.ref)
+			}
+		}
+	}
 	user.WriteContext(c)
 }
 
 func writeDashboardAuthError(c *gin.Context, err error) {
+	if errors.Is(err, model.ErrAccessTokenExpired) {
+		setAccessTokenAuditParam(c, "failure_reason", "expired")
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "ACCESS_TOKEN_EXPIRED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
+		return
+	}
+	if errors.Is(err, model.ErrLegacyAccessTokenRetired) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "ACCESS_TOKEN_LEGACY_RETIRED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
+		return
+	}
 	if errors.Is(err, service.ErrAuthTokenExpired) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "code": "AUTH_TOKEN_EXPIRED", "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
 		return
@@ -228,6 +284,49 @@ func writeDashboardAuthError(c *gin.Context, err error) {
 	}
 	common.SysLog("dashboard authentication error: " + err.Error())
 	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"success": false, "code": "AUTH_INTERNAL_ERROR", "message": common.TranslateMessage(c, i18n.MsgDatabaseError)})
+}
+
+type accessTokenRouteDenial struct {
+	code          string
+	reason        string
+	requiredScope string
+}
+
+func accessTokenRouteDenialForRequest(c *gin.Context) *accessTokenRouteDenial {
+	value, exists := c.Get(accessTokenLookupContextKey)
+	lookup, ok := value.(accessTokenLookup)
+	if !exists || !ok {
+		return &accessTokenRouteDenial{code: "ACCESS_TOKEN_ROUTE_UNDECLARED", reason: "route_undeclared"}
+	}
+	rule, declared := AccessTokenRouteRule(c.Request.Method + " " + c.FullPath())
+	if !declared {
+		if !lookup.scoped {
+			return nil
+		}
+		return &accessTokenRouteDenial{code: "ACCESS_TOKEN_ROUTE_UNDECLARED", reason: "route_undeclared"}
+	}
+	if rule.kind == accessTokenRuleSession {
+		return &accessTokenRouteDenial{code: "AUTH_SESSION_REQUIRED", reason: "session_required"}
+	}
+	if lookup.scoped && rule.kind == accessTokenRuleScope && !service.AccessTokenScopeGranted(lookup.scopes, rule.scope) {
+		return &accessTokenRouteDenial{code: "ACCESS_TOKEN_SCOPE_DENIED", reason: "scope_denied", requiredScope: rule.scope}
+	}
+	return nil
+}
+
+func writeAccessTokenRouteDenial(c *gin.Context, denial *accessTokenRouteDenial) {
+	if denial == nil {
+		return
+	}
+	setAccessTokenAuditParam(c, "failure_reason", denial.reason)
+	if denial.requiredScope != "" {
+		setAccessTokenAuditParam(c, "required_scope", denial.requiredScope)
+	}
+	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+		"success": false,
+		"code":    denial.code,
+		"message": common.TranslateMessage(c, i18n.MsgAuthInsufficientPrivilege),
+	})
 }
 
 func RequirePermission(permission authz.Permission) func(c *gin.Context) {
@@ -359,20 +458,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 func TokenAuth() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		// 先检测是否为ws
-		if c.Request.Header.Get("Sec-WebSocket-Protocol") != "" {
-			// Sec-WebSocket-Protocol: realtime, openai-insecure-api-key.sk-xxx, openai-beta.realtime-v1
-			// read sk from Sec-WebSocket-Protocol
-			key := c.Request.Header.Get("Sec-WebSocket-Protocol")
-			parts := strings.Split(key, ",")
-			for _, part := range parts {
-				part = strings.TrimSpace(part)
-				if strings.HasPrefix(part, "openai-insecure-api-key") {
-					key = strings.TrimPrefix(part, "openai-insecure-api-key.")
-					break
-				}
-			}
-			c.Request.Header.Set("Authorization", "Bearer "+key)
-		}
+		applyWebSocketSubprotocolAuthorization(c.Request.Header)
 		// 检查path包含/v1/messages 或 /v1/models
 		if strings.Contains(c.Request.URL.Path, "/v1/messages") || strings.Contains(c.Request.URL.Path, "/v1/models") {
 			anthropicKey := c.Request.Header.Get("x-api-key")
@@ -510,6 +596,11 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	}
 	common.SetContextKey(c, constant.ContextKeyTokenGroup, token.Group)
 	common.SetContextKey(c, constant.ContextKeyTokenCrossGroupRetry, token.CrossGroupRetry)
+	if groups, err := token.GetAutoGroups(); err != nil {
+		common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, []string{})
+	} else if len(groups) > 0 {
+		common.SetContextKey(c, constant.ContextKeyTokenAutoGroups, groups)
+	}
 	if len(parts) > 1 {
 		if model.IsAdmin(token.UserId) {
 			c.Set("specific_channel_id", parts[1])
@@ -520,4 +611,31 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 		}
 	}
 	return nil
+}
+
+func apiKeyFromWebSocketSubprotocol(protocolHeader string) (string, bool) {
+	const prefix = "openai-insecure-api-key."
+	for _, part := range strings.Split(protocolHeader, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, prefix) {
+			key := strings.TrimPrefix(part, prefix)
+			if key != "" {
+				return key, true
+			}
+		}
+	}
+	return "", false
+}
+
+func applyWebSocketSubprotocolAuthorization(header http.Header) bool {
+	if header == nil {
+		return false
+	}
+	for _, value := range header.Values("Sec-WebSocket-Protocol") {
+		if key, ok := apiKeyFromWebSocketSubprotocol(value); ok {
+			header.Set("Authorization", "Bearer "+key)
+			return true
+		}
+	}
+	return false
 }

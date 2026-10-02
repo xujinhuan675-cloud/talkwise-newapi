@@ -303,7 +303,44 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"DELETE /api/deployments/:id":                       accessTokenScopeRule("deployment:write"),
 
 	// router/relay-router.go
-	"POST /pg/chat/completions": accessTokenSessionRule,
+	"POST /pg/chat/completions":                                accessTokenSessionRule,
+	"POST /pg/completions":                                     accessTokenSessionRule,
+	"POST /pg/responses":                                       accessTokenSessionRule,
+	"POST /pg/audio/transcriptions":                            accessTokenSessionRule,
+	"POST /pg/audio/translations":                              accessTokenSessionRule,
+	"POST /pg/audio/speech":                                    accessTokenSessionRule,
+	"POST /pg/v1/messages":                                     accessTokenSessionRule,
+	"GET /pg/realtime":                                         accessTokenSessionRule,
+	"POST /api/talkwise/persona-builder/detect-speakers":       accessTokenSessionRule,
+	"POST /api/talkwise/persona-builder/build":                 accessTokenSessionRule,
+	"POST /api/talkwise/growth/profile-card":                   accessTokenSessionRule,
+	"POST /api/talkwise/auth/handoff":                          accessTokenSessionRule,
+	"GET /api/talkwise/admin/users/:userId/training-team":      accessTokenSessionRule,
+	"GET /api/talkwise/admin/teams":                            accessTokenSessionRule,
+	"POST /api/talkwise/admin/teams":                           accessTokenSessionRule,
+	"PUT /api/talkwise/admin/teams/:teamId":                    accessTokenSessionRule,
+	"DELETE /api/talkwise/admin/teams/:teamId":                 accessTokenSessionRule,
+	"GET /api/talkwise/admin/teams/:teamId/members":            accessTokenSessionRule,
+	"GET /api/talkwise/admin/teams/:teamId/users/search":       accessTokenSessionRule,
+	"POST /api/talkwise/admin/teams/:teamId/members":           accessTokenSessionRule,
+	"DELETE /api/talkwise/admin/teams/:teamId/members/:userId": accessTokenSessionRule,
+}
+
+func init() {
+	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE"}
+	for _, path := range []string{
+		"/api/talkwise/training/*path",
+		"/api/talkwise/conversations/*path",
+		"/api/talkwise/conversation-tree/*path",
+		"/api/talkwise/battle-prep/*path",
+		"/api/talkwise/defense-prep/*path",
+		"/api/talkwise/personas",
+		"/api/talkwise/personas/*path",
+	} {
+		for _, method := range methods {
+			accessTokenRouteRules[method+" "+path] = accessTokenSessionRule
+		}
+	}
 }
 
 var (

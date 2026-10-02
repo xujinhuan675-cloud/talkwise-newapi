@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"strconv"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -11,6 +12,61 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+type accessTokenLookup struct {
+	user     *model.UserBase
+	ref      string
+	identity service.AuthIdentity
+	scoped   bool
+	scopes   []string
+	err      error
+}
+
+const accessTokenLookupContextKey = "access_token_lookup"
+
+// lookupAccessToken resolves a bearer token for audit attribution without
+// retaining token material in the audit record.
+func lookupAccessToken(c *gin.Context, raw string) accessTokenLookup {
+	if c != nil {
+		if cached, ok := c.Get(accessTokenLookupContextKey); ok {
+			if lookup, ok := cached.(accessTokenLookup); ok {
+				return lookup
+			}
+		}
+	}
+	ref := model.AccessTokenFingerprint(raw)
+	lookup := accessTokenLookup{ref: ref}
+	if strings.HasPrefix(raw, model.AccessTokenPrefix) {
+		token, err := model.FindUserAccessTokenByHash(ref)
+		if err != nil {
+			lookup.err = err
+		} else if token != nil {
+			lookup.scoped = true
+			lookup.scopes = token.GetScopes()
+			lookup.identity.SessionID = model.AccessTokenSessionID(token.Id)
+			lookup.identity.SessionVersion = model.AccessTokenSessionVersion
+			lookup.user, lookup.err = model.GetUserCache(token.UserId)
+			if lookup.err == nil && token.Expired(common.GetTimestamp()) {
+				lookup.err = model.ErrAccessTokenExpired
+			}
+		}
+	} else {
+		legacyUser, err := model.ValidateAccessToken(raw)
+		if err != nil {
+			lookup.err = err
+		} else if legacyUser != nil {
+			lookup.user, lookup.err = model.GetUserCache(legacyUser.Id)
+		}
+	}
+	if lookup.user != nil {
+		lookup.identity.UserID = lookup.user.Id
+		lookup.identity.UserAuthVersion = lookup.user.AuthVersion
+	}
+	if c != nil {
+		c.Set(accessTokenLookupContextKey, lookup)
+	}
+	return lookup
+}
 
 // auditResponseWriter 包装 gin.ResponseWriter，捕获响应状态码并将响应体复制一份到
 // 有限大小的缓冲区，用于判断业务是否成功（解析响应 JSON 的 success 字段）。

@@ -35,6 +35,14 @@ var accessTokenExemptRoutes = []string{
 	"GET /api/user/groups",
 
 	// Anonymous account entry points.
+	"GET /api/talkwise/health/live",
+	"GET /api/talkwise/health/ready",
+	"GET /api/talkwise/health/voice/ready",
+	"POST /api/talkwise/auth/exchange",
+	"POST /api/talkwise/team/members",
+	"POST /api/talkwise/team/users/search",
+	"POST /api/talkwise/team/members/assign",
+	"POST /api/talkwise/team/members/remove",
 	"GET /api/verification",
 	"GET /api/reset_password",
 	"POST /api/user/reset",

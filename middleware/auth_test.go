@@ -300,6 +300,7 @@ func TestUserAuthAppliesAccessTokenRouteRules(t *testing.T) {
 
 	ok := func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"id": c.GetInt("id")}) }
 	router := gin.New()
+	router.Use(AccessTokenAudit())
 	router.GET("/api/user/self", UserAuth(), ok)
 	router.GET("/api/user/access_tokens", UserAuth(), ok)
 	router.GET("/api/undeclared", UserAuth(), ok)
