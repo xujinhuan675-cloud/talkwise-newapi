@@ -30,6 +30,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useNotifications } from '@/hooks/use-notifications'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
+import { getAuthenticatedLanding } from '@/features/auth/lib/auth-redirect'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -410,7 +411,7 @@ export function PublicHeader(props: PublicHeaderProps) {
           >
             {showAuthButtons && (
               <Link
-                to={isAuthenticated ? '/dashboard' : '/sign-in'}
+                to={isAuthenticated ? getAuthenticatedLanding(user) : '/sign-in'}
                 onClick={() => setMobileOpen(false)}
                 className='bg-foreground text-background inline-flex h-10 items-center justify-center rounded-lg text-sm font-medium transition-opacity hover:opacity-90 active:opacity-80'
               >

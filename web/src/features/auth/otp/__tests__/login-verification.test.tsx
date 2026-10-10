@@ -52,12 +52,15 @@ const bundle: AuthBundle = {
   },
 }
 
-function PrimaryLoginHarness(props: { result: LoginResult }) {
+function PrimaryLoginHarness(props: {
+  result: LoginResult
+  redirectTo?: string
+}) {
   const { handleLoginResult } = useAuthRedirect()
   return (
     <button
       type='button'
-      onClick={() => void handleLoginResult(props.result, '/pricing?view=grid')}
+      onClick={() => void handleLoginResult(props.result, props.redirectTo)}
     >
       Primary authentication succeeded
     </button>
@@ -66,7 +69,8 @@ function PrimaryLoginHarness(props: { result: LoginResult }) {
 
 function renderLoginVerification(
   hasChallenge = true,
-  primaryResult?: LoginResult
+  primaryResult?: LoginResult,
+  options: { redirectTo?: string } = { redirectTo: '/pricing?view=grid' }
 ) {
   useAuthStore.getState().auth.reset('complete')
   if (hasChallenge) {
@@ -77,7 +81,7 @@ function renderLoginVerification(
         expires_at: Math.floor(Date.now() / 1000) + 300,
         methods: [{ method: '2fa', available: true }],
       },
-      redirectTo: '/pricing?view=grid',
+      redirectTo: options.redirectTo,
     })
   }
   const root = createRootRoute({ component: Outlet })
@@ -99,9 +103,24 @@ function renderLoginVerification(
     }),
     createRoute({
       getParentRoute: () => root,
+      path: '/training',
+      component: () => <div>Training overview</div>,
+    }),
+    createRoute({
+      getParentRoute: () => root,
+      path: '/dashboard',
+      component: () => <div>Admin dashboard</div>,
+    }),
+    createRoute({
+      getParentRoute: () => root,
       path: '/primary-login',
       component: () =>
-        primaryResult ? <PrimaryLoginHarness result={primaryResult} /> : null,
+        primaryResult ? (
+          <PrimaryLoginHarness
+            result={primaryResult}
+            redirectTo={options.redirectTo}
+          />
+        ) : null,
     }),
   ]
   const router = createRouter({
@@ -176,6 +195,70 @@ it('accepts a completed Passkey login without opening another verification dialo
   expect(useAuthStore.getState().auth.user?.id).toBe(42)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(post).not.toHaveBeenCalled()
+})
+
+it.each([1, 10])(
+  'opens the training homepage after login without a redirect for role %s',
+  async (role) => {
+    const { router } = renderLoginVerification(
+      false,
+      { ...bundle, user: { ...bundle.user, role } },
+      {}
+    )
+    const user = userEvent.setup()
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Primary authentication succeeded',
+      })
+    )
+    expect(await screen.findByText('Training overview')).toBeVisible()
+    expect(router.state.location.pathname).toBe('/training')
+    expect(useAuthStore.getState().auth.user?.id).toBe(42)
+  }
+)
+
+it('uses the training homepage after verification when no original destination exists', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: bundle },
+  })
+  const { router } = renderLoginVerification(true, undefined, {})
+  const user = userEvent.setup()
+  await user.type(
+    await screen.findByLabelText('Authenticator code or backup code'),
+    '123456'
+  )
+  await user.click(screen.getByRole('button', { name: 'Verify' }))
+  expect(await screen.findByText('Training overview')).toBeVisible()
+  expect(router.state.location.pathname).toBe('/training')
+})
+
+it('preserves an explicitly requested dashboard instead of bypassing its authorization guard', async () => {
+  const { router } = renderLoginVerification(false, bundle, {
+    redirectTo: '/dashboard',
+  })
+  const user = userEvent.setup()
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Primary authentication succeeded',
+    })
+  )
+  await waitFor(() =>
+    expect(router.state.location.pathname).toBe('/dashboard')
+  )
+})
+
+it('rejects an external login redirect and opens the training homepage', async () => {
+  const { router } = renderLoginVerification(false, bundle, {
+    redirectTo: 'https://attacker.example/dashboard',
+  })
+  const user = userEvent.setup()
+  await user.click(
+    await screen.findByRole('button', {
+      name: 'Primary authentication succeeded',
+    })
+  )
+  expect(await screen.findByText('Training overview')).toBeVisible()
+  expect(router.state.location.pathname).toBe('/training')
 })
 
 it('writes authentication only after verification and preserves the original destination', async () => {

@@ -21,7 +21,10 @@ import i18next from 'i18next'
 import { useEffect } from 'react'
 
 import { wechatLoginByCode } from '@/features/auth/api'
-import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import {
+  DEFAULT_AUTH_REDIRECT,
+  sanitizeAuthRedirect,
+} from '@/features/auth/lib/auth-redirect'
 import { applyAuthBundle, isAuthBundle } from '@/lib/api'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
@@ -45,7 +48,7 @@ function OAuthComponent() {
             applyAuthBundle(res.data)
             const target =
               sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
-              '/dashboard'
+              DEFAULT_AUTH_REDIRECT
             navigate({ href: target, replace: true })
             return
           }

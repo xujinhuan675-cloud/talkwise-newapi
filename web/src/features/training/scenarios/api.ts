@@ -332,6 +332,12 @@ export function buildTrainingSessionRequest(
   const trainingMode = trainingModalityForMode(mode)
   const resolvedInteractionMode =
     interactionMode ?? (mode === 'realtime' ? 'realtime' : 'turn_based')
+  const runtimeModelMetadata: Record<string, string> = {}
+  if ((mode === 'voice' || mode === 'realtime') && voiceRouteId) {
+    runtimeModelMetadata.voiceRouteId = voiceRouteId
+  } else if (mode !== 'voice' && mode !== 'realtime' && llmModel) {
+    runtimeModelMetadata.llmModel = llmModel
+  }
 
   return {
     mode: trainingMode,
@@ -369,13 +375,7 @@ export function buildTrainingSessionRequest(
           ? { replyLanguage: replyLanguage.trim() }
           : {}),
         ...(resolvedVoiceId ? { trainingVoiceId: resolvedVoiceId } : {}),
-        ...(mode === 'voice' || mode === 'realtime'
-          ? voiceRouteId
-            ? { voiceRouteId }
-            : {}
-          : llmModel
-            ? { llmModel }
-            : {}),
+        ...runtimeModelMetadata,
         ...(mode !== 'text'
           ? {
               trainingVoiceSpeed: scenario.persona.voiceSpeed,
@@ -533,12 +533,21 @@ export function buildScenarioStartRequest(
   }
 }
 
+export function scenarioTemplatesRequestConfig(locale?: string) {
+  return {
+    ...(locale?.trim() ? { params: { locale: locale.trim() } } : {}),
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  }
+}
+
 export async function listTrainingScenarios(
-  apiBase: string
+  apiBase: string,
+  locale?: string
 ): Promise<TrainingScenario[]> {
   const response = await api.get<TalkWiseResponse<ScenarioTemplateDTO[]>>(
     trainingApiUrl(apiBase, SCENARIO_TEMPLATES_PATH),
-    { skipBusinessError: true, skipErrorHandler: true }
+    scenarioTemplatesRequestConfig(locale)
   )
   return requireTalkWiseData(response.data).map(toTrainingScenario)
 }

@@ -64,6 +64,7 @@ export function NewTrainingConversationDialog({
   onSessionCreated,
 }: NewTrainingConversationDialogProps) {
   const { i18n, t } = useTranslation()
+  const locale = i18n.resolvedLanguage ?? i18n.language
   const queryClient = useQueryClient()
   const [selectedScenarioId, setSelectedScenarioId] = useState<string | null>(
     null
@@ -73,8 +74,8 @@ export function NewTrainingConversationDialog({
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
     })
   const scenariosQuery = useQuery({
-    queryKey: ['training', 'scenarios', apiBase],
-    queryFn: () => listTrainingScenarios(apiBase),
+    queryKey: ['training', 'scenarios', apiBase, locale],
+    queryFn: () => listTrainingScenarios(apiBase, locale),
     enabled: open,
   })
   const scenarios = useMemo(
@@ -93,7 +94,7 @@ export function NewTrainingConversationDialog({
       launchTextScenarioTrainingSession(
         apiBase,
         scenario,
-        i18n.resolvedLanguage ?? i18n.language
+        locale
       ),
     onSuccess: async (session) => {
       await queryClient.refetchQueries({

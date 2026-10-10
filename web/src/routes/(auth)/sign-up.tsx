@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
 import { SignUp } from '@/features/auth/sign-up'
+import { DEFAULT_AUTH_REDIRECT } from '@/features/auth/lib/auth-redirect'
 import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/(auth)/sign-up')({
@@ -26,9 +27,9 @@ export const Route = createFileRoute('/(auth)/sign-up')({
   beforeLoad: async () => {
     const { auth } = useAuthStore.getState()
 
-    // 如果已经有用户信息，说明已登录，注册页对其无意义，跳转到 dashboard
+    // Authenticated users do not need the registration page.
     if (auth.user) {
-      throw redirect({ to: '/dashboard' })
+      throw redirect({ to: DEFAULT_AUTH_REDIRECT })
     }
   },
 })

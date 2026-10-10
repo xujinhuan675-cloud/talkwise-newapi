@@ -686,8 +686,8 @@ export function TrainingOverview() {
       defaultValue: i18n.language.startsWith('zh') ? chinese : english,
     })
   const scenariosQuery = useQuery({
-    queryKey: ['training', 'overview', 'scenarios', host.apiBase],
-    queryFn: () => listTrainingScenarios(host.apiBase),
+    queryKey: ['training', 'overview', 'scenarios', host.apiBase, host.locale],
+    queryFn: () => listTrainingScenarios(host.apiBase, host.locale),
     enabled: host.authStatus === 'authenticated',
   })
   const progressQuery = useQuery({

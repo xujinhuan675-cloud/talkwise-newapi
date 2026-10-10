@@ -496,8 +496,8 @@ export function TrainingScenarios(props: TrainingScenariosProps) {
   })
 
   const scenariosQuery = useQuery({
-    queryKey: ['training', 'scenarios', host.apiBase],
-    queryFn: () => listTrainingScenarios(host.apiBase),
+    queryKey: ['training', 'scenarios', host.apiBase, host.locale],
+    queryFn: () => listTrainingScenarios(host.apiBase, host.locale),
     enabled: host.authStatus === 'authenticated',
   })
   const voiceRoutesQuery = useQuery<VoiceRoute[]>({

@@ -29,6 +29,7 @@ import {
   buildScenarioStartRequest,
   buildTrainingSessionRequest,
   filterTrainingScenarios,
+  scenarioTemplatesRequestConfig,
   isTrainingModeSelectionAvailable,
   ScenarioTrainingStartError,
   toTrainingScenario,
@@ -86,6 +87,18 @@ describe('training scenario contract', () => {
       { dimensionId: 'discovery', weight: 40 },
       { dimensionId: 'value', weight: 60 },
     ])
+  })
+
+  test('requests scenario content in the selected host locale', () => {
+    assert.deepEqual(scenarioTemplatesRequestConfig(' en-US '), {
+      params: { locale: 'en-US' },
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    assert.deepEqual(scenarioTemplatesRequestConfig(), {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
   })
 
   test('builds a scoped session request without client-supplied user or team ids', () => {

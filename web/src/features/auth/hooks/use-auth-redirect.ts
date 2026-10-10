@@ -21,6 +21,7 @@ import i18n from 'i18next'
 import { useCallback, useEffect, useRef } from 'react'
 
 import {
+  DEFAULT_AUTH_REDIRECT,
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
@@ -78,7 +79,8 @@ export function useAuthRedirect() {
       }
 
       const targetPath =
-        sanitizeAuthRedirect(redirectTo, window.location.origin) ?? '/dashboard'
+        sanitizeAuthRedirect(redirectTo, window.location.origin) ??
+        DEFAULT_AUTH_REDIRECT
       await navigate({ href: targetPath, replace: true })
     },
     [navigate, sessionID]

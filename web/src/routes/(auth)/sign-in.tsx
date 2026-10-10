@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
 
-import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import {
+  DEFAULT_AUTH_REDIRECT,
+  sanitizeAuthRedirect,
+} from '@/features/auth/lib/auth-redirect'
 import { hasTalkWiseHandoffSearch } from '@/features/auth/lib/talkwise-handoff'
 import { SignIn } from '@/features/auth/sign-in'
 import { resolveAuthentication } from '@/lib/auth-session'
@@ -47,7 +50,7 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     if (auth.user && !hasTalkWiseHandoffSearch(search)) {
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
-        '/dashboard'
+        DEFAULT_AUTH_REDIRECT
       throw redirect({ href: target, replace: true })
     }
   },

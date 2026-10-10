@@ -17,8 +17,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { AuthUser } from '@/stores/auth-store'
+import { ROLE } from '@/lib/roles'
 
 const allowedRedirectProtocols = new Set(['http:', 'https:'])
+
+/** Default authenticated landing page for TalkWise users. */
+export const DEFAULT_AUTH_REDIRECT = '/training'
+
+export function getAuthenticatedLanding(user: Pick<AuthUser, 'role'>): string {
+  return user.role >= ROLE.ADMIN ? '/dashboard' : DEFAULT_AUTH_REDIRECT
+}
 
 export function getSavedLanguage(user: AuthUser): string | undefined {
   if (typeof user.language === 'string') {

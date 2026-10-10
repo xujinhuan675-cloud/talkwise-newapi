@@ -20,7 +20,12 @@ import { describe, expect, test } from 'vitest'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import { getSavedLanguage, sanitizeAuthRedirect } from './auth-redirect'
+import {
+  DEFAULT_AUTH_REDIRECT,
+  getAuthenticatedLanding,
+  getSavedLanguage,
+  sanitizeAuthRedirect,
+} from './auth-redirect'
 
 const origin = 'https://dashboard.example.com'
 
@@ -87,5 +92,12 @@ describe('saved authentication language', () => {
     expect(getSavedLanguage({ ...user, setting: { language: 123 } })).toBe(
       undefined
     )
+  })
+})
+
+describe('authenticated landing', () => {
+  test('routes ordinary users to training and administrators to dashboard', () => {
+    expect(getAuthenticatedLanding({ role: 1 })).toBe(DEFAULT_AUTH_REDIRECT)
+    expect(getAuthenticatedLanding({ role: 10 })).toBe('/dashboard')
   })
 })

@@ -94,7 +94,6 @@ import {
 import { TrainingProgressIndicator } from '../training-progress'
 import {
   completeTrainingConversationSession,
-  editTrainingConversationMessage,
   forkTrainingSessionConversation,
   loadTrainingConversationMessages,
   loadTrainingConversationReportSummary,
@@ -368,10 +367,6 @@ export function TrainingConversationSurface({
     string | null
   >(null)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [editingMessageKey, setEditingMessageKey] = useState<string | null>(
-    null
-  )
-  const [isSavingEdit, setIsSavingEdit] = useState(false)
   const [forkTarget, setForkTarget] =
     useState<TrainingConversationMessage | null>(null)
   const [forkTitle, setForkTitle] = useState('')
@@ -890,38 +885,9 @@ export function TrainingConversationSurface({
     [startStream]
   )
 
-  const handleSaveEdit = useCallback(
-    (content: string) => {
-      const messageKey = editingMessageKey
-      const source = messageKey
-        ? messageRecordsRef.current.get(messageKey)?.message
-        : null
-      if (!source || !messageKey) return
-
-      setIsSavingEdit(true)
-      void editTrainingConversationMessage(
-        conversationId,
-        source.publicId,
-        content,
-        trainingSession
-      )
-        .then(async (result) => {
-          const selectedMessageId =
-            result.message?.publicId ?? result.path.at(-1)?.publicId ?? null
-          await refreshConversation(undefined, selectedMessageId)
-          setEditingMessageKey(null)
-        })
-        .catch((error: unknown) =>
-          toast.error(trainingConversationErrorMessage(error))
-        )
-        .finally(() => setIsSavingEdit(false))
-    },
-    [conversationId, editingMessageKey, refreshConversation, trainingSession]
-  )
-
   const handleSelectBranch = useCallback(
     (selectedMessageId: string) => {
-      if (pendingBranchMessageId || isGenerating || isSavingEdit) return
+      if (pendingBranchMessageId || isGenerating) return
       const nextProjection = selectTrainingConversationBranch(
         persistedMessagesRef.current,
         selectedTailIdRef.current,
@@ -950,7 +916,6 @@ export function TrainingConversationSurface({
               { key: message.publicId, message },
             ])
           )
-          setEditingMessageKey(null)
           setTreeProjection(nextProjection)
           replaceMessages(nextProjection.path.map(toPlaygroundMessage))
           onSelectedTailChange(nextProjection.selectedTailId)
@@ -963,7 +928,6 @@ export function TrainingConversationSurface({
     [
       conversationId,
       isGenerating,
-      isSavingEdit,
       localize,
       pendingBranchMessageId,
       onSelectedTailChange,
@@ -1136,8 +1100,7 @@ export function TrainingConversationSurface({
               disabled={
                 trainingSession.status !== 'active' ||
                 Boolean(pendingBranchMessageId) ||
-                isGenerating ||
-                isSavingEdit
+                isGenerating
               }
               messageRole={message.from}
               onSelect={handleSelectBranch}
@@ -1153,7 +1116,6 @@ export function TrainingConversationSurface({
     [
       handleSelectBranch,
       isGenerating,
-      isSavingEdit,
       pendingBranchMessageId,
       trainingSession.status,
       treeProjection.branchSteps,
@@ -1187,24 +1149,7 @@ export function TrainingConversationSurface({
     [i18n.language, i18n.resolvedLanguage, localize]
   )
 
-  const handleSaveEditAndSubmit = useCallback(
-    (content: string) => {
-      const messageKey = editingMessageKey
-      const source = messageKey
-        ? messageRecordsRef.current.get(messageKey)?.message
-        : null
-      if (!source || !source.content.trim()) return
-
-      setEditingMessageKey(null)
-      void startStream(content, {
-        parentMessageId: source.parentMessageId,
-        branchId: source.branchId,
-      })
-    },
-    [editingMessageKey, startStream]
-  )
-
-  const isBusy = isGenerating || isSavingEdit || isForking || isCompleting
+  const isBusy = isGenerating || isForking || isCompleting
   const isSessionReadOnly = trainingSession.status !== 'active'
   const isDrillGateActive = drillCorrectionState.status !== 'idle'
   const isInputLocked = isSessionReadOnly || trainingProgressInputLocked
@@ -1213,7 +1158,6 @@ export function TrainingConversationSurface({
     !isBusy &&
     !isLoadingConversation &&
     !isLoadingMessages &&
-    !editingMessageKey &&
     !pendingBranchMessageId &&
     Boolean(treeProjection.selectedTailId) &&
     !isSessionReadOnly
@@ -1224,6 +1168,15 @@ export function TrainingConversationSurface({
   let completionDialogDescription = ''
   let completionAlertTitle = ''
   let completionReviewLabel = ''
+  let completionActionLabel = localize('End and review', '结束并复盘')
+  if (isCompleting && completionIntent === 'report') {
+    completionActionLabel = localize('Ending...', '正在结束…')
+  } else if (battlePlan) {
+    completionActionLabel = localize(
+      'End and create briefing',
+      '结束并生成备战速记'
+    )
+  }
   if (completionResult?.reportStatus === 'skipped') {
     completionDialogTitle = localize('Training ended', '训练已结束')
     completionDialogDescription = localize(
@@ -1374,25 +1327,15 @@ export function TrainingConversationSurface({
             <PlaygroundChat
               assistantParticipant={assistantParticipant}
               contentClassName='max-w-none'
-              editingKey={editingMessageKey}
               forkMessageLabel={localize('Fork conversation', '创建会话分支')}
               isGenerating={isBusy}
               isLoadingMessages={isLoadingMessages || isLoadingConversation}
               messages={messages}
-              onCancelEdit={(open) => {
-                if (!open) setEditingMessageKey(null)
-              }}
-              onEditMessage={
-                isConversationActionLocked
-                  ? undefined
-                  : (message) => setEditingMessageKey(message.key)
-              }
+              onEditMessage={undefined}
               onForkMessage={isSessionReadOnly ? undefined : handleOpenFork}
               onRegenerateMessage={
                 isConversationActionLocked ? undefined : handleRegenerateMessage
               }
-              onSaveEdit={handleSaveEdit}
-              onSaveEditAndSubmit={handleSaveEditAndSubmit}
               onSelectPrompt={handleSendMessage}
               renderMessageHeader={renderMessageEmotion}
               renderMessageFooter={renderMessageBranchSelector}
@@ -1666,14 +1609,7 @@ export function TrainingConversationSurface({
                   disabled={!canComplete}
                   onClick={() => handleCompleteTraining(true)}
                 >
-                  {isCompleting && completionIntent === 'report'
-                    ? localize('Ending...', '正在结束…')
-                    : battlePlan
-                      ? localize(
-                          'End and create briefing',
-                          '结束并生成备战速记'
-                        )
-                      : localize('End and review', '结束并复盘')}
+                  {completionActionLabel}
                 </Button>
               </DialogFooter>
             </>

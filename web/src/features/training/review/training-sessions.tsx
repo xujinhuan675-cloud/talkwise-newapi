@@ -500,8 +500,8 @@ export function TrainingSessions() {
     })
   }
   const scenariosQuery = useQuery({
-    queryKey: ['training', 'review-scenarios', host.apiBase],
-    queryFn: () => listTrainingScenarios(host.apiBase),
+    queryKey: ['training', 'review-scenarios', host.apiBase, host.locale],
+    queryFn: () => listTrainingScenarios(host.apiBase, host.locale),
     enabled: host.authStatus === 'authenticated',
   })
   const sessionsQuery = useQuery({
